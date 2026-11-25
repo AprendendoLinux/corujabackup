@@ -1,0 +1,319 @@
+// Package e2e testa o fluxo inteiro: Server (gRPC + MySQL + gerenciador de nuvem) <-> agente real <-> nuvens falsas.
+package e2e
+
+import (
+	"bytes"
+	"context"
+	"io"
+	"log/slog"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/AprendendoLinux/corujabackup/internal/agentcore"
+	"github.com/AprendendoLinux/corujabackup/internal/agentsrv"
+	"github.com/AprendendoLinux/corujabackup/internal/auth"
+	"github.com/AprendendoLinux/corujabackup/internal/cloud"
+	"github.com/AprendendoLinux/corujabackup/internal/cloud/cloudtest"
+	"github.com/AprendendoLinux/corujabackup/internal/cloudmgr"
+	"github.com/AprendendoLinux/corujabackup/internal/enroll"
+	"github.com/AprendendoLinux/corujabackup/internal/secrets"
+	"github.com/AprendendoLinux/corujabackup/internal/store"
+	"github.com/AprendendoLinux/corujabackup/internal/testutil"
+	"github.com/AprendendoLinux/corujabackup/internal/tlsutil"
+	"github.com/AprendendoLinux/corujabackup/internal/uploader"
+)
+
+type rig struct {
+	t       *testing.T
+	st      *store.Store
+	srv     *agentsrv.Server
+	mgr     *cloudmgr.Manager
+	core    *agentcore.Core
+	agent   *store.Agent
+	hostDir string
+	bkDir   string
+	cancel  context.CancelFunc
+}
+
+func newRig(t *testing.T, ep cloudmgr.Endpoints) *rig {
+	t.Helper()
+	d := testutil.DB(t)
+	st := store.New(d)
+	box, err := secrets.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr := cloudmgr.New(st, box)
+	mgr.EP = ep
+	cert, err := tlsutil.LoadOrCreate(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := agentsrv.New(st, "teste")
+	srv.Cloud = mgr
+	lis, _ := net.Listen("tcp", "127.0.0.1:0")
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go srv.Serve(ctx, lis, cert)
+
+	fp := tlsutil.Fingerprint(cert)
+	tok, _ := enroll.New(fp)
+	pt, _ := enroll.Parse(tok)
+	if err := st.CreateEnrollToken(ctx, pt.Hash(), "srv-e2e", 0, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	cr, err := agentcore.Enroll(ctx, slog.New(slog.NewTextHandler(io.Discard, nil)), lis.Addr().String(), tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := st.AgentByID(ctx, cr.AgentID)
+
+	host, bk := t.TempDir(), t.TempDir()
+	for name, content := range map[string]string{"srv/app/index.html": "olá mundo", "srv/app/dados.bin": strings.Repeat("0123456789", 50000), "etc/app.conf": "conf"} {
+		p := filepath.Join(host, name)
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		os.WriteFile(p, []byte(content), 0o644)
+	}
+	local, _ := agentcore.NewState(t.TempDir())
+	core := agentcore.New(agentcore.Config{HostRoot: host, BackupDir: bk}, local, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	core.SetUploadOptions(uploader.Options{Retries: 2, Sleep: func(context.Context, time.Duration) {}})
+	go core.Run(ctx)
+	go agentcore.Run(ctx, slog.New(slog.NewTextHandler(io.Discard, nil)), cr, core)
+
+	r := &rig{t: t, st: st, srv: srv, mgr: mgr, core: core, agent: a, hostDir: host, bkDir: bk, cancel: cancel}
+	r.waitOnline()
+	return r
+}
+
+func (r *rig) waitOnline() {
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := r.srv.Online()[r.agent.ID]; ok {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	r.t.Fatal("o agente não conectou")
+}
+
+func (r *rig) connectCloud(typ string, cfg cloudmgr.AccountConfig) int64 {
+	r.t.Helper()
+	ctx := context.Background()
+	id, dev, err := r.mgr.Create(ctx, "nuvem-"+typ, typ, cfg)
+	if err != nil || dev.UserCode == "" {
+		r.t.Fatalf("criar conta: %v", err)
+	}
+	for i := 0; i < 10; i++ {
+		st, _, err := r.mgr.PollDevice(ctx, id)
+		if err != nil {
+			r.t.Fatal(err)
+		}
+		if st == "connected" {
+			return id
+		}
+		time.Sleep(1100 * time.Millisecond) // respeita o intervalo de 1 s do falso
+	}
+	r.t.Fatal("conta não conectou")
+	return 0
+}
+
+func (r *rig) newJob(name string, cloudID int64, keep, cloudKeep int) int64 {
+	r.t.Helper()
+	j := &store.Job{Name: name, AgentID: r.agent.ID, Kind: "files", Enabled: true, Cron: "0 0 1 1 *", Timezone: "UTC",
+		Paths: []string{"/srv/app", "/etc"}, DestSubdir: "e2e", Keep: keep, CloudFolder: "Coruja Backup/srv-e2e/" + name, CloudKeep: cloudKeep}
+	if cloudID != 0 {
+		j.CloudAccountID = &cloudID
+	}
+	id, err := r.st.CreateJob(context.Background(), j)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	r.srv.PushJobs(context.Background(), r.agent.ID)
+	time.Sleep(300 * time.Millisecond)
+	return id
+}
+
+func (r *rig) runNow(jobID int64) *store.Run {
+	r.t.Helper()
+	ctx := context.Background()
+	uid := auth.NewUUID()
+	if err := r.st.CreateQueuedRun(ctx, uid, jobID, r.agent.ID); err != nil {
+		r.t.Fatal(err)
+	}
+	if err := r.srv.RunNow(r.agent.ID, jobID, uid); err != nil {
+		r.t.Fatal(err)
+	}
+	deadline := time.Now().Add(40 * time.Second)
+	for time.Now().Before(deadline) {
+		run, err := r.st.RunByUID(ctx, uid)
+		if err == nil && store.IsFinal(run.Status) {
+			return run
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	r.t.Fatal("a execução não terminou a tempo")
+	return nil
+}
+
+func (r *rig) logs(run *store.Run) string {
+	ls, _ := r.st.RunLogs(context.Background(), run.ID)
+	var b strings.Builder
+	for _, l := range ls {
+		b.WriteString(l.Level + ": " + l.Text + "\n")
+	}
+	return b.String()
+}
+
+func localFiles(t *testing.T, dir string) []string {
+	ents, _ := os.ReadDir(filepath.Join(dir, "e2e"))
+	var out []string
+	for _, e := range ents {
+		out = append(out, e.Name())
+	}
+	return out
+}
+
+func TestOneDriveDeBuildAFimComRetencaoELocalZero(t *testing.T) {
+	fake := cloudtest.NewGraph("cid")
+	defer fake.Close()
+	r := newRig(t, cloudmgr.Endpoints{MSDevice: fake.URL + "/devicecode", MSToken: fake.URL + "/token", Graph: fake.GraphURL()})
+	cid := r.connectCloud(cloud.TypeOneDrive, cloudmgr.AccountConfig{ClientID: "cid", HardDelete: true})
+
+	// os tokens estão cifrados no banco
+	var tokens, cfg string
+	r.st.DB.QueryRow("SELECT tokens, config FROM cloud_accounts WHERE id=?", cid).Scan(&tokens, &cfg)
+	if !strings.HasPrefix(tokens, "v1:") || strings.Contains(tokens, "access-") || strings.Contains(cfg, "cid\"") {
+		t.Fatalf("segredos devem estar cifrados no banco: tokens=%.20s cfg=%.20s", tokens, cfg)
+	}
+	acc, _ := r.st.GetCloud(context.Background(), cid)
+	if acc.Status != "connected" || acc.AccountLabel != "fulano@exemplo.onmicrosoft.com" || acc.QuotaTotal == 0 {
+		t.Fatalf("conta: %+v", acc)
+	}
+
+	// 3 backups antigos na nuvem; retenção = manter 2 (o novo + 1)
+	folder := "Coruja Backup/srv-e2e/zero"
+	for _, n := range []string{"zero-20261101-001000.tar.gz", "zero-20261102-001000.tar.gz", "zero-20261103-001000.tar.gz"} {
+		fake.Put(folder, n, []byte("antigo"))
+	}
+	jid := r.newJob("zero", cid, 0, 2) // keep local = 0: apagar depois da nuvem confirmar
+
+	run := r.runNow(jid)
+	if run.Status != "ok" || run.CloudStatus != "ok" || run.CloudVerifiedBy != "quickxor" || run.CloudHash == "" || run.Phase != "" {
+		t.Fatalf("execução: %+v\n%s", run, r.logs(run))
+	}
+	if !strings.HasPrefix(run.CloudPath, folder+"/zero-") {
+		t.Fatalf("caminho na nuvem: %s", run.CloudPath)
+	}
+	names := fake.Names(folder)
+	if len(names) != 2 {
+		t.Fatalf("retenção na nuvem deveria deixar 2 arquivos: %v", names)
+	}
+	if len(fake.PermanentlyDelete) != 2 {
+		t.Fatalf("deveria apagar de vez (sem lixeira): %v", fake.PermanentlyDelete)
+	}
+	if lf := localFiles(t, r.bkDir); len(lf) != 0 {
+		t.Fatalf("keep=0: a cópia local deveria ser removida após a nuvem confirmar: %v", lf)
+	}
+	logs := r.logs(run)
+	for _, want := range []string{"enviando para a nuvem", "verificado por quickxor", "removido da nuvem: zero-20261101", "cópia local removida"} {
+		if !strings.Contains(logs, want) {
+			t.Errorf("log sem %q:\n%s", want, logs)
+		}
+	}
+	// o conteúdo na nuvem é um tar.gz íntegro com os arquivos do "servidor"
+	var remote []byte
+	for _, n := range names {
+		if strings.HasPrefix(n, "zero-2026") && fake.Content(folder, n) != nil && len(fake.Content(folder, n)) > 100 {
+			remote = fake.Content(folder, n)
+		}
+	}
+	if len(remote) == 0 || !bytes.HasPrefix(remote, []byte{0x1f, 0x8b}) {
+		t.Fatalf("o arquivo na nuvem deveria ser um gzip: %d bytes", len(remote))
+	}
+}
+
+func TestGoogleDriveMantemCopiaLocalEPreservaFalhas(t *testing.T) {
+	fake := cloudtest.NewDrive("gid")
+	defer fake.Close()
+	r := newRig(t, cloudmgr.Endpoints{GDevice: fake.URL + "/device/code", GToken: fake.URL + "/token", GAPI: fake.APIURL(), GUpload: fake.UploadURL()})
+	cid := r.connectCloud(cloud.TypeGDrive, cloudmgr.AccountConfig{ClientID: "gid", ClientSecret: "segredo"})
+	jid := r.newJob("gd", cid, 2, 3)
+
+	run := r.runNow(jid)
+	if run.Status != "ok" || run.CloudStatus != "ok" || run.CloudVerifiedBy != "md5" {
+		t.Fatalf("execução: %+v\n%s", run, r.logs(run))
+	}
+	if lf := localFiles(t, r.bkDir); len(lf) != 1 {
+		t.Fatalf("keep=2: a cópia local deve ficar: %v", lf)
+	}
+
+	// falha no envio: a nuvem derruba todos os blocos => o backup local é preservado e a execução fica como falha
+	fake.FailPuts = 1000
+	run2 := r.runNow(jid)
+	if run2.Status != "failed" || run2.CloudStatus != "failed" || !strings.Contains(run2.Error, "envio para a nuvem falhou") {
+		t.Fatalf("execução com falha: %+v\n%s", run2, r.logs(run2))
+	}
+	if lf := localFiles(t, r.bkDir); len(lf) != 2 {
+		t.Fatalf("o arquivo local da execução com falha deve ser preservado: %v", lf)
+	}
+	if n := len(fake.Names("Coruja Backup/srv-e2e/gd")); n != 1 {
+		t.Fatalf("a nuvem deve manter só o envio bom: %d", n)
+	}
+}
+
+func TestSessaoRecusadaPeloServerESemNuvemNoJob(t *testing.T) {
+	fake := cloudtest.NewGraph("cid")
+	defer fake.Close()
+	r := newRig(t, cloudmgr.Endpoints{MSDevice: fake.URL + "/devicecode", MSToken: fake.URL + "/token", Graph: fake.GraphURL()})
+	// job só local continua funcionando e não fala com a nuvem
+	jid := r.newJob("local", 0, 2, 0)
+	run := r.runNow(jid)
+	if run.Status != "ok" || run.CloudStatus != "none" {
+		t.Fatalf("%+v\n%s", run, r.logs(run))
+	}
+	// a nuvem ficou sem token válido (revogado): o envio falha com mensagem clara e o local é preservado
+	cid := r.connectCloud(cloud.TypeOneDrive, cloudmgr.AccountConfig{ClientID: "cid"})
+	jid2 := r.newJob("revogado", cid, 1, 2)
+	fake.RefreshToken = "outro" // o refresh token guardado deixa de valer
+	r.mgr.Invalidate(cid)
+	r.st.DB.Exec("UPDATE cloud_accounts SET tokens=? WHERE id=?", mustSeal(t, r, `{"access_token":"velho","refresh_token":"refresh-0","expiry":"2000-01-01T00:00:00Z"}`), cid)
+	run2 := r.runNow(jid2)
+	if run2.Status != "failed" || !strings.Contains(run2.Error, "reconecte") {
+		t.Fatalf("esperava falha pedindo reconexão: %+v\n%s", run2, r.logs(run2))
+	}
+	acc, _ := r.st.GetCloud(context.Background(), cid)
+	if acc.Status != "error" {
+		t.Fatalf("a conta deveria ficar em estado de erro: %+v", acc)
+	}
+}
+
+func mustSeal(t *testing.T, r *rig, plain string) string {
+	s, err := r.mgr.Box.Seal(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func TestExecucaoOrfaDepoisDeReinicioEhMarcadaComoFalha(t *testing.T) {
+	fake := cloudtest.NewGraph("cid")
+	defer fake.Close()
+	r := newRig(t, cloudmgr.Endpoints{MSDevice: fake.URL + "/devicecode", MSToken: fake.URL + "/token", Graph: fake.GraphURL()})
+	jid := r.newJob("orfa", 0, 1, 0)
+	// uma execução que o Server acha que está rodando há mais de 90 s, mas o agente não conhece
+	if _, err := r.st.DB.Exec("INSERT INTO runs (uid, job_id, agent_id, trigger_kind, status, created_at) VALUES ('uid-orfao', ?, ?, 'manual', 'running', ?)", jid, r.agent.ID, time.Now().UTC().Add(-5*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	n, err := r.st.FailStaleRuns(context.Background(), r.agent.ID, []string{})
+	if err != nil || n != 1 {
+		t.Fatalf("%d %v", n, err)
+	}
+	run, _ := r.st.RunByUID(context.Background(), "uid-orfao")
+	if run.Status != "failed" || !strings.Contains(run.Error, "reiniciado") {
+		t.Fatalf("%+v", run)
+	}
+}

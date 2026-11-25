@@ -22,8 +22,8 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
 
 export const inputCls = 'w-full rounded-lg border border-border bg-surface px-3 py-2 text-text focus:outline-none focus:ring-2 focus:ring-accent'
 
-export function Input(p: React.InputHTMLAttributes<HTMLInputElement>) {
-  return <input className={inputCls} {...p} />
+export function Input({ className = '', ...p }: React.InputHTMLAttributes<HTMLInputElement>) {
+  return <input className={`${inputCls} ${className}`} {...p} />
 }
 
 export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {

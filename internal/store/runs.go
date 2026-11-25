@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -26,6 +27,13 @@ type Run struct {
 	OutputName   string     `json:"output_name"`
 	Error        string     `json:"error"`
 	CreatedAt    time.Time  `json:"created_at"`
+
+	Phase           string `json:"phase"`
+	ProgressPct     int    `json:"progress_pct"`
+	CloudStatus     string `json:"cloud_status"`
+	CloudPath       string `json:"cloud_path"`
+	CloudHash       string `json:"cloud_hash"`
+	CloudVerifiedBy string `json:"cloud_verified_by"`
 }
 
 type RunLog struct {
@@ -36,14 +44,16 @@ type RunLog struct {
 }
 
 const runSelect = `SELECT r.id, r.uid, r.job_id, j.name, r.agent_id, a.name, r.trigger_kind, r.scheduled_for, r.status, r.started_at, r.finished_at,
-  r.bytes_source, r.bytes_output, r.files, r.sha256, r.output_name, COALESCE(r.error,''), r.created_at
+  r.bytes_source, r.bytes_output, r.files, r.sha256, r.output_name, COALESCE(r.error,''), r.created_at,
+  r.phase, r.progress_pct, r.cloud_status, r.cloud_path, r.cloud_hash, r.cloud_verified_by
   FROM runs r JOIN jobs j ON j.id=r.job_id JOIN agents a ON a.id=r.agent_id `
 
 func scanRun(r interface{ Scan(...any) error }) (*Run, error) {
 	var x Run
 	var sf, st, fi sql.NullTime
 	if err := r.Scan(&x.ID, &x.UID, &x.JobID, &x.JobName, &x.AgentID, &x.AgentName, &x.Trigger, &sf, &x.Status, &st, &fi,
-		&x.BytesSource, &x.BytesOutput, &x.Files, &x.SHA256, &x.OutputName, &x.Error, &x.CreatedAt); err != nil {
+		&x.BytesSource, &x.BytesOutput, &x.Files, &x.SHA256, &x.OutputName, &x.Error, &x.CreatedAt,
+		&x.Phase, &x.ProgressPct, &x.CloudStatus, &x.CloudPath, &x.CloudHash, &x.CloudVerifiedBy); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -93,6 +103,13 @@ type Report struct {
 	OutputName   string
 	Error        string
 	Logs         []RunLog
+
+	Phase           string
+	ProgressPct     int
+	CloudStatus     string
+	CloudPath       string
+	CloudHash       string
+	CloudVerifiedBy string
 }
 
 // ApplyReport grava (de forma idempotente) o que o agente informou. Nunca tira uma execução do estado final.
@@ -160,9 +177,20 @@ func (s *Store) ApplyReport(ctx context.Context, r Report) error {
 			r.Status, nullTime(r.StartedAt), nullTime(r.FinishedAt), r.BytesSource, r.BytesOutput, r.Files, r.SHA256, r.OutputName, nullStr(r.Error), id); err != nil {
 			return err
 		}
-	} else if r.BytesSource > 0 || r.Files > 0 {
-		if _, err := tx.ExecContext(ctx, "UPDATE runs SET bytes_source=?, bytes_output=?, files=? WHERE id=?", r.BytesSource, r.BytesOutput, r.Files, id); err != nil {
+		if _, err := tx.ExecContext(ctx, "UPDATE runs SET phase='', progress_pct=?, cloud_status=?, cloud_path=?, cloud_hash=?, cloud_verified_by=? WHERE id=?",
+			r.ProgressPct, cloudStatusOrNone(r.CloudStatus), r.CloudPath, r.CloudHash, r.CloudVerifiedBy, id); err != nil {
 			return err
+		}
+	} else {
+		if r.BytesSource > 0 || r.Files > 0 {
+			if _, err := tx.ExecContext(ctx, "UPDATE runs SET bytes_source=?, bytes_output=?, files=? WHERE id=?", r.BytesSource, r.BytesOutput, r.Files, id); err != nil {
+				return err
+			}
+		}
+		if r.Phase != "" {
+			if _, err := tx.ExecContext(ctx, "UPDATE runs SET phase=?, progress_pct=? WHERE id=? AND status IN ('queued','running')", r.Phase, r.ProgressPct, id); err != nil {
+				return err
+			}
 		}
 	}
 	for _, l := range r.Logs {
@@ -318,4 +346,30 @@ func (s *Store) PurgeRuns(ctx context.Context, olderThan time.Time) error {
 func (s *Store) DeleteQueuedRun(ctx context.Context, uid string) error {
 	_, err := s.DB.ExecContext(ctx, "DELETE FROM runs WHERE uid=? AND status='queued'", uid)
 	return err
+}
+
+func cloudStatusOrNone(s string) string {
+	switch s {
+	case "ok", "failed":
+		return s
+	}
+	return "none"
+}
+
+// FailStaleRuns dá como falhas as execuções que o Server acha que estão rodando num agente que acabou de se
+// (re)conectar mas que o agente não lista como ativas (ele foi reiniciado no meio do backup).
+func (s *Store) FailStaleRuns(ctx context.Context, agentID int64, activeUIDs []string) (int64, error) {
+	q := "UPDATE runs SET status='failed', phase='', finished_at=UTC_TIMESTAMP(3), error='o agente foi reiniciado ou perdeu a execução durante o backup' WHERE agent_id=? AND status IN ('queued','running') AND created_at < ?"
+	args := []any{agentID, time.Now().UTC().Add(-90 * time.Second)}
+	if len(activeUIDs) > 0 {
+		q += " AND uid NOT IN (?" + strings.Repeat(",?", len(activeUIDs)-1) + ")"
+		for _, u := range activeUIDs {
+			args = append(args, u)
+		}
+	}
+	res, err := s.DB.ExecContext(ctx, q, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }

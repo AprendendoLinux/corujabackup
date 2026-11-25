@@ -39,13 +39,23 @@ export type Run = {
   id: number; uid: string; job_id: number; job_name: string; agent_id: number; agent_name: string; trigger: string
   scheduled_for: string | null; status: string; started_at: string | null; finished_at: string | null
   bytes_source: number; bytes_output: number; files: number; sha256: string; output_name: string; error: string; created_at: string
+  phase: string; progress_pct: number; cloud_status: string; cloud_path: string; cloud_hash: string; cloud_verified_by: string
 }
 export type RunLog = { seq: number; at: string; level: string; text: string }
 export type Job = {
   id: number; name: string; agent_id: number; kind: string; enabled: boolean; cron: string; timezone: string
   paths: string[]; excludes: string[]; dest_subdir: string; keep: number; version: number
   agent_name: string; agent_online: boolean; next_run_at: string | null; last_run: Run | null
+  cloud_account_id: number | null; cloud_folder: string; cloud_keep: number; cloud_keep_days: number
 }
+
+export type CloudAccount = {
+  id: number; name: string; type: 'onedrive' | 'gdrive'; status: 'pending' | 'connected' | 'error'; account_label: string
+  quota_total: number; quota_used: number; quota_checked_at: string | null; last_error: string; created_at: string; jobs: number
+}
+export type DeviceInfo = { user_code: string; verification_uri: string; expires_at: string; interval: number }
+export const CLOUD_LABEL = { onedrive: 'OneDrive', gdrive: 'Google Drive' } as const
+export const PHASE: Record<string, string> = { archiving: 'Compactando', uploading: 'Enviando para a nuvem', verifying: 'Conferindo' }
 
 export const CRON_PRESETS: { label: string; cron: string }[] = [
   { label: 'Todo dia às 00:10', cron: '10 0 * * *' },

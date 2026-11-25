@@ -213,6 +213,8 @@ type AgentMessage struct {
 	//	*AgentMessage_Hello
 	//	*AgentMessage_Heartbeat
 	//	*AgentMessage_RunReport
+	//	*AgentMessage_UploadRequest
+	//	*AgentMessage_UploadDone
 	Body          isAgentMessage_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -282,6 +284,24 @@ func (x *AgentMessage) GetRunReport() *RunReport {
 	return nil
 }
 
+func (x *AgentMessage) GetUploadRequest() *UploadRequest {
+	if x != nil {
+		if x, ok := x.Body.(*AgentMessage_UploadRequest); ok {
+			return x.UploadRequest
+		}
+	}
+	return nil
+}
+
+func (x *AgentMessage) GetUploadDone() *UploadDone {
+	if x != nil {
+		if x, ok := x.Body.(*AgentMessage_UploadDone); ok {
+			return x.UploadDone
+		}
+	}
+	return nil
+}
+
 type isAgentMessage_Body interface {
 	isAgentMessage_Body()
 }
@@ -298,11 +318,23 @@ type AgentMessage_RunReport struct {
 	RunReport *RunReport `protobuf:"bytes,3,opt,name=run_report,json=runReport,proto3,oneof"`
 }
 
+type AgentMessage_UploadRequest struct {
+	UploadRequest *UploadRequest `protobuf:"bytes,4,opt,name=upload_request,json=uploadRequest,proto3,oneof"`
+}
+
+type AgentMessage_UploadDone struct {
+	UploadDone *UploadDone `protobuf:"bytes,5,opt,name=upload_done,json=uploadDone,proto3,oneof"`
+}
+
 func (*AgentMessage_Hello) isAgentMessage_Body() {}
 
 func (*AgentMessage_Heartbeat) isAgentMessage_Body() {}
 
 func (*AgentMessage_RunReport) isAgentMessage_Body() {}
+
+func (*AgentMessage_UploadRequest) isAgentMessage_Body() {}
+
+func (*AgentMessage_UploadDone) isAgentMessage_Body() {}
 
 type Hello struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
@@ -311,6 +343,7 @@ type Hello struct {
 	Os              string                 `protobuf:"bytes,3,opt,name=os,proto3" json:"os,omitempty"`
 	Arch            string                 `protobuf:"bytes,4,opt,name=arch,proto3" json:"arch,omitempty"`
 	DockerAvailable bool                   `protobuf:"varint,5,opt,name=docker_available,json=dockerAvailable,proto3" json:"docker_available,omitempty"`
+	ActiveRuns      []string               `protobuf:"bytes,6,rep,name=active_runs,json=activeRuns,proto3" json:"active_runs,omitempty"` // execuções em andamento neste agente (o Server dá como falhas as demais)
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -378,6 +411,13 @@ func (x *Hello) GetDockerAvailable() bool {
 		return x.DockerAvailable
 	}
 	return false
+}
+
+func (x *Hello) GetActiveRuns() []string {
+	if x != nil {
+		return x.ActiveRuns
+	}
+	return nil
 }
 
 type Heartbeat struct {
@@ -451,6 +491,8 @@ type ServerMessage struct {
 	//	*ServerMessage_RunNow
 	//	*ServerMessage_CancelRun
 	//	*ServerMessage_ReportAck
+	//	*ServerMessage_UploadSession
+	//	*ServerMessage_UploadVerdict
 	Body          isServerMessage_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -556,6 +598,24 @@ func (x *ServerMessage) GetReportAck() *ReportAck {
 	return nil
 }
 
+func (x *ServerMessage) GetUploadSession() *UploadSession {
+	if x != nil {
+		if x, ok := x.Body.(*ServerMessage_UploadSession); ok {
+			return x.UploadSession
+		}
+	}
+	return nil
+}
+
+func (x *ServerMessage) GetUploadVerdict() *UploadVerdict {
+	if x != nil {
+		if x, ok := x.Body.(*ServerMessage_UploadVerdict); ok {
+			return x.UploadVerdict
+		}
+	}
+	return nil
+}
+
 type isServerMessage_Body interface {
 	isServerMessage_Body()
 }
@@ -588,6 +648,14 @@ type ServerMessage_ReportAck struct {
 	ReportAck *ReportAck `protobuf:"bytes,7,opt,name=report_ack,json=reportAck,proto3,oneof"`
 }
 
+type ServerMessage_UploadSession struct {
+	UploadSession *UploadSession `protobuf:"bytes,8,opt,name=upload_session,json=uploadSession,proto3,oneof"`
+}
+
+type ServerMessage_UploadVerdict struct {
+	UploadVerdict *UploadVerdict `protobuf:"bytes,9,opt,name=upload_verdict,json=uploadVerdict,proto3,oneof"`
+}
+
 func (*ServerMessage_Welcome) isServerMessage_Body() {}
 
 func (*ServerMessage_Ack) isServerMessage_Body() {}
@@ -601,6 +669,10 @@ func (*ServerMessage_RunNow) isServerMessage_Body() {}
 func (*ServerMessage_CancelRun) isServerMessage_Body() {}
 
 func (*ServerMessage_ReportAck) isServerMessage_Body() {}
+
+func (*ServerMessage_UploadSession) isServerMessage_Body() {}
+
+func (*ServerMessage_UploadVerdict) isServerMessage_Body() {}
 
 type Welcome struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
@@ -745,20 +817,22 @@ func (x *Revoked) GetReason() string {
 // JobSpec é a definição completa de um job. O Server envia o conjunto inteiro (snapshot) e o agente agenda sozinho:
 // se o Server estiver fora no horário, o backup roda mesmo assim e o resultado fica na fila local até reconectar.
 type JobSpec struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	JobId         int64                  `protobuf:"varint,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Kind          string                 `protobuf:"bytes,3,opt,name=kind,proto3" json:"kind,omitempty"` // "files"
-	Enabled       bool                   `protobuf:"varint,4,opt,name=enabled,proto3" json:"enabled,omitempty"`
-	Cron          string                 `protobuf:"bytes,5,opt,name=cron,proto3" json:"cron,omitempty"`                               // 5 campos (minuto hora dia mês dia-da-semana)
-	Timezone      string                 `protobuf:"bytes,6,opt,name=timezone,proto3" json:"timezone,omitempty"`                       // ex.: America/Sao_Paulo
-	Paths         []string               `protobuf:"bytes,7,rep,name=paths,proto3" json:"paths,omitempty"`                             // pastas/arquivos a salvar (caminhos do servidor)
-	Excludes      []string               `protobuf:"bytes,8,rep,name=excludes,proto3" json:"excludes,omitempty"`                       // padrões excluídos (* casa qualquer coisa, inclusive "/")
-	DestSubdir    string                 `protobuf:"bytes,9,opt,name=dest_subdir,json=destSubdir,proto3" json:"dest_subdir,omitempty"` // subpasta dentro da pasta de backups do agente (nunca caminho absoluto)
-	Keep          int32                  `protobuf:"varint,10,opt,name=keep,proto3" json:"keep,omitempty"`                             // quantas cópias manter no destino local (após verificar)
-	Version       int32                  `protobuf:"varint,11,opt,name=version,proto3" json:"version,omitempty"`                       // muda a cada edição (o agente descarta agendas antigas)
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	JobId          int64                  `protobuf:"varint,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	Name           string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Kind           string                 `protobuf:"bytes,3,opt,name=kind,proto3" json:"kind,omitempty"` // "files"
+	Enabled        bool                   `protobuf:"varint,4,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	Cron           string                 `protobuf:"bytes,5,opt,name=cron,proto3" json:"cron,omitempty"`                                               // 5 campos (minuto hora dia mês dia-da-semana)
+	Timezone       string                 `protobuf:"bytes,6,opt,name=timezone,proto3" json:"timezone,omitempty"`                                       // ex.: America/Sao_Paulo
+	Paths          []string               `protobuf:"bytes,7,rep,name=paths,proto3" json:"paths,omitempty"`                                             // pastas/arquivos a salvar (caminhos do servidor)
+	Excludes       []string               `protobuf:"bytes,8,rep,name=excludes,proto3" json:"excludes,omitempty"`                                       // padrões excluídos (* casa qualquer coisa, inclusive "/")
+	DestSubdir     string                 `protobuf:"bytes,9,opt,name=dest_subdir,json=destSubdir,proto3" json:"dest_subdir,omitempty"`                 // subpasta dentro da pasta de backups do agente (nunca caminho absoluto)
+	Keep           int32                  `protobuf:"varint,10,opt,name=keep,proto3" json:"keep,omitempty"`                                             // quantas cópias manter no destino local (após verificar)
+	Version        int32                  `protobuf:"varint,11,opt,name=version,proto3" json:"version,omitempty"`                                       // muda a cada edição (o agente descarta agendas antigas)
+	CloudAccountId int64                  `protobuf:"varint,12,opt,name=cloud_account_id,json=cloudAccountId,proto3" json:"cloud_account_id,omitempty"` // 0 = sem nuvem (só cópia local)
+	CloudFolder    string                 `protobuf:"bytes,13,opt,name=cloud_folder,json=cloudFolder,proto3" json:"cloud_folder,omitempty"`             // pasta na nuvem (informativo; quem decide é o Server)
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *JobSpec) Reset() {
@@ -866,6 +940,20 @@ func (x *JobSpec) GetVersion() int32 {
 		return x.Version
 	}
 	return 0
+}
+
+func (x *JobSpec) GetCloudAccountId() int64 {
+	if x != nil {
+		return x.CloudAccountId
+	}
+	return 0
+}
+
+func (x *JobSpec) GetCloudFolder() string {
+	if x != nil {
+		return x.CloudFolder
+	}
+	return ""
 }
 
 type SyncJobs struct {
@@ -1123,25 +1211,31 @@ func (x *LogLine) GetText() string {
 // RunReport é idempotente: o Server faz "upsert" por run_uid. FINISHED carrega o log completo e entra na fila local
 // do agente até receber ReportAck.
 type RunReport struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	RunUid         string                 `protobuf:"bytes,1,opt,name=run_uid,json=runUid,proto3" json:"run_uid,omitempty"`
-	JobId          int64                  `protobuf:"varint,2,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	State          RunReport_State        `protobuf:"varint,3,opt,name=state,proto3,enum=coruja.v1.RunReport_State" json:"state,omitempty"`
-	Trigger        string                 `protobuf:"bytes,4,opt,name=trigger,proto3" json:"trigger,omitempty"`                                        // "schedule" | "manual"
-	ScheduledForMs int64                  `protobuf:"varint,5,opt,name=scheduled_for_ms,json=scheduledForMs,proto3" json:"scheduled_for_ms,omitempty"` // horário previsto (agendados); 0 nos manuais
-	StartedMs      int64                  `protobuf:"varint,6,opt,name=started_ms,json=startedMs,proto3" json:"started_ms,omitempty"`
-	FinishedMs     int64                  `protobuf:"varint,7,opt,name=finished_ms,json=finishedMs,proto3" json:"finished_ms,omitempty"`
-	Status         string                 `protobuf:"bytes,8,opt,name=status,proto3" json:"status,omitempty"` // FINISHED: "ok" | "warning" | "failed" | "canceled"
-	BytesSource    int64                  `protobuf:"varint,9,opt,name=bytes_source,json=bytesSource,proto3" json:"bytes_source,omitempty"`
-	BytesOutput    int64                  `protobuf:"varint,10,opt,name=bytes_output,json=bytesOutput,proto3" json:"bytes_output,omitempty"`
-	Files          int64                  `protobuf:"varint,11,opt,name=files,proto3" json:"files,omitempty"`
-	Sha256         string                 `protobuf:"bytes,12,opt,name=sha256,proto3" json:"sha256,omitempty"`
-	OutputName     string                 `protobuf:"bytes,13,opt,name=output_name,json=outputName,proto3" json:"output_name,omitempty"`
-	Error          string                 `protobuf:"bytes,14,opt,name=error,proto3" json:"error,omitempty"`
-	Logs           []*LogLine             `protobuf:"bytes,15,rep,name=logs,proto3" json:"logs,omitempty"`
-	JobVersion     int32                  `protobuf:"varint,16,opt,name=job_version,json=jobVersion,proto3" json:"job_version,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	RunUid          string                 `protobuf:"bytes,1,opt,name=run_uid,json=runUid,proto3" json:"run_uid,omitempty"`
+	JobId           int64                  `protobuf:"varint,2,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	State           RunReport_State        `protobuf:"varint,3,opt,name=state,proto3,enum=coruja.v1.RunReport_State" json:"state,omitempty"`
+	Trigger         string                 `protobuf:"bytes,4,opt,name=trigger,proto3" json:"trigger,omitempty"`                                        // "schedule" | "manual"
+	ScheduledForMs  int64                  `protobuf:"varint,5,opt,name=scheduled_for_ms,json=scheduledForMs,proto3" json:"scheduled_for_ms,omitempty"` // horário previsto (agendados); 0 nos manuais
+	StartedMs       int64                  `protobuf:"varint,6,opt,name=started_ms,json=startedMs,proto3" json:"started_ms,omitempty"`
+	FinishedMs      int64                  `protobuf:"varint,7,opt,name=finished_ms,json=finishedMs,proto3" json:"finished_ms,omitempty"`
+	Status          string                 `protobuf:"bytes,8,opt,name=status,proto3" json:"status,omitempty"` // FINISHED: "ok" | "warning" | "failed" | "canceled"
+	BytesSource     int64                  `protobuf:"varint,9,opt,name=bytes_source,json=bytesSource,proto3" json:"bytes_source,omitempty"`
+	BytesOutput     int64                  `protobuf:"varint,10,opt,name=bytes_output,json=bytesOutput,proto3" json:"bytes_output,omitempty"`
+	Files           int64                  `protobuf:"varint,11,opt,name=files,proto3" json:"files,omitempty"`
+	Sha256          string                 `protobuf:"bytes,12,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	OutputName      string                 `protobuf:"bytes,13,opt,name=output_name,json=outputName,proto3" json:"output_name,omitempty"`
+	Error           string                 `protobuf:"bytes,14,opt,name=error,proto3" json:"error,omitempty"`
+	Logs            []*LogLine             `protobuf:"bytes,15,rep,name=logs,proto3" json:"logs,omitempty"`
+	JobVersion      int32                  `protobuf:"varint,16,opt,name=job_version,json=jobVersion,proto3" json:"job_version,omitempty"`
+	Phase           string                 `protobuf:"bytes,17,opt,name=phase,proto3" json:"phase,omitempty"` // archiving | uploading | verifying
+	ProgressPct     int32                  `protobuf:"varint,18,opt,name=progress_pct,json=progressPct,proto3" json:"progress_pct,omitempty"`
+	CloudStatus     string                 `protobuf:"bytes,19,opt,name=cloud_status,json=cloudStatus,proto3" json:"cloud_status,omitempty"` // none | ok | failed
+	CloudPath       string                 `protobuf:"bytes,20,opt,name=cloud_path,json=cloudPath,proto3" json:"cloud_path,omitempty"`
+	CloudHash       string                 `protobuf:"bytes,21,opt,name=cloud_hash,json=cloudHash,proto3" json:"cloud_hash,omitempty"`
+	CloudVerifiedBy string                 `protobuf:"bytes,22,opt,name=cloud_verified_by,json=cloudVerifiedBy,proto3" json:"cloud_verified_by,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *RunReport) Reset() {
@@ -1286,6 +1380,448 @@ func (x *RunReport) GetJobVersion() int32 {
 	return 0
 }
 
+func (x *RunReport) GetPhase() string {
+	if x != nil {
+		return x.Phase
+	}
+	return ""
+}
+
+func (x *RunReport) GetProgressPct() int32 {
+	if x != nil {
+		return x.ProgressPct
+	}
+	return 0
+}
+
+func (x *RunReport) GetCloudStatus() string {
+	if x != nil {
+		return x.CloudStatus
+	}
+	return ""
+}
+
+func (x *RunReport) GetCloudPath() string {
+	if x != nil {
+		return x.CloudPath
+	}
+	return ""
+}
+
+func (x *RunReport) GetCloudHash() string {
+	if x != nil {
+		return x.CloudHash
+	}
+	return ""
+}
+
+func (x *RunReport) GetCloudVerifiedBy() string {
+	if x != nil {
+		return x.CloudVerifiedBy
+	}
+	return ""
+}
+
+type UploadRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	RunUid        string                 `protobuf:"bytes,2,opt,name=run_uid,json=runUid,proto3" json:"run_uid,omitempty"`
+	JobId         int64                  `protobuf:"varint,3,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	FileName      string                 `protobuf:"bytes,4,opt,name=file_name,json=fileName,proto3" json:"file_name,omitempty"`
+	Size          int64                  `protobuf:"varint,5,opt,name=size,proto3" json:"size,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UploadRequest) Reset() {
+	*x = UploadRequest{}
+	mi := &file_coruja_v1_agent_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UploadRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UploadRequest) ProtoMessage() {}
+
+func (x *UploadRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coruja_v1_agent_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UploadRequest.ProtoReflect.Descriptor instead.
+func (*UploadRequest) Descriptor() ([]byte, []int) {
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *UploadRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *UploadRequest) GetRunUid() string {
+	if x != nil {
+		return x.RunUid
+	}
+	return ""
+}
+
+func (x *UploadRequest) GetJobId() int64 {
+	if x != nil {
+		return x.JobId
+	}
+	return 0
+}
+
+func (x *UploadRequest) GetFileName() string {
+	if x != nil {
+		return x.FileName
+	}
+	return ""
+}
+
+func (x *UploadRequest) GetSize() int64 {
+	if x != nil {
+		return x.Size
+	}
+	return 0
+}
+
+type UploadSession struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Ok            bool                   `protobuf:"varint,2,opt,name=ok,proto3" json:"ok,omitempty"`
+	Error         string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
+	Protocol      string                 `protobuf:"bytes,4,opt,name=protocol,proto3" json:"protocol,omitempty"` // "graph" (OneDrive) | "gdrive" (Google Drive)
+	Url           string                 `protobuf:"bytes,5,opt,name=url,proto3" json:"url,omitempty"`           // URL da sessão (já autenticada; o agente não recebe tokens)
+	ChunkSize     int64                  `protobuf:"varint,6,opt,name=chunk_size,json=chunkSize,proto3" json:"chunk_size,omitempty"`
+	ExpiresUnixMs int64                  `protobuf:"varint,7,opt,name=expires_unix_ms,json=expiresUnixMs,proto3" json:"expires_unix_ms,omitempty"`
+	RemotePath    string                 `protobuf:"bytes,8,opt,name=remote_path,json=remotePath,proto3" json:"remote_path,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UploadSession) Reset() {
+	*x = UploadSession{}
+	mi := &file_coruja_v1_agent_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UploadSession) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UploadSession) ProtoMessage() {}
+
+func (x *UploadSession) ProtoReflect() protoreflect.Message {
+	mi := &file_coruja_v1_agent_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UploadSession.ProtoReflect.Descriptor instead.
+func (*UploadSession) Descriptor() ([]byte, []int) {
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *UploadSession) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *UploadSession) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *UploadSession) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *UploadSession) GetProtocol() string {
+	if x != nil {
+		return x.Protocol
+	}
+	return ""
+}
+
+func (x *UploadSession) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *UploadSession) GetChunkSize() int64 {
+	if x != nil {
+		return x.ChunkSize
+	}
+	return 0
+}
+
+func (x *UploadSession) GetExpiresUnixMs() int64 {
+	if x != nil {
+		return x.ExpiresUnixMs
+	}
+	return 0
+}
+
+func (x *UploadSession) GetRemotePath() string {
+	if x != nil {
+		return x.RemotePath
+	}
+	return ""
+}
+
+type UploadDone struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	RunUid        string                 `protobuf:"bytes,2,opt,name=run_uid,json=runUid,proto3" json:"run_uid,omitempty"`
+	JobId         int64                  `protobuf:"varint,3,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	FileName      string                 `protobuf:"bytes,4,opt,name=file_name,json=fileName,proto3" json:"file_name,omitempty"`
+	Size          int64                  `protobuf:"varint,5,opt,name=size,proto3" json:"size,omitempty"`
+	Md5           string                 `protobuf:"bytes,6,opt,name=md5,proto3" json:"md5,omitempty"`
+	Sha1          string                 `protobuf:"bytes,7,opt,name=sha1,proto3" json:"sha1,omitempty"`
+	Quickxor      string                 `protobuf:"bytes,8,opt,name=quickxor,proto3" json:"quickxor,omitempty"`
+	Sha256        string                 `protobuf:"bytes,9,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	RemoteId      string                 `protobuf:"bytes,10,opt,name=remote_id,json=remoteId,proto3" json:"remote_id,omitempty"`
+	Ok            bool                   `protobuf:"varint,11,opt,name=ok,proto3" json:"ok,omitempty"`
+	Error         string                 `protobuf:"bytes,12,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UploadDone) Reset() {
+	*x = UploadDone{}
+	mi := &file_coruja_v1_agent_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UploadDone) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UploadDone) ProtoMessage() {}
+
+func (x *UploadDone) ProtoReflect() protoreflect.Message {
+	mi := &file_coruja_v1_agent_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UploadDone.ProtoReflect.Descriptor instead.
+func (*UploadDone) Descriptor() ([]byte, []int) {
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *UploadDone) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *UploadDone) GetRunUid() string {
+	if x != nil {
+		return x.RunUid
+	}
+	return ""
+}
+
+func (x *UploadDone) GetJobId() int64 {
+	if x != nil {
+		return x.JobId
+	}
+	return 0
+}
+
+func (x *UploadDone) GetFileName() string {
+	if x != nil {
+		return x.FileName
+	}
+	return ""
+}
+
+func (x *UploadDone) GetSize() int64 {
+	if x != nil {
+		return x.Size
+	}
+	return 0
+}
+
+func (x *UploadDone) GetMd5() string {
+	if x != nil {
+		return x.Md5
+	}
+	return ""
+}
+
+func (x *UploadDone) GetSha1() string {
+	if x != nil {
+		return x.Sha1
+	}
+	return ""
+}
+
+func (x *UploadDone) GetQuickxor() string {
+	if x != nil {
+		return x.Quickxor
+	}
+	return ""
+}
+
+func (x *UploadDone) GetSha256() string {
+	if x != nil {
+		return x.Sha256
+	}
+	return ""
+}
+
+func (x *UploadDone) GetRemoteId() string {
+	if x != nil {
+		return x.RemoteId
+	}
+	return ""
+}
+
+func (x *UploadDone) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *UploadDone) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+type UploadVerdict struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Ok            bool                   `protobuf:"varint,2,opt,name=ok,proto3" json:"ok,omitempty"`
+	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	VerifiedBy    string                 `protobuf:"bytes,4,opt,name=verified_by,json=verifiedBy,proto3" json:"verified_by,omitempty"` // quickxor | sha1 | md5 | size
+	RemotePath    string                 `protobuf:"bytes,5,opt,name=remote_path,json=remotePath,proto3" json:"remote_path,omitempty"`
+	RemoteHash    string                 `protobuf:"bytes,6,opt,name=remote_hash,json=remoteHash,proto3" json:"remote_hash,omitempty"`
+	RetentionLog  []string               `protobuf:"bytes,7,rep,name=retention_log,json=retentionLog,proto3" json:"retention_log,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UploadVerdict) Reset() {
+	*x = UploadVerdict{}
+	mi := &file_coruja_v1_agent_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UploadVerdict) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UploadVerdict) ProtoMessage() {}
+
+func (x *UploadVerdict) ProtoReflect() protoreflect.Message {
+	mi := &file_coruja_v1_agent_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UploadVerdict.ProtoReflect.Descriptor instead.
+func (*UploadVerdict) Descriptor() ([]byte, []int) {
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *UploadVerdict) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *UploadVerdict) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *UploadVerdict) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *UploadVerdict) GetVerifiedBy() string {
+	if x != nil {
+		return x.VerifiedBy
+	}
+	return ""
+}
+
+func (x *UploadVerdict) GetRemotePath() string {
+	if x != nil {
+		return x.RemotePath
+	}
+	return ""
+}
+
+func (x *UploadVerdict) GetRemoteHash() string {
+	if x != nil {
+		return x.RemoteHash
+	}
+	return ""
+}
+
+func (x *UploadVerdict) GetRetentionLog() []string {
+	if x != nil {
+		return x.RetentionLog
+	}
+	return nil
+}
+
 var File_coruja_v1_agent_proto protoreflect.FileDescriptor
 
 const file_coruja_v1_agent_proto_rawDesc = "" +
@@ -1302,23 +1838,28 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"credential\x18\x02 \x01(\tR\n" +
 	"credential\x12%\n" +
-	"\x0eserver_version\x18\x03 \x01(\tR\rserverVersion\"\xad\x01\n" +
+	"\x0eserver_version\x18\x03 \x01(\tR\rserverVersion\"\xaa\x02\n" +
 	"\fAgentMessage\x12(\n" +
 	"\x05hello\x18\x01 \x01(\v2\x10.coruja.v1.HelloH\x00R\x05hello\x124\n" +
 	"\theartbeat\x18\x02 \x01(\v2\x14.coruja.v1.HeartbeatH\x00R\theartbeat\x125\n" +
 	"\n" +
-	"run_report\x18\x03 \x01(\v2\x14.coruja.v1.RunReportH\x00R\trunReportB\x06\n" +
-	"\x04body\"\x97\x01\n" +
+	"run_report\x18\x03 \x01(\v2\x14.coruja.v1.RunReportH\x00R\trunReport\x12A\n" +
+	"\x0eupload_request\x18\x04 \x01(\v2\x18.coruja.v1.UploadRequestH\x00R\ruploadRequest\x128\n" +
+	"\vupload_done\x18\x05 \x01(\v2\x15.coruja.v1.UploadDoneH\x00R\n" +
+	"uploadDoneB\x06\n" +
+	"\x04body\"\xb8\x01\n" +
 	"\x05Hello\x12#\n" +
 	"\ragent_version\x18\x01 \x01(\tR\fagentVersion\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12\x0e\n" +
 	"\x02os\x18\x03 \x01(\tR\x02os\x12\x12\n" +
 	"\x04arch\x18\x04 \x01(\tR\x04arch\x12)\n" +
-	"\x10docker_available\x18\x05 \x01(\bR\x0fdockerAvailable\"a\n" +
+	"\x10docker_available\x18\x05 \x01(\bR\x0fdockerAvailable\x12\x1f\n" +
+	"\vactive_runs\x18\x06 \x03(\tR\n" +
+	"activeRuns\"a\n" +
 	"\tHeartbeat\x12\x17\n" +
 	"\aunix_ms\x18\x01 \x01(\x03R\x06unixMs\x12%\n" +
 	"\x0euptime_seconds\x18\x02 \x01(\x03R\ruptimeSeconds\x12\x14\n" +
-	"\x05load1\x18\x03 \x01(\x01R\x05load1\"\xeb\x02\n" +
+	"\x05load1\x18\x03 \x01(\x01R\x05load1\"\xf1\x03\n" +
 	"\rServerMessage\x12.\n" +
 	"\awelcome\x18\x01 \x01(\v2\x12.coruja.v1.WelcomeH\x00R\awelcome\x12\"\n" +
 	"\x03ack\x18\x02 \x01(\v2\x0e.coruja.v1.AckH\x00R\x03ack\x12.\n" +
@@ -1328,7 +1869,9 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"cancel_run\x18\x06 \x01(\v2\x14.coruja.v1.CancelRunH\x00R\tcancelRun\x125\n" +
 	"\n" +
-	"report_ack\x18\a \x01(\v2\x14.coruja.v1.ReportAckH\x00R\treportAckB\x06\n" +
+	"report_ack\x18\a \x01(\v2\x14.coruja.v1.ReportAckH\x00R\treportAck\x12A\n" +
+	"\x0eupload_session\x18\b \x01(\v2\x18.coruja.v1.UploadSessionH\x00R\ruploadSession\x12A\n" +
+	"\x0eupload_verdict\x18\t \x01(\v2\x18.coruja.v1.UploadVerdictH\x00R\ruploadVerdictB\x06\n" +
 	"\x04body\"]\n" +
 	"\aWelcome\x12%\n" +
 	"\x0eserver_version\x18\x01 \x01(\tR\rserverVersion\x12+\n" +
@@ -1336,7 +1879,7 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\x03Ack\x12\x17\n" +
 	"\aunix_ms\x18\x01 \x01(\x03R\x06unixMs\"!\n" +
 	"\aRevoked\x12\x16\n" +
-	"\x06reason\x18\x01 \x01(\tR\x06reason\"\x93\x02\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xe0\x02\n" +
 	"\aJobSpec\x12\x15\n" +
 	"\x06job_id\x18\x01 \x01(\x03R\x05jobId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
@@ -1350,7 +1893,9 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"destSubdir\x12\x12\n" +
 	"\x04keep\x18\n" +
 	" \x01(\x05R\x04keep\x12\x18\n" +
-	"\aversion\x18\v \x01(\x05R\aversion\"2\n" +
+	"\aversion\x18\v \x01(\x05R\aversion\x12(\n" +
+	"\x10cloud_account_id\x18\f \x01(\x03R\x0ecloudAccountId\x12!\n" +
+	"\fcloud_folder\x18\r \x01(\tR\vcloudFolder\"2\n" +
 	"\bSyncJobs\x12&\n" +
 	"\x04jobs\x18\x01 \x03(\v2\x12.coruja.v1.JobSpecR\x04jobs\"8\n" +
 	"\x06RunNow\x12\x15\n" +
@@ -1364,7 +1909,7 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\x03seq\x18\x01 \x01(\x05R\x03seq\x12\x17\n" +
 	"\aunix_ms\x18\x02 \x01(\x03R\x06unixMs\x12\x14\n" +
 	"\x05level\x18\x03 \x01(\tR\x05level\x12\x12\n" +
-	"\x04text\x18\x04 \x01(\tR\x04text\"\xaf\x04\n" +
+	"\x04text\x18\x04 \x01(\tR\x04text\"\xf5\x05\n" +
 	"\tRunReport\x12\x17\n" +
 	"\arun_uid\x18\x01 \x01(\tR\x06runUid\x12\x15\n" +
 	"\x06job_id\x18\x02 \x01(\x03R\x05jobId\x120\n" +
@@ -1386,11 +1931,66 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\x05error\x18\x0e \x01(\tR\x05error\x12&\n" +
 	"\x04logs\x18\x0f \x03(\v2\x12.coruja.v1.LogLineR\x04logs\x12\x1f\n" +
 	"\vjob_version\x18\x10 \x01(\x05R\n" +
-	"jobVersion\"0\n" +
+	"jobVersion\x12\x14\n" +
+	"\x05phase\x18\x11 \x01(\tR\x05phase\x12!\n" +
+	"\fprogress_pct\x18\x12 \x01(\x05R\vprogressPct\x12!\n" +
+	"\fcloud_status\x18\x13 \x01(\tR\vcloudStatus\x12\x1d\n" +
+	"\n" +
+	"cloud_path\x18\x14 \x01(\tR\tcloudPath\x12\x1d\n" +
+	"\n" +
+	"cloud_hash\x18\x15 \x01(\tR\tcloudHash\x12*\n" +
+	"\x11cloud_verified_by\x18\x16 \x01(\tR\x0fcloudVerifiedBy\"0\n" +
 	"\x05State\x12\v\n" +
 	"\aSTARTED\x10\x00\x12\f\n" +
 	"\bPROGRESS\x10\x01\x12\f\n" +
-	"\bFINISHED\x10\x022\x8f\x01\n" +
+	"\bFINISHED\x10\x02\"\x8f\x01\n" +
+	"\rUploadRequest\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +
+	"\arun_uid\x18\x02 \x01(\tR\x06runUid\x12\x15\n" +
+	"\x06job_id\x18\x03 \x01(\x03R\x05jobId\x12\x1b\n" +
+	"\tfile_name\x18\x04 \x01(\tR\bfileName\x12\x12\n" +
+	"\x04size\x18\x05 \x01(\x03R\x04size\"\xea\x01\n" +
+	"\rUploadSession\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x0e\n" +
+	"\x02ok\x18\x02 \x01(\bR\x02ok\x12\x14\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\x12\x1a\n" +
+	"\bprotocol\x18\x04 \x01(\tR\bprotocol\x12\x10\n" +
+	"\x03url\x18\x05 \x01(\tR\x03url\x12\x1d\n" +
+	"\n" +
+	"chunk_size\x18\x06 \x01(\x03R\tchunkSize\x12&\n" +
+	"\x0fexpires_unix_ms\x18\a \x01(\x03R\rexpiresUnixMs\x12\x1f\n" +
+	"\vremote_path\x18\b \x01(\tR\n" +
+	"remotePath\"\xa9\x02\n" +
+	"\n" +
+	"UploadDone\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +
+	"\arun_uid\x18\x02 \x01(\tR\x06runUid\x12\x15\n" +
+	"\x06job_id\x18\x03 \x01(\x03R\x05jobId\x12\x1b\n" +
+	"\tfile_name\x18\x04 \x01(\tR\bfileName\x12\x12\n" +
+	"\x04size\x18\x05 \x01(\x03R\x04size\x12\x10\n" +
+	"\x03md5\x18\x06 \x01(\tR\x03md5\x12\x12\n" +
+	"\x04sha1\x18\a \x01(\tR\x04sha1\x12\x1a\n" +
+	"\bquickxor\x18\b \x01(\tR\bquickxor\x12\x16\n" +
+	"\x06sha256\x18\t \x01(\tR\x06sha256\x12\x1b\n" +
+	"\tremote_id\x18\n" +
+	" \x01(\tR\bremoteId\x12\x0e\n" +
+	"\x02ok\x18\v \x01(\bR\x02ok\x12\x14\n" +
+	"\x05error\x18\f \x01(\tR\x05error\"\xe0\x01\n" +
+	"\rUploadVerdict\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x0e\n" +
+	"\x02ok\x18\x02 \x01(\bR\x02ok\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x12\x1f\n" +
+	"\vverified_by\x18\x04 \x01(\tR\n" +
+	"verifiedBy\x12\x1f\n" +
+	"\vremote_path\x18\x05 \x01(\tR\n" +
+	"remotePath\x12\x1f\n" +
+	"\vremote_hash\x18\x06 \x01(\tR\n" +
+	"remoteHash\x12#\n" +
+	"\rretention_log\x18\a \x03(\tR\fretentionLog2\x8f\x01\n" +
 	"\fAgentService\x12=\n" +
 	"\x06Enroll\x12\x18.coruja.v1.EnrollRequest\x1a\x19.coruja.v1.EnrollResponse\x12@\n" +
 	"\aConnect\x12\x17.coruja.v1.AgentMessage\x1a\x18.coruja.v1.ServerMessage(\x010\x01B5Z3github.com/AprendendoLinux/corujabackup/internal/pbb\x06proto3"
@@ -1408,7 +2008,7 @@ func file_coruja_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_coruja_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_coruja_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_coruja_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_coruja_v1_agent_proto_goTypes = []any{
 	(RunReport_State)(0),   // 0: coruja.v1.RunReport.State
 	(*EnrollRequest)(nil),  // 1: coruja.v1.EnrollRequest
@@ -1427,30 +2027,38 @@ var file_coruja_v1_agent_proto_goTypes = []any{
 	(*ReportAck)(nil),      // 14: coruja.v1.ReportAck
 	(*LogLine)(nil),        // 15: coruja.v1.LogLine
 	(*RunReport)(nil),      // 16: coruja.v1.RunReport
+	(*UploadRequest)(nil),  // 17: coruja.v1.UploadRequest
+	(*UploadSession)(nil),  // 18: coruja.v1.UploadSession
+	(*UploadDone)(nil),     // 19: coruja.v1.UploadDone
+	(*UploadVerdict)(nil),  // 20: coruja.v1.UploadVerdict
 }
 var file_coruja_v1_agent_proto_depIdxs = []int32{
 	4,  // 0: coruja.v1.AgentMessage.hello:type_name -> coruja.v1.Hello
 	5,  // 1: coruja.v1.AgentMessage.heartbeat:type_name -> coruja.v1.Heartbeat
 	16, // 2: coruja.v1.AgentMessage.run_report:type_name -> coruja.v1.RunReport
-	7,  // 3: coruja.v1.ServerMessage.welcome:type_name -> coruja.v1.Welcome
-	8,  // 4: coruja.v1.ServerMessage.ack:type_name -> coruja.v1.Ack
-	9,  // 5: coruja.v1.ServerMessage.revoked:type_name -> coruja.v1.Revoked
-	11, // 6: coruja.v1.ServerMessage.sync_jobs:type_name -> coruja.v1.SyncJobs
-	12, // 7: coruja.v1.ServerMessage.run_now:type_name -> coruja.v1.RunNow
-	13, // 8: coruja.v1.ServerMessage.cancel_run:type_name -> coruja.v1.CancelRun
-	14, // 9: coruja.v1.ServerMessage.report_ack:type_name -> coruja.v1.ReportAck
-	10, // 10: coruja.v1.SyncJobs.jobs:type_name -> coruja.v1.JobSpec
-	0,  // 11: coruja.v1.RunReport.state:type_name -> coruja.v1.RunReport.State
-	15, // 12: coruja.v1.RunReport.logs:type_name -> coruja.v1.LogLine
-	1,  // 13: coruja.v1.AgentService.Enroll:input_type -> coruja.v1.EnrollRequest
-	3,  // 14: coruja.v1.AgentService.Connect:input_type -> coruja.v1.AgentMessage
-	2,  // 15: coruja.v1.AgentService.Enroll:output_type -> coruja.v1.EnrollResponse
-	6,  // 16: coruja.v1.AgentService.Connect:output_type -> coruja.v1.ServerMessage
-	15, // [15:17] is the sub-list for method output_type
-	13, // [13:15] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	17, // 3: coruja.v1.AgentMessage.upload_request:type_name -> coruja.v1.UploadRequest
+	19, // 4: coruja.v1.AgentMessage.upload_done:type_name -> coruja.v1.UploadDone
+	7,  // 5: coruja.v1.ServerMessage.welcome:type_name -> coruja.v1.Welcome
+	8,  // 6: coruja.v1.ServerMessage.ack:type_name -> coruja.v1.Ack
+	9,  // 7: coruja.v1.ServerMessage.revoked:type_name -> coruja.v1.Revoked
+	11, // 8: coruja.v1.ServerMessage.sync_jobs:type_name -> coruja.v1.SyncJobs
+	12, // 9: coruja.v1.ServerMessage.run_now:type_name -> coruja.v1.RunNow
+	13, // 10: coruja.v1.ServerMessage.cancel_run:type_name -> coruja.v1.CancelRun
+	14, // 11: coruja.v1.ServerMessage.report_ack:type_name -> coruja.v1.ReportAck
+	18, // 12: coruja.v1.ServerMessage.upload_session:type_name -> coruja.v1.UploadSession
+	20, // 13: coruja.v1.ServerMessage.upload_verdict:type_name -> coruja.v1.UploadVerdict
+	10, // 14: coruja.v1.SyncJobs.jobs:type_name -> coruja.v1.JobSpec
+	0,  // 15: coruja.v1.RunReport.state:type_name -> coruja.v1.RunReport.State
+	15, // 16: coruja.v1.RunReport.logs:type_name -> coruja.v1.LogLine
+	1,  // 17: coruja.v1.AgentService.Enroll:input_type -> coruja.v1.EnrollRequest
+	3,  // 18: coruja.v1.AgentService.Connect:input_type -> coruja.v1.AgentMessage
+	2,  // 19: coruja.v1.AgentService.Enroll:output_type -> coruja.v1.EnrollResponse
+	6,  // 20: coruja.v1.AgentService.Connect:output_type -> coruja.v1.ServerMessage
+	19, // [19:21] is the sub-list for method output_type
+	17, // [17:19] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_coruja_v1_agent_proto_init() }
@@ -1462,6 +2070,8 @@ func file_coruja_v1_agent_proto_init() {
 		(*AgentMessage_Hello)(nil),
 		(*AgentMessage_Heartbeat)(nil),
 		(*AgentMessage_RunReport)(nil),
+		(*AgentMessage_UploadRequest)(nil),
+		(*AgentMessage_UploadDone)(nil),
 	}
 	file_coruja_v1_agent_proto_msgTypes[5].OneofWrappers = []any{
 		(*ServerMessage_Welcome)(nil),
@@ -1471,6 +2081,8 @@ func file_coruja_v1_agent_proto_init() {
 		(*ServerMessage_RunNow)(nil),
 		(*ServerMessage_CancelRun)(nil),
 		(*ServerMessage_ReportAck)(nil),
+		(*ServerMessage_UploadSession)(nil),
+		(*ServerMessage_UploadVerdict)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -1478,7 +2090,7 @@ func file_coruja_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coruja_v1_agent_proto_rawDesc), len(file_coruja_v1_agent_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   16,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

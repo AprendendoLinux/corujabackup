@@ -14,6 +14,8 @@ import (
 
 	"github.com/AprendendoLinux/corujabackup/internal/agentsrv"
 	"github.com/AprendendoLinux/corujabackup/internal/auth"
+	"github.com/AprendendoLinux/corujabackup/internal/cloud"
+	"github.com/AprendendoLinux/corujabackup/internal/cloudmgr"
 	"github.com/AprendendoLinux/corujabackup/internal/ratelimit"
 	"github.com/AprendendoLinux/corujabackup/internal/store"
 	"github.com/AprendendoLinux/corujabackup/internal/testutil"
@@ -518,4 +520,109 @@ func TestExecucaoManualRelatoriosEPermissoes(t *testing.T) {
 	if code, _ := c.do("GET", "/api/runs?status=bobagem", nil); code != 400 {
 		t.Fatalf("filtro inválido: %d", code)
 	}
+}
+
+// ---------------------------------------------------------------- nuvem
+
+type fakeClouds struct{ created int }
+
+func (f *fakeClouds) Create(_ context.Context, name, typ string, cfg cloudmgr.AccountConfig) (int64, *cloud.Device, error) {
+	f.created++
+	return 0, nil, errors.New("não usado")
+}
+func (f *fakeClouds) Reauthorize(context.Context, int64) (*cloud.Device, error) { return nil, nil }
+func (f *fakeClouds) PollDevice(context.Context, int64) (string, *cloud.Device, error) {
+	return "pending", &cloud.Device{UserCode: "ABCD-1234", VerificationURI: "https://x", Interval: 5}, nil
+}
+func (f *fakeClouds) Test(context.Context, int64) (string, cloud.Quota, error) {
+	return "fulano@x.com", cloud.Quota{Total: 100, Used: 10}, nil
+}
+func (f *fakeClouds) Invalidate(int64) {}
+
+func addCloud(t *testing.T, e *env, name, status string) int64 {
+	t.Helper()
+	id, err := e.api.Store.CreateCloud(context.Background(), name, "onedrive", "v1:segredo-cifrado", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.api.Store.SetCloudStatus(context.Background(), id, status, "")
+	return id
+}
+
+func TestNuvemPermissoesSegredosEJobs(t *testing.T) {
+	e := newEnv(t)
+	fc := &fakeClouds{}
+	e.api.Clouds = fc
+	adm := setupAdmin(e)
+	a := newAgent(t, e, "srv-n")
+	cid := addCloud(t, e, "OneDrive Umami", "connected")
+	pend := addCloud(t, e, "Pendente", "pending")
+
+	// a lista nunca devolve configuração nem tokens
+	l := adm.mustOK("GET", "/api/clouds", nil)
+	if s := jsonString(l); strings.Contains(s, "segredo-cifrado") || strings.Contains(s, "config") || strings.Contains(s, "tokens") {
+		t.Fatalf("segredos não podem sair pela API: %s", s)
+	}
+	// operador não cria/exclui contas, mas pode testar
+	adm.mustOK("POST", "/api/users", map[string]string{"username": "operador1", "password": pw, "role": "operator"})
+	op := e.client()
+	op.mustOK("POST", "/api/login", map[string]string{"username": "operador1", "password": pw})
+	if code, _ := op.do("POST", "/api/clouds", map[string]any{"name": "x1", "type": "onedrive", "client_id": "a"}); code != 403 {
+		t.Fatalf("operador não cria conta: %d", code)
+	}
+	if code, _ := op.do("DELETE", "/api/clouds/"+itoa(int(cid)), nil); code != 403 {
+		t.Fatalf("operador não exclui conta: %d", code)
+	}
+	if code, _ := op.do("POST", "/api/clouds/"+itoa(int(cid))+"/test", nil); code != 200 {
+		t.Fatalf("operador pode testar: %d", code)
+	}
+	for name, body := range map[string]map[string]any{
+		"nome inválido": {"name": "", "type": "onedrive", "client_id": "a"},
+		"tipo inválido": {"name": "ok1", "type": "dropbox", "client_id": "a"},
+	} {
+		if code, _ := adm.do("POST", "/api/clouds", body); code != 400 {
+			t.Errorf("%s: esperava 400, veio %d", name, code)
+		}
+	}
+	if code, m := adm.do("POST", "/api/clouds/"+itoa(int(pend))+"/poll", nil); code != 200 || m["status"] != "pending" || m["device"].(map[string]any)["user_code"] != "ABCD-1234" {
+		t.Fatalf("poll: %d %v", code, m)
+	}
+
+	base := map[string]any{"name": "Nuvem job", "agent_id": a.ID, "paths": []string{"/etc"}}
+	with := func(extra map[string]any) map[string]any {
+		m := map[string]any{}
+		for k, v := range base {
+			m[k] = v
+		}
+		for k, v := range extra {
+			m[k] = v
+		}
+		return m
+	}
+	for name, body := range map[string]map[string]any{
+		"conta pendente":    with(map[string]any{"cloud_account_id": pend, "cloud_keep": 3}),
+		"conta inexistente": with(map[string]any{"cloud_account_id": 9999, "cloud_keep": 3}),
+		"sem retenção":      with(map[string]any{"cloud_account_id": cid}),
+		"pasta com ..":      with(map[string]any{"cloud_account_id": cid, "cloud_keep": 3, "cloud_folder": "a/../b"}),
+		"keep 0 sem nuvem":  with(map[string]any{"keep": 0}),
+	} {
+		if code, _ := adm.do("POST", "/api/jobs", body); code != 400 {
+			t.Errorf("%s: esperava 400, veio %d", name, code)
+		}
+	}
+	id := int(adm.mustOK("POST", "/api/jobs", with(map[string]any{"cloud_account_id": cid, "cloud_keep": 3, "cloud_keep_days": 30, "keep": 0}))["id"].(float64))
+	jobs := adm.mustOK("GET", "/api/jobs", nil)["jobs"].([]any)
+	j := jobs[0].(map[string]any)
+	if j["cloud_folder"] != "Coruja Backup/srv-n/nuvem-job" || j["keep"] != float64(0) || j["cloud_keep"] != float64(3) || j["cloud_account_id"] != float64(cid) {
+		t.Fatalf("job com nuvem: %v", j)
+	}
+	if code, _ := adm.do("DELETE", "/api/clouds/"+itoa(int(cid)), nil); code != 409 {
+		t.Fatalf("conta em uso não pode ser excluída: %d", code)
+	}
+	// remover a nuvem do job (volta a exigir cópia local >= 1)
+	if code, _ := adm.do("PATCH", "/api/jobs/"+itoa(id), map[string]any{"clear_cloud": true}); code != 400 {
+		t.Fatalf("sem nuvem, keep=0 é inválido: %d", code)
+	}
+	adm.mustOK("PATCH", "/api/jobs/"+itoa(id), map[string]any{"clear_cloud": true, "keep": 3})
+	adm.mustOK("DELETE", "/api/clouds/"+itoa(int(cid)), nil)
 }

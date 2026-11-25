@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.0.4] - Fase 3 · Conectores de nuvem
+- **OneDrive (Microsoft Graph) e Google Drive (Drive v3)**, arquitetura modular (`Provider`): conta, cota, sessão de upload,
+  consulta de hashes, listagem e exclusão **definitiva** (sem lixeira, que continuaria ocupando a cota).
+- **Autorização por código de dispositivo** (sem URL de retorno), na própria interface; tokens renovados automaticamente
+  e **cifrados no banco** (AES-256-GCM, chave no volume `/data`). Google com escopo mínimo `drive.file`.
+- **O agente envia direto para a nuvem** por uma sessão retomável emitida pelo Server: o agente nunca recebe tokens.
+  Blocos de 10 MiB (OneDrive) / 8 MiB (Drive), retomada após falhas de rede e renovação de sessão expirada.
+- **Conferência obrigatória:** o agente compara os hashes que a nuvem devolve (quickXorHash, SHA-1 ou MD5) e o Server
+  confere de novo por conta própria; se não bater, o arquivo ruim é removido da nuvem e os backups antigos são preservados.
+- **Retenção na nuvem** (por quantidade e/ou dias) só depois do envio verificado; o arquivo mais novo nunca é apagado.
+  Cópia local configurável (0 = apagar após a nuvem confirmar; se o envio falhar, o arquivo local é preservado).
+- Recusa o envio se a cota da conta não comporta o arquivo. Fases e progresso do envio aparecem no Histórico.
+- Execuções órfãs (agente reiniciado no meio do backup) são marcadas como falha ao reconectar.
+- Interface: página **Nuvem** (conectar, testar, reautorizar, cota) e seção de nuvem no formulário do job.
+
 ## [0.0.3] - Fase 2 · Agente e backups de arquivos
 - **Jobs de arquivos** cadastrados na interface: pastas/arquivos, exclusões (`*.tmp`, `*/data/cache/*`), agenda cron com
   fuso horário, pasta de destino e quantidade de cópias a manter.

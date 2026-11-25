@@ -29,7 +29,7 @@ func TestMigrateIdempotente(t *testing.T) {
 	}
 	defer d.Close()
 	d.Exec("SET FOREIGN_KEY_CHECKS=0")
-	for _, tb := range []string{"run_logs", "runs", "jobs", "audit_log", "enrollment_tokens", "agents", "sessions", "users", "settings", "schema_migrations"} {
+	for _, tb := range []string{"run_logs", "runs", "jobs", "cloud_accounts", "audit_log", "enrollment_tokens", "agents", "sessions", "users", "settings", "schema_migrations"} {
 		d.Exec("DROP TABLE IF EXISTS " + tb)
 	}
 	d.Exec("SET FOREIGN_KEY_CHECKS=1")

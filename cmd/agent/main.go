@@ -1,6 +1,6 @@
 // Coruja Backup · Agente: leve, roda no servidor de destino e fala só com o Server (IP:porta + token).
-// Fase 1: matrícula com o token (uma vez), canal permanente gRPC/TLS com batimentos e reconexão automática.
-// Os jobs de backup chegam na Fase 2.
+// Matrícula com o token (uma vez), canal permanente gRPC/TLS com batimentos e reconexão automática e, desde a Fase 2,
+// execução dos jobs de arquivos (tar.gz) com agenda própria e fila local de resultados.
 package main
 
 import (
@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 
+	"github.com/AprendendoLinux/corujabackup/internal/agentcore"
 	"github.com/AprendendoLinux/corujabackup/internal/enroll"
 	"github.com/AprendendoLinux/corujabackup/internal/pb"
 	"github.com/AprendendoLinux/corujabackup/internal/tlsutil"
@@ -40,7 +42,9 @@ type state struct {
 func main() {
 	server := flag.String("server", os.Getenv("CORUJA_SERVER"), "endereço do canal dos agentes no Server (IP:porta)")
 	token := flag.String("token", os.Getenv("CORUJA_TOKEN"), "token de matrícula (gerado na interface web; uso único)")
-	dataDir := flag.String("data", envOr("CORUJA_DATA_DIR", "/var/lib/coruja-agent"), "pasta onde o agente guarda a própria credencial")
+	dataDir := flag.String("data", envOr("CORUJA_DATA_DIR", "/var/lib/coruja-agent"), "pasta onde o agente guarda a própria credencial e a fila local")
+	hostRoot := flag.String("host-root", envOr("CORUJA_HOST_ROOT", "/"), "raiz do servidor vista pelo agente (use /host se montar o host nesse caminho)")
+	backupDir := flag.String("backup-dir", envOr("CORUJA_BACKUP_DIR", "/backups"), "pasta onde os arquivos de backup são gravados")
 	showVersion := flag.Bool("version", false, "mostra a versão e sai")
 	flag.Parse()
 	if *showVersion {
@@ -73,7 +77,18 @@ func main() {
 		_ = saveState(stPath, st)
 	}
 	log.Info("agente iniciado", "versão", version.Version, "server", st.Server, "agente", st.AgentID)
-	run(ctx, log, st)
+	local, err := agentcore.NewState(*dataDir)
+	if err != nil {
+		log.Error("não foi possível preparar a pasta de dados do agente", "erro", err.Error())
+		os.Exit(1)
+	}
+	core := agentcore.New(agentcore.Config{HostRoot: *hostRoot, BackupDir: *backupDir}, local, log)
+	if err := os.MkdirAll(*backupDir, 0o750); err != nil {
+		log.Warn("a pasta de backups não está disponível (monte um volume gravável)", "pasta", *backupDir, "erro", err.Error())
+	}
+	log.Info("áreas de trabalho", "origem_do_host", *hostRoot, "pasta_de_backups", *backupDir)
+	go core.Run(ctx)
+	run(ctx, log, st, core)
 	log.Info("agente encerrado")
 }
 
@@ -105,12 +120,12 @@ func enrollAgent(ctx context.Context, log *slog.Logger, server, tokenStr string)
 	return &state{Server: server, Fingerprint: tk.Fingerprint, AgentID: resp.AgentId, Credential: resp.Credential}, nil
 }
 
-// run mantém o canal aberto, reconectando com espera crescente (1s até 60s).
-func run(ctx context.Context, log *slog.Logger, st *state) {
+// run mantém o canal aberto, reconectando com espera crescente (1s até 30s).
+func run(ctx context.Context, log *slog.Logger, st *state, core *agentcore.Core) {
 	backoff := time.Second
 	for ctx.Err() == nil {
 		start := time.Now()
-		revoked, err := session(ctx, log, st)
+		revoked, err := session(ctx, log, st, core)
 		if revoked {
 			log.Error("este agente foi revogado no Server; ficando ocioso (remova-o ou matricule de novo com um token novo)")
 			<-ctx.Done()
@@ -127,13 +142,13 @@ func run(ctx context.Context, log *slog.Logger, st *state) {
 			return
 		case <-time.After(backoff):
 		}
-		if backoff < 60*time.Second {
+		if backoff < 30*time.Second {
 			backoff *= 2
 		}
 	}
 }
 
-func session(ctx context.Context, log *slog.Logger, st *state) (revoked bool, err error) {
+func session(ctx context.Context, log *slog.Logger, st *state, core *agentcore.Core) (revoked bool, err error) {
 	conn, err := dial(st.Server, st.Fingerprint)
 	if err != nil {
 		return false, err
@@ -150,6 +165,14 @@ func session(ctx context.Context, log *slog.Logger, st *state) (revoked bool, er
 		AgentVersion: version.Version, Hostname: host, Os: runtime.GOOS, Arch: runtime.GOARCH, DockerAvailable: dockerAvailable()}}}); err != nil {
 		return false, err
 	}
+	var smu sync.Mutex // stream.Send não é seguro em paralelo (batimentos x relatórios de backup)
+	safeSend := func(m *pb.AgentMessage) error {
+		smu.Lock()
+		defer smu.Unlock()
+		return stream.Send(m)
+	}
+	core.SetSender(func(m *pb.AgentMessage) bool { return safeSend(m) == nil })
+	defer core.SetSender(nil)
 	in := make(chan *pb.ServerMessage)
 	rerr := make(chan error, 1)
 	go func() {
@@ -166,7 +189,7 @@ func session(ctx context.Context, log *slog.Logger, st *state) (revoked bool, er
 	tick := time.NewTicker(interval)
 	defer tick.Stop()
 	sendHB := func() error {
-		return stream.Send(&pb.AgentMessage{Body: &pb.AgentMessage_Heartbeat{Heartbeat: &pb.Heartbeat{
+		return safeSend(&pb.AgentMessage{Body: &pb.AgentMessage_Heartbeat{Heartbeat: &pb.Heartbeat{
 			UnixMs: time.Now().UnixMilli(), UptimeSeconds: uptime(), Load1: load1()}}})
 	}
 	for {
@@ -180,6 +203,15 @@ func session(ctx context.Context, log *slog.Logger, st *state) (revoked bool, er
 					interval = s
 					tick.Reset(interval)
 				}
+				go core.Replay() // reenvia resultados que ficaram na fila local
+			case m.GetSyncJobs() != nil:
+				core.SyncJobs(m.GetSyncJobs().Jobs)
+			case m.GetRunNow() != nil:
+				core.Enqueue(m.GetRunNow().JobId, m.GetRunNow().RunUid, "manual", time.Time{})
+			case m.GetCancelRun() != nil:
+				core.Cancel(m.GetCancelRun().RunUid)
+			case m.GetReportAck() != nil:
+				core.Ack(m.GetReportAck().RunUid)
 			case m.GetRevoked() != nil:
 				log.Error("revogado pelo Server", "motivo", m.GetRevoked().Reason)
 				return true, nil

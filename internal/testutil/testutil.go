@@ -30,7 +30,7 @@ func DB(t *testing.T) *sql.DB {
 	}
 	defer conn.Close()
 	conn.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS=0")
-	for _, tb := range []string{"audit_log", "enrollment_tokens", "agents", "sessions", "users", "settings", "schema_migrations"} {
+	for _, tb := range []string{"run_logs", "runs", "jobs", "audit_log", "enrollment_tokens", "agents", "sessions", "users", "settings", "schema_migrations"} {
 		conn.ExecContext(ctx, "DROP TABLE IF EXISTS "+tb)
 	}
 	conn.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS=1")

@@ -1,18 +1,19 @@
 # Coruja Backup · Agente. Informe só o endereço do Server e o token gerado na interface web.
 services:
   agent:
-    image: ghcr.io/aprendendolinux/corujabackup-agent:0.0.2
+    image: ghcr.io/aprendendolinux/corujabackup-agent:0.0.3
     container_name: corujabackup-agent
     restart: always
     environment:
       CORUJA_SERVER: "IP_DO_SERVER:8443"
       CORUJA_TOKEN: "TOKEN_GERADO_NA_INTERFACE"
+      CORUJA_HOST_ROOT: "/host"          # o servidor, como o agente o enxerga (veja o volume abaixo)
     volumes:
-      - agent-data:/var/lib/coruja-agent   # guarda a credencial do agente (o token de matrícula só vale uma vez)
+      - agent-data:/var/lib/coruja-agent   # credencial do agente, agenda local e fila de resultados
+      - /:/host:ro                         # tudo o que o agente pode salvar, SOMENTE LEITURA (restrinja às pastas necessárias, se preferir)
+      - /srv/coruja-backups:/backups       # onde os arquivos de backup são gravados
     # Opcional (desligado por padrão): permite ao agente entrar em contêineres de banco para fazer dumps.
     #   - /var/run/docker.sock:/var/run/docker.sock
-    # Pastas do servidor a proteger (somente leitura), a partir da Fase 2:
-    #   - /etc:/host/etc:ro
     networks: [echelon]
 volumes:
   agent-data:

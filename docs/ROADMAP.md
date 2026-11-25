@@ -2,7 +2,7 @@
 
 - [x] **Fase 0 – Fundação (0.0.1):** repositório, Server/Agente Go, UI React com temas, MySQL + migrações, Docker, CI.
 - [x] **Fase 1 – Núcleo do Server (0.0.2):** usuários e perfis (login, 2FA), matrícula de agentes por token, canal gRPC/TLS, API REST.
-- [ ] **Fase 2 – Agente e arquivos:** cadastro/status de clients, jobs de pastas (tar+gzip), agendamento com fuso, batimento, fila local.
+- [x] **Fase 2 – Agente e arquivos (0.0.3):** cadastro/status de clients, jobs de pastas (tar+gzip), agendamento com fuso, batimento, fila local.
 - [ ] **Fase 3 – Conectores de nuvem:** interface `Provider`, OneDrive, Google Drive, verificação por hash, retenção segura.
 - [ ] **Fase 4 – Bancos de dados:** MySQL/MariaDB, PostgreSQL, MongoDB; teste de restauração automatizado.
 - [ ] **Fase 5 – Interface completa:** servidores, jobs, histórico, logs ao vivo, temas, logo personalizada, restauração.

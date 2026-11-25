@@ -84,13 +84,16 @@ func main() {
 			errc <- err
 		}
 	}()
-	go func() { // limpeza periódica de sessões vencidas
+	go hub.WatchMissed(ctx)
+	go func() { // limpeza periódica de sessões e histórico antigo
+		purge := func() { _ = st.PurgeSessions(ctx); _ = st.PurgeRuns(ctx, time.Now().AddDate(0, 0, -400)) }
+		purge()
 		t := time.NewTicker(time.Hour)
 		defer t.Stop()
 		for {
 			select {
 			case <-t.C:
-				_ = st.PurgeSessions(ctx)
+				purge()
 			case <-ctx.Done():
 				return
 			}

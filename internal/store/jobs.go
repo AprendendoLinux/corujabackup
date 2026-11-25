@@ -1,0 +1,117 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"time"
+)
+
+type Job struct {
+	ID         int64     `json:"id"`
+	Name       string    `json:"name"`
+	AgentID    int64     `json:"agent_id"`
+	Kind       string    `json:"kind"`
+	Enabled    bool      `json:"enabled"`
+	Cron       string    `json:"cron"`
+	Timezone   string    `json:"timezone"`
+	Paths      []string  `json:"paths"`
+	Excludes   []string  `json:"excludes"`
+	DestSubdir string    `json:"dest_subdir"`
+	Keep       int       `json:"keep"`
+	Version    int       `json:"version"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+const jobCols = "id, name, agent_id, kind, enabled, cron, timezone, paths, excludes, dest_subdir, keep_copies, version, created_at, updated_at"
+
+func scanJob(r interface{ Scan(...any) error }) (*Job, error) {
+	var j Job
+	var p, e string
+	if err := r.Scan(&j.ID, &j.Name, &j.AgentID, &j.Kind, &j.Enabled, &j.Cron, &j.Timezone, &p, &e, &j.DestSubdir, &j.Keep, &j.Version, &j.CreatedAt, &j.UpdatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	_ = json.Unmarshal([]byte(p), &j.Paths)
+	_ = json.Unmarshal([]byte(e), &j.Excludes)
+	if j.Paths == nil {
+		j.Paths = []string{}
+	}
+	if j.Excludes == nil {
+		j.Excludes = []string{}
+	}
+	return &j, nil
+}
+
+func jsonList(v []string) string {
+	if v == nil {
+		v = []string{}
+	}
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
+func (s *Store) CreateJob(ctx context.Context, j *Job) (int64, error) {
+	res, err := s.DB.ExecContext(ctx, "INSERT INTO jobs (name, agent_id, kind, enabled, cron, timezone, paths, excludes, dest_subdir, keep_copies) VALUES (?,?,?,?,?,?,?,?,?,?)",
+		j.Name, j.AgentID, j.Kind, j.Enabled, j.Cron, j.Timezone, jsonList(j.Paths), jsonList(j.Excludes), j.DestSubdir, j.Keep)
+	if err != nil {
+		if isDup(err) {
+			return 0, ErrDuplicate
+		}
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// UpdateJob grava as alterações e incrementa a versão (o agente descarta agendas antigas).
+func (s *Store) UpdateJob(ctx context.Context, j *Job) error {
+	_, err := s.DB.ExecContext(ctx, "UPDATE jobs SET name=?, agent_id=?, enabled=?, cron=?, timezone=?, paths=?, excludes=?, dest_subdir=?, keep_copies=?, version=version+1 WHERE id=?",
+		j.Name, j.AgentID, j.Enabled, j.Cron, j.Timezone, jsonList(j.Paths), jsonList(j.Excludes), j.DestSubdir, j.Keep, j.ID)
+	if isDup(err) {
+		return ErrDuplicate
+	}
+	return err
+}
+
+func (s *Store) GetJob(ctx context.Context, id int64) (*Job, error) {
+	return scanJob(s.DB.QueryRowContext(ctx, "SELECT "+jobCols+" FROM jobs WHERE id=?", id))
+}
+
+func (s *Store) ListJobs(ctx context.Context) ([]Job, error) {
+	return s.queryJobs(ctx, "SELECT "+jobCols+" FROM jobs ORDER BY name")
+}
+
+func (s *Store) JobsForAgent(ctx context.Context, agentID int64) ([]Job, error) {
+	return s.queryJobs(ctx, "SELECT "+jobCols+" FROM jobs WHERE agent_id=? ORDER BY id", agentID)
+}
+
+func (s *Store) queryJobs(ctx context.Context, q string, args ...any) ([]Job, error) {
+	rows, err := s.DB.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Job{}
+	for rows.Next() {
+		j, err := scanJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *j)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) DeleteJob(ctx context.Context, id int64) error {
+	_, err := s.DB.ExecContext(ctx, "DELETE FROM jobs WHERE id=?", id)
+	return err
+}
+
+func (s *Store) SetJobEnabled(ctx context.Context, id int64, enabled bool) error {
+	_, err := s.DB.ExecContext(ctx, "UPDATE jobs SET enabled=?, version=version+1 WHERE id=?", enabled, id)
+	return err
+}

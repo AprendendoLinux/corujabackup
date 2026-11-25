@@ -144,8 +144,14 @@ func TestCanalBatimentoOnlineERevogacao(t *testing.T) {
 		t.Fatal("agente deveria constar como online")
 	}
 	st.Send(&pb.AgentMessage{Body: &pb.AgentMessage_Heartbeat{Heartbeat: &pb.Heartbeat{UnixMs: 1}}})
-	if m, err := st.Recv(); err != nil || m.GetAck() == nil {
-		t.Fatalf("esperava Ack: %v %v", m, err)
+	for { // o Server também envia SyncJobs logo após o Welcome; o que importa é o Ack
+		m, err := st.Recv()
+		if err != nil {
+			t.Fatalf("esperava Ack: %v", err)
+		}
+		if m.GetAck() != nil {
+			break
+		}
 	}
 	a, _ := r.st.AgentByID(ctx, en.AgentId)
 	if a.Hostname != "novo-host" || a.Arch != "arm64" || !a.DockerAvailable || a.LastSeenAt == nil {
@@ -178,5 +184,115 @@ func TestPrimeiraMensagemPrecisaSerHello(t *testing.T) {
 	st.Send(&pb.AgentMessage{Body: &pb.AgentMessage_Heartbeat{Heartbeat: &pb.Heartbeat{}}})
 	if _, err := st.Recv(); status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("sem Hello deveria ser InvalidArgument: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------- Fase 2: agenda e relatórios pelo canal
+
+func TestAgendaChegaAoAgenteERelatorioEhGravadoEConfirmado(t *testing.T) {
+	r := newRig(t)
+	cli := pb.NewAgentServiceClient(dial(t, r.addr, r.fp))
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	en, _ := cli.Enroll(ctx, &pb.EnrollRequest{Token: r.newToken(t, "srv-j")})
+	jid, err := r.st.CreateJob(ctx, &store.Job{Name: "etc", AgentID: en.AgentId, Kind: "files", Enabled: true, Cron: "10 0 * * *", Timezone: "America/Sao_Paulo",
+		Paths: []string{"/etc"}, Excludes: []string{"*.tmp"}, DestSubdir: "etc", Keep: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, _ := cli.Connect(authCtx(ctx, en.AgentId, en.Credential))
+	st.Send(&pb.AgentMessage{Body: &pb.AgentMessage_Hello{Hello: &pb.Hello{AgentVersion: "0.0.2"}}})
+	var sync *pb.SyncJobs
+	for sync == nil {
+		m, err := st.Recv()
+		if err != nil {
+			t.Fatal(err)
+		}
+		sync = m.GetSyncJobs()
+	}
+	if len(sync.Jobs) != 1 || sync.Jobs[0].JobId != jid || sync.Jobs[0].Cron != "10 0 * * *" || sync.Jobs[0].Timezone != "America/Sao_Paulo" || sync.Jobs[0].Excludes[0] != "*.tmp" || sync.Jobs[0].Keep != 3 {
+		t.Fatalf("agenda recebida incorreta: %+v", sync.Jobs)
+	}
+	// o Server empurra a ordem de execução manual e o cancelamento
+	if err := r.srv.RunNow(en.AgentId, jid, "uid-manual"); err != nil {
+		t.Fatal(err)
+	}
+	if m, _ := st.Recv(); m.GetRunNow() == nil || m.GetRunNow().RunUid != "uid-manual" {
+		t.Fatalf("esperava RunNow: %v", m)
+	}
+	// relatório final do agente
+	now := time.Now().UnixMilli()
+	st.Send(&pb.AgentMessage{Body: &pb.AgentMessage_RunReport{RunReport: &pb.RunReport{RunUid: "uid-1", JobId: jid, State: pb.RunReport_FINISHED, Trigger: "schedule",
+		ScheduledForMs: now - 60000, StartedMs: now - 50000, FinishedMs: now, Status: "ok", BytesOutput: 99, Files: 5, Sha256: "abc", OutputName: "etc.tar.gz",
+		Logs: []*pb.LogLine{{Seq: 1, UnixMs: now, Level: "info", Text: "pronto"}}}}})
+	var ack *pb.ReportAck
+	for ack == nil {
+		m, err := st.Recv()
+		if err != nil {
+			t.Fatal(err)
+		}
+		ack = m.GetReportAck()
+	}
+	if ack.RunUid != "uid-1" {
+		t.Fatalf("ack para o uid errado: %v", ack)
+	}
+	run, err := r.st.RunByUID(ctx, "uid-1")
+	if err != nil || run.Status != "ok" || run.OutputName != "etc.tar.gz" || run.BytesOutput != 99 || run.JobName != "etc" {
+		t.Fatalf("execução gravada incorretamente: %+v %v", run, err)
+	}
+	if logs, _ := r.st.RunLogs(ctx, run.ID); len(logs) != 1 || logs[0].Text != "pronto" {
+		t.Fatalf("logs: %v", logs)
+	}
+	// reenvio do mesmo relatório (fila local) é idempotente e também confirmado
+	st.Send(&pb.AgentMessage{Body: &pb.AgentMessage_RunReport{RunReport: &pb.RunReport{RunUid: "uid-1", JobId: jid, State: pb.RunReport_FINISHED, Status: "ok", ScheduledForMs: now - 60000}}})
+	for ack = nil; ack == nil; {
+		m, _ := st.Recv()
+		ack = m.GetReportAck()
+	}
+	if rs, _ := r.st.ListRuns(ctx, jid, "", 10); len(rs) != 1 {
+		t.Fatalf("reenvio não pode duplicar: %d", len(rs))
+	}
+	// job inexistente: confirmado mesmo assim (reenviar não adiantaria)
+	st.Send(&pb.AgentMessage{Body: &pb.AgentMessage_RunReport{RunReport: &pb.RunReport{RunUid: "uid-2", JobId: 987654, State: pb.RunReport_FINISHED, Status: "ok"}}})
+	for ack = nil; ack == nil; {
+		m, _ := st.Recv()
+		ack = m.GetReportAck()
+	}
+	if ack.RunUid != "uid-2" {
+		t.Fatalf("%v", ack)
+	}
+}
+
+func TestRunNowComAgenteOfflineEPerdidos(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	if err := r.srv.RunNow(12345, 1, "u"); err != ErrOffline {
+		t.Fatalf("esperava ErrOffline: %v", err)
+	}
+	cli := pb.NewAgentServiceClient(dial(t, r.addr, r.fp))
+	en, _ := cli.Enroll(ctx, &pb.EnrollRequest{Token: r.newToken(t, "srv-m")})
+	jid, _ := r.st.CreateJob(ctx, &store.Job{Name: "m", AgentID: en.AgentId, Kind: "files", Enabled: true, Cron: "10 0 * * *", Timezone: "UTC", Paths: []string{"/etc"}, DestSubdir: "m", Keep: 1})
+	// empurra a edição do job para a "criação" no passado, para o horário 00:10 de ontem contar
+	r.st.DB.Exec("UPDATE jobs SET updated_at = ? WHERE id = ?", time.Now().UTC().Add(-72*time.Hour), jid)
+	now := time.Now().UTC()
+	r.srv.CheckMissed(ctx, now)
+	runs, _ := r.st.ListRuns(ctx, jid, "missed", 10)
+	if len(runs) == 0 || runs[0].Error == "" {
+		t.Fatalf("deveria registrar horários perdidos com o motivo: %+v", runs)
+	}
+	n := len(runs)
+	r.srv.CheckMissed(ctx, now) // idempotente
+	if again, _ := r.st.ListRuns(ctx, jid, "missed", 10); len(again) != n {
+		t.Fatalf("não pode duplicar perdidos: %d -> %d", n, len(again))
+	}
+	// se o agente recupera o atraso, a linha "missed" é adotada (vira a execução real)
+	last := runs[0]
+	err := r.st.ApplyReport(ctx, store.Report{UID: "recuperado", JobID: jid, AgentID: en.AgentId, ScheduledFor: *last.ScheduledFor, Final: true, Status: "ok", FinishedAt: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.st.RunByUID(ctx, "recuperado")
+	if err != nil || got.ID != last.ID || got.Status != "ok" {
+		t.Fatalf("a linha perdida deveria ser adotada: %+v %v", got, err)
 	}
 }

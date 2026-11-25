@@ -18,7 +18,7 @@ func TestPadroes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Listen != ":8080" || c.DBHost != "db" || c.DBName != "corujabackup" || c.DBUser != "corujabackup" || c.DBPort != "3306" {
+	if c.Listen != ":8080" || c.AgentListen != ":8443" || c.DataDir != "/data" || c.DBHost != "db" || c.DBName != "corujabackup" || c.DBUser != "corujabackup" || c.DBPort != "3306" {
 		t.Fatalf("padrões inesperados: %+v", c)
 	}
 }

@@ -11,7 +11,7 @@ RUN mkdir -p /src/internal/webui && npm run build
 
 # --- binários Go -----------------------------------------------------------------------------------------------------
 FROM golang:1.24-alpine AS gobuild
-ARG VERSION=0.0.1
+ARG VERSION=0.0.2
 WORKDIR /src
 COPY go.mod go.sum* ./
 RUN go mod download
@@ -24,25 +24,29 @@ RUN go build -trimpath -ldflags "-s -w -X github.com/AprendendoLinux/corujabacku
 
 # --- Server ------------------------------------------------------------------------------------------------------------
 FROM alpine:3.21 AS server
-ARG VERSION=0.0.1
+ARG VERSION=0.0.2
 LABEL org.opencontainers.image.title="Coruja Backup Server" \
       org.opencontainers.image.description="Backup centralizado: orquestração, agendamentos, nuvem e interface web" \
       org.opencontainers.image.source="https://github.com/AprendendoLinux/corujabackup" \
       org.opencontainers.image.version="${VERSION}" org.opencontainers.image.licenses="MIT"
 RUN apk add --no-cache ca-certificates tzdata && adduser -D -u 10001 coruja
 COPY --from=gobuild /out/coruja-server /usr/local/bin/coruja-server
+RUN mkdir -p /data && chown coruja /data
+VOLUME /data
 USER coruja
-EXPOSE 8080
+EXPOSE 8080 8443
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 CMD ["/usr/local/bin/coruja-server", "-healthcheck"]
 ENTRYPOINT ["/usr/local/bin/coruja-server"]
 
 # --- Agente ------------------------------------------------------------------------------------------------------------
 FROM alpine:3.21 AS agent
-ARG VERSION=0.0.1
+ARG VERSION=0.0.2
 LABEL org.opencontainers.image.title="Coruja Backup Agent" \
       org.opencontainers.image.description="Agente leve do Coruja Backup (conecta ao Server por IP:porta)" \
       org.opencontainers.image.source="https://github.com/AprendendoLinux/corujabackup" \
       org.opencontainers.image.version="${VERSION}" org.opencontainers.image.licenses="MIT"
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk add --no-cache ca-certificates tzdata && mkdir -p /var/lib/coruja-agent
 COPY --from=gobuild /out/coruja-agent /usr/local/bin/coruja-agent
+VOLUME /var/lib/coruja-agent
+# Roda como root: a Fase 2 precisa ler pastas do host (montadas somente leitura).
 ENTRYPOINT ["/usr/local/bin/coruja-agent"]

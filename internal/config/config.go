@@ -9,23 +9,29 @@ import (
 )
 
 type Config struct {
-	Listen     string // endereço de escuta HTTP/gRPC, padrão ":8080"
-	DBHost     string
-	DBPort     string
-	DBName     string
-	DBUser     string
-	DBPassword string
+	Listen      string // interface web e API REST, padrão ":8080" (fica atrás do proxy reverso, se houver)
+	AgentListen string // canal gRPC/TLS dos agentes, padrão ":8443"
+	DataDir     string // certificado TLS e dados locais, padrão "/data"
+	TrustProxy  bool   // confiar em X-Forwarded-For/Proto (só atrás de proxy reverso confiável)
+	DBHost      string
+	DBPort      string
+	DBName      string
+	DBUser      string
+	DBPassword  string
 }
 
 // Load lê o ambiente. Só CORUJA_DB_PASSWORD é obrigatória.
 func Load(getenv func(string) string) (Config, error) {
 	c := Config{
-		Listen:     or(getenv("CORUJA_LISTEN"), ":8080"),
-		DBHost:     or(getenv("CORUJA_DB_HOST"), "db"),
-		DBPort:     or(getenv("CORUJA_DB_PORT"), "3306"),
-		DBName:     or(getenv("CORUJA_DB_NAME"), "corujabackup"),
-		DBUser:     or(getenv("CORUJA_DB_USER"), "corujabackup"),
-		DBPassword: getenv("CORUJA_DB_PASSWORD"),
+		Listen:      or(getenv("CORUJA_LISTEN"), ":8080"),
+		AgentListen: or(getenv("CORUJA_AGENT_LISTEN"), ":8443"),
+		DataDir:     or(getenv("CORUJA_DATA_DIR"), "/data"),
+		TrustProxy:  strings.EqualFold(getenv("CORUJA_TRUST_PROXY"), "true"),
+		DBHost:      or(getenv("CORUJA_DB_HOST"), "db"),
+		DBPort:      or(getenv("CORUJA_DB_PORT"), "3306"),
+		DBName:      or(getenv("CORUJA_DB_NAME"), "corujabackup"),
+		DBUser:      or(getenv("CORUJA_DB_USER"), "corujabackup"),
+		DBPassword:  getenv("CORUJA_DB_PASSWORD"),
 	}
 	if strings.TrimSpace(c.DBPassword) == "" {
 		return c, fmt.Errorf("a variável CORUJA_DB_PASSWORD é obrigatória")
@@ -35,7 +41,7 @@ func Load(getenv func(string) string) (Config, error) {
 
 // DSN monta a string de conexão (sem expor a senha em logs: use Redacted para exibir).
 func (c Config) DSN() string {
-	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&loc=UTC&charset=utf8mb4&collation=utf8mb4_0900_ai_ci",
+	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&loc=UTC&charset=utf8mb4&collation=utf8mb4_0900_ai_ci&time_zone=%%27%%2B00%%3A00%%27",
 		c.DBUser, c.DBPassword, c.DBHost, c.DBPort, c.DBName)
 }
 

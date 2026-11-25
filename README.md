@@ -1,7 +1,7 @@
 # 🦉 Coruja Backup
 
 Sistema de backup **centralizado**, em Docker, gerenciado por **interface web**: um **Server** que orquestra tudo e
-**Agentes** leves nos servidores de destino. Fase atual: **0.0.1 (fundação)**; o projeto ainda não faz backups.
+**Agentes** leves nos servidores de destino. Fase atual: **0.0.2 (Fase 1: núcleo do Server)**; o projeto ainda não executa backups.
 
 ## Como funciona
 
@@ -28,14 +28,14 @@ docker compose -f docker-compose.server.yml up -d
 # abra http://IP_DO_SERVER:8080
 ```
 
-Única variável obrigatória: `CORUJA_DB_PASSWORD`. Opcionais: `CORUJA_DB_HOST` (padrão `db`), `CORUJA_DB_NAME`,
+Na primeira abertura a interface pede para criar o administrador. Única variável obrigatória: `CORUJA_DB_PASSWORD`. Opcionais: `CORUJA_AGENT_LISTEN` (padrão `:8443`), `CORUJA_DATA_DIR` (padrão `/data`), `CORUJA_TRUST_PROXY`, `CORUJA_DB_HOST` (padrão `db`), `CORUJA_DB_NAME`,
 `CORUJA_DB_USER`, `CORUJA_DB_PORT`, `CORUJA_LISTEN` (padrão `:8080`). Todo o resto é configurado na interface.
 
 ## Subir um Agente
 
 ```bash
 cd deploy
-# informe CORUJA_SERVER (IP:porta) e CORUJA_TOKEN (gerado na interface, a partir da Fase 1)
+# informe CORUJA_SERVER (IP:8443) e CORUJA_TOKEN (Agentes > Novo agente, na interface; o token vale uma vez)
 docker compose -f docker-compose.agent.yml up -d
 ```
 
@@ -47,10 +47,12 @@ O acesso ao `docker.sock` (para dumps dentro de contêineres de banco) é **opci
 cp docker-compose.dev.example.yml docker-compose.dev.yml   # ajuste a senha (arquivo ignorado pelo git)
 docker compose -f docker-compose.dev.yml up -d --build      # http://localhost:8081
 # testes Go (com um MySQL descartável em CORUJA_TEST_DSN para os de integração):
-docker run --rm -v "$PWD":/src -w /src golang:1.24-alpine go test ./...
+docker run --rm --network SUA_REDE -e CORUJA_TEST_DSN='usuario:senha@tcp(db:3306)/banco_de_teste?parseTime=true&loc=UTC' -v "$PWD":/src -w /src golang:1.24-alpine go test -p 1 ./...
+# ATENÇÃO: os testes de integração APAGAM as tabelas do banco indicado em CORUJA_TEST_DSN; use um banco descartável.
+./scripts/gen-proto.sh   # regenera internal/pb a partir de proto/ (só se mudar o .proto)
 ```
 
 Roteiro completo em [docs/ROADMAP.md](docs/ROADMAP.md); decisões em [docs/ARQUITETURA.md](docs/ARQUITETURA.md).
 
 ---
-Coruja Backup - Versão 0.0.1 - Desenvolvido por [Henrique Fagundes](https://henrique.tec.br) · Licença MIT
+Coruja Backup - Versão 0.0.2 - Desenvolvido por [Henrique Fagundes](https://henrique.tec.br) · Licença MIT

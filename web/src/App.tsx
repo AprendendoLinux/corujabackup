@@ -1,59 +1,92 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Logo from './Logo'
 import { THEMES, applyTheme, savedTheme } from './themes'
+import { Agent, User, api, ApiError, ROLE_LABEL } from './api'
+import { Card } from './ui'
+import { Login, Setup } from './pages/Auth'
+import Agents from './pages/Agents'
+import Users from './pages/Users'
+import Audit from './pages/Audit'
+import Account from './pages/Account'
 
-type Health = { status: string; database: boolean; version: string; uptime_seconds: number }
 type Branding = { name: string; theme: string }
+type Me = { user: User; recovery_codes_left: number; version: string }
+type Phase = 'loading' | 'setup' | 'login' | 'app'
+
+function useRoute() {
+  const get = () => (window.location.hash.replace(/^#\/?/, '') || 'painel')
+  const [r, setR] = useState(get)
+  useEffect(() => { const h = () => setR(get()); window.addEventListener('hashchange', h); return () => window.removeEventListener('hashchange', h) }, [])
+  return r
+}
 
 export default function App() {
-  const [health, setHealth] = useState<Health | null>(null)
-  const [error, setError] = useState(false)
   const [brand, setBrand] = useState<Branding>({ name: 'Coruja Backup', theme: 'coruja' })
   const [theme, setTheme] = useState('coruja')
+  const [phase, setPhase] = useState<Phase>('loading')
+  const [me, setMe] = useState<Me | null>(null)
+  const [version, setVersion] = useState('0.0.2')
+  const route = useRoute()
 
   useEffect(() => {
-    fetch('/api/branding').then((r) => r.json()).then((b: Branding) => {
-      setBrand(b)
-      setTheme(applyTheme(savedTheme() ?? b.theme))
-    }).catch(() => setTheme(applyTheme(savedTheme() ?? 'coruja')))
+    fetch('/api/branding').then((r) => r.json()).then((b: Branding) => { setBrand(b); setTheme(applyTheme(savedTheme() ?? b.theme)) })
+      .catch(() => setTheme(applyTheme(savedTheme() ?? 'coruja')))
+    fetch('/api/version').then((r) => r.json()).then((v) => setVersion(v.version)).catch(() => {})
   }, [])
 
-  useEffect(() => {
-    const load = () => fetch('/api/health').then((r) => r.json()).then((h: Health) => { setHealth(h); setError(false) }).catch(() => setError(true))
-    load()
-    const t = setInterval(load, 15000)
-    return () => clearInterval(t)
+  const refresh = useCallback(async () => {
+    try {
+      const m = await api<Me>('GET', '/api/me'); setMe(m); setPhase('app')
+    } catch (x) {
+      if ((x as ApiError).status !== 401) { setPhase('login'); return }
+      try {
+        const s = await api<{ needs_setup: boolean }>('GET', '/api/setup/status')
+        setPhase(s.needs_setup ? 'setup' : 'login')
+      } catch { setPhase('login') }
+    }
   }, [])
+  useEffect(() => { refresh() }, [refresh])
 
-  const version = health?.version ?? '0.0.1'
+  async function logout() { try { await api('POST', '/api/logout') } catch { /* ignora */ } setMe(null); setPhase('login'); window.location.hash = '' }
+
   return (
-    <div className="min-h-screen flex flex-col">
-      <header className="bg-surface border-b border-border">
-        <div className="mx-auto max-w-5xl px-4 py-3 flex items-center gap-3">
-          <Logo />
-          <span className="text-lg font-semibold">{brand.name}</span>
-          <label className="ml-auto flex items-center gap-2 text-sm text-muted">
-            Tema
-            <select
-              className="rounded-md border border-border bg-surface px-2 py-1 text-text"
-              value={theme}
-              onChange={(e) => setTheme(applyTheme(e.target.value))}
-            >
+    <div className="flex min-h-screen flex-col">
+      <header className="border-b border-border bg-surface">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+          <a href="#/" className="flex items-center gap-3"><Logo /><span className="text-lg font-semibold">{brand.name}</span></a>
+          {phase === 'app' && me && (
+            <nav className="ml-2 flex flex-wrap gap-1 text-sm" aria-label="Principal">
+              <NavLink to="painel" cur={route}>Painel</NavLink>
+              <NavLink to="agentes" cur={route}>Agentes</NavLink>
+              {me.user.role === 'admin' && <NavLink to="usuarios" cur={route}>Usuários</NavLink>}
+              {me.user.role === 'admin' && <NavLink to="auditoria" cur={route}>Auditoria</NavLink>}
+            </nav>
+          )}
+          <div className="ml-auto flex items-center gap-3 text-sm">
+            <select aria-label="Tema" className="rounded-md border border-border bg-surface px-2 py-1 text-text" value={theme} onChange={(e) => setTheme(applyTheme(e.target.value))}>
               {THEMES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
             </select>
-          </label>
+            {phase === 'app' && me && (
+              <>
+                <a href="#/conta" className="text-muted hover:text-text">{me.user.display_name || me.user.username} · {ROLE_LABEL[me.user.role]}</a>
+                <button className="text-primary hover:underline" onClick={logout}>Sair</button>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-10">
-        <h1 className="text-2xl font-semibold">Bem-vindo ao {brand.name}</h1>
-        <p className="mt-2 text-muted">Backup centralizado com agentes leves, nuvem e bancos de dados. A configuração será toda feita por aqui.</p>
-
-        <section className="mt-8 grid gap-4 sm:grid-cols-3" aria-label="Estado do sistema">
-          <Card title="Server" value={error ? 'Sem resposta' : health ? (health.status === 'ok' ? 'Online' : 'Degradado') : '…'} ok={!error && health?.status === 'ok'} />
-          <Card title="Banco de dados" value={health ? (health.database ? 'Conectado' : 'Indisponível') : '…'} ok={!!health?.database} />
-          <Card title="Agentes" value="Em breve" />
-        </section>
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8">
+        {phase === 'loading' && <p className="text-muted">Carregando…</p>}
+        {phase === 'setup' && <Setup onDone={refresh} />}
+        {phase === 'login' && <Login onDone={refresh} />}
+        {phase === 'app' && me && (
+          route === 'agentes' ? <Agents me={me.user} />
+          : route === 'usuarios' && me.user.role === 'admin' ? <Users me={me.user} />
+          : route === 'auditoria' && me.user.role === 'admin' ? <Audit />
+          : route === 'conta' ? <Account me={me.user} recoveryLeft={me.recovery_codes_left} reload={refresh} />
+          : <Dashboard name={brand.name} />
+        )}
       </main>
 
       <footer className="border-t border-border bg-surface py-4 text-center text-sm text-muted">
@@ -64,7 +97,45 @@ export default function App() {
   )
 }
 
-function Card({ title, value, ok }: { title: string; value: string; ok?: boolean }) {
+function NavLink({ to, cur, children }: { to: string; cur: string; children: React.ReactNode }) {
+  const active = cur === to
+  return <a href={`#/${to}`} aria-current={active ? 'page' : undefined} className={`rounded-md px-3 py-1.5 ${active ? 'bg-primary text-primary-contrast' : 'text-text hover:bg-bg'}`}>{children}</a>
+}
+
+type Health = { status: string; database: boolean }
+
+function Dashboard({ name }: { name: string }) {
+  const [health, setHealth] = useState<Health | null>(null)
+  const [agents, setAgents] = useState<Agent[] | null>(null)
+  useEffect(() => {
+    const load = () => {
+      fetch('/api/health').then((r) => r.json()).then(setHealth).catch(() => setHealth(null))
+      api<{ agents: Agent[] }>('GET', '/api/agents').then((r) => setAgents(r.agents)).catch(() => {})
+    }
+    load(); const t = setInterval(load, 10000); return () => clearInterval(t)
+  }, [])
+  const active = agents?.filter((a) => !a.revoked_at) ?? []
+  const online = active.filter((a) => a.online).length
+  return (
+    <div>
+      <h1 className="text-2xl font-semibold">Painel</h1>
+      <p className="mt-1 text-muted">Visão geral do {name}.</p>
+      <section className="mt-6 grid gap-4 sm:grid-cols-3" aria-label="Estado do sistema">
+        <Stat title="Server" value={health ? (health.status === 'ok' ? 'Online' : 'Degradado') : 'Sem resposta'} ok={health?.status === 'ok'} />
+        <Stat title="Banco de dados" value={health ? (health.database ? 'Conectado' : 'Indisponível') : '…'} ok={!!health?.database} />
+        <Stat title="Agentes online" value={agents ? `${online} de ${active.length}` : '…'} ok={agents ? (active.length === 0 ? undefined : online === active.length) : undefined} />
+      </section>
+      {agents && active.length === 0 && (
+        <Card className="mt-6">
+          <b>Comece adicionando um agente.</b>
+          <p className="mt-1 text-sm text-muted">Vá em <a className="text-primary underline" href="#/agentes">Agentes</a> e gere um token de matrícula para o primeiro servidor.</p>
+        </Card>
+      )}
+    </div>
+  )
+}
+
+function Stat({ title, value, ok }: { title: string; value: string; ok?: boolean }) {
   return (
     <div className="rounded-xl border border-border bg-surface p-4 shadow-sm">
       <div className="text-sm text-muted">{title}</div>

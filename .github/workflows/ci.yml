@@ -5,12 +5,21 @@ on:
 jobs:
   go:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env: { MYSQL_ROOT_PASSWORD: ci, MYSQL_DATABASE: coruja_test }
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 --silent" --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      CORUJA_TEST_DSN: "root:ci@tcp(127.0.0.1:3306)/coruja_test?parseTime=true&loc=UTC&charset=utf8mb4&time_zone=%27%2B00%3A00%27"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: { go-version: "1.24" }
       - run: go vet ./...
-      - run: go test ./...
+      - run: go test -p 1 ./...
   web:
     runs-on: ubuntu-latest
     steps:

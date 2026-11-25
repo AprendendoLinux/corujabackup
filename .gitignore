@@ -1,0 +1,10 @@
+# artefatos de build
+/bin/
+web/node_modules/
+internal/webui/dist/*
+!internal/webui/dist/.gitkeep
+# segredos / ambiente local (o compose de desenvolvimento real contém senha)
+docker-compose.dev.yml
+*.env
+*-db.txt
+.claude/

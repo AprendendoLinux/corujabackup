@@ -1,0 +1,37 @@
+# Coruja Backup · Server (produção). Só UMA variável: a senha do banco. O resto se configura na interface web.
+#   1) troque COLOQUE_UMA_SENHA_FORTE (nos dois lugares)   2) docker compose up -d   3) abra http://SEU_IP:8080
+services:
+  db:
+    image: mysql:latest
+    container_name: corujabackup-db
+    restart: always
+    environment:
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+      MYSQL_DATABASE: corujabackup
+      MYSQL_USER: corujabackup
+      MYSQL_PASSWORD: "COLOQUE_UMA_SENHA_FORTE"
+    volumes: [db-data:/var/lib/mysql]
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [echelon]
+
+  server:
+    image: ghcr.io/aprendendolinux/corujabackup-server:0.0.1
+    container_name: corujabackup-server
+    restart: always
+    depends_on:
+      db: { condition: service_healthy }
+    ports: ["8080:8080"]
+    environment:
+      CORUJA_DB_PASSWORD: "COLOQUE_UMA_SENHA_FORTE"
+    networks: [echelon]
+
+volumes:
+  db-data:
+
+networks:
+  echelon:
+    external: true

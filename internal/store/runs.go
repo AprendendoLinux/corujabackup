@@ -1,0 +1,321 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"time"
+)
+
+type Run struct {
+	ID           int64      `json:"id"`
+	UID          string     `json:"uid"`
+	JobID        int64      `json:"job_id"`
+	JobName      string     `json:"job_name"`
+	AgentID      int64      `json:"agent_id"`
+	AgentName    string     `json:"agent_name"`
+	Trigger      string     `json:"trigger"`
+	ScheduledFor *time.Time `json:"scheduled_for"`
+	Status       string     `json:"status"`
+	StartedAt    *time.Time `json:"started_at"`
+	FinishedAt   *time.Time `json:"finished_at"`
+	BytesSource  int64      `json:"bytes_source"`
+	BytesOutput  int64      `json:"bytes_output"`
+	Files        int64      `json:"files"`
+	SHA256       string     `json:"sha256"`
+	OutputName   string     `json:"output_name"`
+	Error        string     `json:"error"`
+	CreatedAt    time.Time  `json:"created_at"`
+}
+
+type RunLog struct {
+	Seq   int       `json:"seq"`
+	At    time.Time `json:"at"`
+	Level string    `json:"level"`
+	Text  string    `json:"text"`
+}
+
+const runSelect = `SELECT r.id, r.uid, r.job_id, j.name, r.agent_id, a.name, r.trigger_kind, r.scheduled_for, r.status, r.started_at, r.finished_at,
+  r.bytes_source, r.bytes_output, r.files, r.sha256, r.output_name, COALESCE(r.error,''), r.created_at
+  FROM runs r JOIN jobs j ON j.id=r.job_id JOIN agents a ON a.id=r.agent_id `
+
+func scanRun(r interface{ Scan(...any) error }) (*Run, error) {
+	var x Run
+	var sf, st, fi sql.NullTime
+	if err := r.Scan(&x.ID, &x.UID, &x.JobID, &x.JobName, &x.AgentID, &x.AgentName, &x.Trigger, &sf, &x.Status, &st, &fi,
+		&x.BytesSource, &x.BytesOutput, &x.Files, &x.SHA256, &x.OutputName, &x.Error, &x.CreatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	if sf.Valid {
+		x.ScheduledFor = &sf.Time
+	}
+	if st.Valid {
+		x.StartedAt = &st.Time
+	}
+	if fi.Valid {
+		x.FinishedAt = &fi.Time
+	}
+	return &x, nil
+}
+
+func IsFinal(status string) bool {
+	switch status {
+	case "ok", "warning", "failed", "canceled", "missed":
+		return true
+	}
+	return false
+}
+
+// CreateQueuedRun registra uma execução manual pedida pela interface (o agente a assume pelo run_uid).
+func (s *Store) CreateQueuedRun(ctx context.Context, uid string, jobID, agentID int64) error {
+	_, err := s.DB.ExecContext(ctx, "INSERT INTO runs (uid, job_id, agent_id, trigger_kind, status) VALUES (?,?,?, 'manual', 'queued')", uid, jobID, agentID)
+	return err
+}
+
+type Report struct {
+	UID          string
+	JobID        int64
+	AgentID      int64
+	Trigger      string
+	ScheduledFor time.Time // zero = nenhum
+	Final        bool
+	Started      bool
+	Status       string
+	StartedAt    time.Time
+	FinishedAt   time.Time
+	BytesSource  int64
+	BytesOutput  int64
+	Files        int64
+	SHA256       string
+	OutputName   string
+	Error        string
+	Logs         []RunLog
+}
+
+// ApplyReport grava (de forma idempotente) o que o agente informou. Nunca tira uma execução do estado final.
+func (s *Store) ApplyReport(ctx context.Context, r Report) error {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var jobAgent int64
+	if err := tx.QueryRowContext(ctx, "SELECT agent_id FROM jobs WHERE id=?", r.JobID).Scan(&jobAgent); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	if jobAgent != r.AgentID {
+		return ErrNotFound // um agente só relata jobs que são dele
+	}
+	var id int64
+	var cur string
+	err = tx.QueryRowContext(ctx, "SELECT id, status FROM runs WHERE uid=? FOR UPDATE", r.UID).Scan(&id, &cur)
+	if errors.Is(err, sql.ErrNoRows) {
+		var sched any
+		if !r.ScheduledFor.IsZero() {
+			sched = r.ScheduledFor.UTC()
+			// adota uma linha "missed" do mesmo horário (o agente recuperou o atraso)
+			var mid int64
+			e := tx.QueryRowContext(ctx, "SELECT id FROM runs WHERE job_id=? AND scheduled_for=? AND status='missed' FOR UPDATE", r.JobID, r.ScheduledFor.UTC()).Scan(&mid)
+			if e == nil {
+				if _, err := tx.ExecContext(ctx, "UPDATE runs SET uid=?, status='running', error=NULL WHERE id=?", r.UID, mid); err != nil {
+					return err
+				}
+				id, cur = mid, "running"
+			}
+		}
+		if id == 0 {
+			trig := r.Trigger
+			if trig != "manual" {
+				trig = "schedule"
+			}
+			res, err := tx.ExecContext(ctx, "INSERT INTO runs (uid, job_id, agent_id, trigger_kind, scheduled_for, status) VALUES (?,?,?,?,?, 'queued')", r.UID, r.JobID, r.AgentID, trig, sched)
+			if err != nil {
+				if isDup(err) { // outra execução do mesmo horário já existe: ignora o duplicado
+					return nil
+				}
+				return err
+			}
+			id, _ = res.LastInsertId()
+			cur = "queued"
+		}
+	} else if err != nil {
+		return err
+	}
+	if IsFinal(cur) && cur != "missed" {
+		return tx.Commit() // já finalizada: relatórios repetidos não alteram nada
+	}
+	if r.Started && !r.StartedAt.IsZero() {
+		if _, err := tx.ExecContext(ctx, "UPDATE runs SET status='running', started_at=? WHERE id=? AND status IN ('queued','running','missed')", r.StartedAt.UTC(), id); err != nil {
+			return err
+		}
+	}
+	if r.Final {
+		if _, err := tx.ExecContext(ctx, `UPDATE runs SET status=?, started_at=COALESCE(started_at, ?), finished_at=?, bytes_source=?, bytes_output=?, files=?, sha256=?, output_name=?, error=? WHERE id=?`,
+			r.Status, nullTime(r.StartedAt), nullTime(r.FinishedAt), r.BytesSource, r.BytesOutput, r.Files, r.SHA256, r.OutputName, nullStr(r.Error), id); err != nil {
+			return err
+		}
+	} else if r.BytesSource > 0 || r.Files > 0 {
+		if _, err := tx.ExecContext(ctx, "UPDATE runs SET bytes_source=?, bytes_output=?, files=? WHERE id=?", r.BytesSource, r.BytesOutput, r.Files, id); err != nil {
+			return err
+		}
+	}
+	for _, l := range r.Logs {
+		txt := l.Text
+		if len(txt) > 1000 {
+			txt = txt[:1000]
+		}
+		if _, err := tx.ExecContext(ctx, "INSERT IGNORE INTO run_logs (run_id, seq, at, level, text) VALUES (?,?,?,?,?)", id, l.Seq, l.At.UTC(), l.Level, txt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func nullTime(t time.Time) any {
+	if t.IsZero() {
+		return nil
+	}
+	return t.UTC()
+}
+
+func nullStr(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// MarkMissed registra um horário previsto que o agente não cumpriu (ignora se já existir execução desse horário).
+func (s *Store) MarkMissed(ctx context.Context, uid string, jobID, agentID int64, scheduledFor time.Time, reason string) error {
+	_, err := s.DB.ExecContext(ctx, "INSERT IGNORE INTO runs (uid, job_id, agent_id, trigger_kind, scheduled_for, status, error) VALUES (?,?,?, 'schedule', ?, 'missed', ?)",
+		uid, jobID, agentID, scheduledFor.UTC(), reason)
+	return err
+}
+
+func (s *Store) HasRunAt(ctx context.Context, jobID int64, scheduledFor time.Time) (bool, error) {
+	var n int
+	err := s.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM runs WHERE job_id=? AND scheduled_for=?", jobID, scheduledFor.UTC()).Scan(&n)
+	return n > 0, err
+}
+
+func (s *Store) GetRun(ctx context.Context, id int64) (*Run, error) {
+	return scanRun(s.DB.QueryRowContext(ctx, runSelect+"WHERE r.id=?", id))
+}
+
+func (s *Store) RunByUID(ctx context.Context, uid string) (*Run, error) {
+	return scanRun(s.DB.QueryRowContext(ctx, runSelect+"WHERE r.uid=?", uid))
+}
+
+func (s *Store) RunLogs(ctx context.Context, runID int64) ([]RunLog, error) {
+	rows, err := s.DB.QueryContext(ctx, "SELECT seq, at, level, text FROM run_logs WHERE run_id=? ORDER BY seq", runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []RunLog{}
+	for rows.Next() {
+		var l RunLog
+		if err := rows.Scan(&l.Seq, &l.At, &l.Level, &l.Text); err != nil {
+			return nil, err
+		}
+		out = append(out, l)
+	}
+	return out, rows.Err()
+}
+
+// ListRuns lista as execuções mais recentes (filtros opcionais: job e status).
+func (s *Store) ListRuns(ctx context.Context, jobID int64, status string, limit int) ([]Run, error) {
+	q, args := runSelect+"WHERE 1=1", []any{}
+	if jobID > 0 {
+		q += " AND r.job_id=?"
+		args = append(args, jobID)
+	}
+	if status != "" {
+		q += " AND r.status=?"
+		args = append(args, status)
+	}
+	q += " ORDER BY COALESCE(r.started_at, r.scheduled_for, r.created_at) DESC, r.id DESC LIMIT ?"
+	args = append(args, limit)
+	rows, err := s.DB.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Run{}
+	for rows.Next() {
+		x, err := scanRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *x)
+	}
+	return out, rows.Err()
+}
+
+// LastRuns devolve a execução mais recente de cada job.
+func (s *Store) LastRuns(ctx context.Context) (map[int64]Run, error) {
+	rows, err := s.DB.QueryContext(ctx, runSelect+"WHERE r.id = (SELECT MAX(id) FROM runs WHERE job_id=r.job_id)")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]Run{}
+	for rows.Next() {
+		x, err := scanRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		out[x.JobID] = *x
+	}
+	return out, rows.Err()
+}
+
+type RunStats struct {
+	OK, Warning, Failed, Missed, Running int
+}
+
+func (s *Store) StatsSince(ctx context.Context, since time.Time) (RunStats, error) {
+	var st RunStats
+	rows, err := s.DB.QueryContext(ctx, "SELECT status, COUNT(*) FROM runs WHERE created_at >= ? GROUP BY status", since.UTC())
+	if err != nil {
+		return st, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var k string
+		var n int
+		if err := rows.Scan(&k, &n); err != nil {
+			return st, err
+		}
+		switch k {
+		case "ok":
+			st.OK = n
+		case "warning":
+			st.Warning = n
+		case "failed":
+			st.Failed = n
+		case "missed":
+			st.Missed = n
+		case "running", "queued":
+			st.Running += n
+		}
+	}
+	return st, rows.Err()
+}
+
+func (s *Store) PurgeRuns(ctx context.Context, olderThan time.Time) error {
+	_, err := s.DB.ExecContext(ctx, "DELETE FROM runs WHERE created_at < ? AND status NOT IN ('queued','running')", olderThan.UTC())
+	return err
+}
+
+// DeleteQueuedRun desfaz o registro de uma execução manual que não chegou a ser entregue ao agente.
+func (s *Store) DeleteQueuedRun(ctx context.Context, uid string) error {
+	_, err := s.DB.ExecContext(ctx, "DELETE FROM runs WHERE uid=? AND status='queued'", uid)
+	return err
+}

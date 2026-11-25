@@ -125,13 +125,16 @@ function Created({ c, port }: { c: { token: string; name: string; expires_at: st
     environment:
       CORUJA_SERVER: "${addr}"
       CORUJA_TOKEN: "${c.token}"
+      CORUJA_HOST_ROOT: "/host"
     volumes:
       - agent-data:/var/lib/coruja-agent
+      - /:/host:ro                 # o que o agente pode salvar (somente leitura)
+      - /srv/coruja-backups:/backups   # onde os arquivos de backup são gravados
 volumes:
   agent-data:`
   const run = `docker run -d --name corujabackup-agent --restart always \\
-  -e CORUJA_SERVER="${addr}" -e CORUJA_TOKEN="${c.token}" \\
-  -v coruja-agent-data:/var/lib/coruja-agent \\
+  -e CORUJA_SERVER="${addr}" -e CORUJA_TOKEN="${c.token}" -e CORUJA_HOST_ROOT=/host \\
+  -v coruja-agent-data:/var/lib/coruja-agent -v /:/host:ro -v /srv/coruja-backups:/backups \\
   ghcr.io/aprendendolinux/corujabackup-agent:latest`
   return (
     <div className="space-y-4 text-sm">
@@ -147,7 +150,7 @@ volumes:
         <div className="mb-1 font-medium">Opção 2 · docker-compose.yml</div>
         <CopyBox text={compose} />
       </div>
-      <p className="text-muted">O agente se conecta de dentro para fora, em <b>{addr}</b> (porta do canal dos agentes). Libere essa porta para o servidor do agente.</p>
+      <p className="text-muted">O agente se conecta de dentro para fora, em <b>{addr}</b> (porta do canal dos agentes). Libere essa porta para o servidor do agente. O servidor é montado <b>somente leitura</b> em /host; os backups são gravados em /srv/coruja-backups.</p>
     </div>
   )
 }

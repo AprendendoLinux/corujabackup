@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.0.3] - Fase 2 · Agente e backups de arquivos
+- **Jobs de arquivos** cadastrados na interface: pastas/arquivos, exclusões (`*.tmp`, `*/data/cache/*`), agenda cron com
+  fuso horário, pasta de destino e quantidade de cópias a manter.
+- **O agente agenda sozinho:** o Server envia as definições e o agente dispara no horário, mesmo com o Server fora do ar.
+  Se ficou parado, recupera o último horário perdido (janela de 6 h). Um backup por vez; o mesmo job nunca roda em paralelo.
+- **Execução:** `.tar.gz` com nome datado, escrito em arquivo temporário e renomeado só no final; **verificação** (SHA-256 +
+  gzip + contagem de itens) antes de concluir; **retenção** só depois de verificado e só sobre arquivos do próprio job.
+  Pasta de destino confinada à área de backups do agente. Cancelamento não deixa arquivo parcial.
+- **Fila local de resultados:** o resultado (com o log completo) fica no disco do agente até o Server confirmar o recebimento
+  (idempotente por UUID). Horários que o agente não cumpriu aparecem como **Perdido** no histórico.
+- **Interface:** páginas **Jobs** (criar/editar/pausar/executar agora/excluir) e **Histórico** (filtros, detalhe com log,
+  cancelar), estatísticas das últimas 24 h no Painel.
+
 ## [0.0.2] - Fase 1 · Núcleo do Server
 - **Login e perfis:** configuração inicial (primeiro administrador), login com senha (argon2id), sessões por cookie
   `HttpOnly`/`SameSite=Strict`, perfis Administrador, Operador e Somente leitura, gestão de usuários, troca de senha.

@@ -5,6 +5,8 @@ import { Agent, User, api, ApiError, ROLE_LABEL } from './api'
 import { Card } from './ui'
 import { Login, Setup } from './pages/Auth'
 import Agents from './pages/Agents'
+import Jobs from './pages/Jobs'
+import Runs from './pages/Runs'
 import Users from './pages/Users'
 import Audit from './pages/Audit'
 import Account from './pages/Account'
@@ -25,7 +27,7 @@ export default function App() {
   const [theme, setTheme] = useState('coruja')
   const [phase, setPhase] = useState<Phase>('loading')
   const [me, setMe] = useState<Me | null>(null)
-  const [version, setVersion] = useState('0.0.2')
+  const [version, setVersion] = useState('0.0.3')
   const route = useRoute()
 
   useEffect(() => {
@@ -58,6 +60,8 @@ export default function App() {
             <nav className="ml-2 flex flex-wrap gap-1 text-sm" aria-label="Principal">
               <NavLink to="painel" cur={route}>Painel</NavLink>
               <NavLink to="agentes" cur={route}>Agentes</NavLink>
+              <NavLink to="jobs" cur={route}>Jobs</NavLink>
+              <NavLink to="historico" cur={route}>Histórico</NavLink>
               {me.user.role === 'admin' && <NavLink to="usuarios" cur={route}>Usuários</NavLink>}
               {me.user.role === 'admin' && <NavLink to="auditoria" cur={route}>Auditoria</NavLink>}
             </nav>
@@ -82,6 +86,8 @@ export default function App() {
         {phase === 'login' && <Login onDone={refresh} />}
         {phase === 'app' && me && (
           route === 'agentes' ? <Agents me={me.user} />
+          : route === 'jobs' ? <Jobs me={me.user} />
+          : route.split('?')[0] === 'historico' ? <Runs me={me.user} jobFilter={Number(new URLSearchParams(route.split('?')[1] ?? '').get('job') ?? 0)} />
           : route === 'usuarios' && me.user.role === 'admin' ? <Users me={me.user} />
           : route === 'auditoria' && me.user.role === 'admin' ? <Audit />
           : route === 'conta' ? <Account me={me.user} recoveryLeft={me.recovery_codes_left} reload={refresh} />
@@ -98,7 +104,7 @@ export default function App() {
 }
 
 function NavLink({ to, cur, children }: { to: string; cur: string; children: React.ReactNode }) {
-  const active = cur === to
+  const active = cur.split('?')[0] === to
   return <a href={`#/${to}`} aria-current={active ? 'page' : undefined} className={`rounded-md px-3 py-1.5 ${active ? 'bg-primary text-primary-contrast' : 'text-text hover:bg-bg'}`}>{children}</a>
 }
 
@@ -107,8 +113,10 @@ type Health = { status: string; database: boolean }
 function Dashboard({ name }: { name: string }) {
   const [health, setHealth] = useState<Health | null>(null)
   const [agents, setAgents] = useState<Agent[] | null>(null)
+  const [stats, setStats] = useState<{ last_24h: Record<string, number>; jobs: number } | null>(null)
   useEffect(() => {
     const load = () => {
+      api<{ last_24h: Record<string, number>; jobs: number }>('GET', '/api/stats').then(setStats).catch(() => {})
       fetch('/api/health').then((r) => r.json()).then(setHealth).catch(() => setHealth(null))
       api<{ agents: Agent[] }>('GET', '/api/agents').then((r) => setAgents(r.agents)).catch(() => {})
     }
@@ -125,6 +133,14 @@ function Dashboard({ name }: { name: string }) {
         <Stat title="Banco de dados" value={health ? (health.database ? 'Conectado' : 'Indisponível') : '…'} ok={!!health?.database} />
         <Stat title="Agentes online" value={agents ? `${online} de ${active.length}` : '…'} ok={agents ? (active.length === 0 ? undefined : online === active.length) : undefined} />
       </section>
+      {stats && (
+        <section className="mt-4 grid gap-4 sm:grid-cols-4" aria-label="Backups nas últimas 24 horas">
+          <Stat title="Jobs cadastrados" value={String(stats.jobs)} />
+          <Stat title="Sucesso (24 h)" value={String(stats.last_24h.ok + stats.last_24h.warning)} ok={stats.last_24h.failed + stats.last_24h.missed === 0} />
+          <Stat title="Falhas / perdidos (24 h)" value={String(stats.last_24h.failed + stats.last_24h.missed)} ok={stats.last_24h.failed + stats.last_24h.missed === 0} />
+          <Stat title="Em execução" value={String(stats.last_24h.running)} />
+        </section>
+      )}
       {agents && active.length === 0 && (
         <Card className="mt-6">
           <b>Comece adicionando um agente.</b>

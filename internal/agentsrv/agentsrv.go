@@ -50,6 +50,83 @@ type Server struct {
 	online map[int64]*conn
 }
 
+var ErrOffline = errors.New("o agente está offline")
+
+// SpecFromJob converte um job do banco na definição enviada ao agente.
+func SpecFromJob(j store.Job) *pb.JobSpec {
+	return &pb.JobSpec{JobId: j.ID, Name: j.Name, Kind: j.Kind, Enabled: j.Enabled, Cron: j.Cron, Timezone: j.Timezone,
+		Paths: j.Paths, Excludes: j.Excludes, DestSubdir: j.DestSubdir, Keep: int32(j.Keep), Version: int32(j.Version)}
+}
+
+func (s *Server) enqueue(agentID int64, m *pb.ServerMessage) error {
+	s.mu.Lock()
+	c := s.online[agentID]
+	s.mu.Unlock()
+	if c == nil {
+		return ErrOffline
+	}
+	select {
+	case c.send <- m:
+		return nil
+	case <-time.After(3 * time.Second):
+		return errors.New("fila do agente cheia")
+	}
+}
+
+// PushJobs envia o conjunto completo de jobs do agente (se estiver online). Sem efeito se estiver offline: ele
+// recebe tudo ao reconectar.
+func (s *Server) PushJobs(ctx context.Context, agentID int64) {
+	jobs, err := s.Store.JobsForAgent(ctx, agentID)
+	if err != nil {
+		return
+	}
+	specs := make([]*pb.JobSpec, 0, len(jobs))
+	for _, j := range jobs {
+		specs = append(specs, SpecFromJob(j))
+	}
+	_ = s.enqueue(agentID, &pb.ServerMessage{Body: &pb.ServerMessage_SyncJobs{SyncJobs: &pb.SyncJobs{Jobs: specs}}})
+}
+
+// RunNow pede ao agente que execute o job agora (ErrOffline se ele não estiver conectado).
+func (s *Server) RunNow(agentID, jobID int64, runUID string) error {
+	return s.enqueue(agentID, &pb.ServerMessage{Body: &pb.ServerMessage_RunNow{RunNow: &pb.RunNow{JobId: jobID, RunUid: runUID}}})
+}
+
+func (s *Server) CancelRun(agentID int64, runUID string) error {
+	return s.enqueue(agentID, &pb.ServerMessage{Body: &pb.ServerMessage_CancelRun{CancelRun: &pb.CancelRun{RunUid: runUID}}})
+}
+
+func reportFrom(agentID int64, r *pb.RunReport) store.Report {
+	ms := func(v int64) time.Time {
+		if v <= 0 {
+			return time.Time{}
+		}
+		return time.UnixMilli(v).UTC()
+	}
+	out := store.Report{UID: r.RunUid, JobID: r.JobId, AgentID: agentID, Trigger: r.Trigger, ScheduledFor: ms(r.ScheduledForMs),
+		Final: r.State == pb.RunReport_FINISHED, Started: r.State == pb.RunReport_STARTED || r.StartedMs > 0,
+		Status: r.Status, StartedAt: ms(r.StartedMs), FinishedAt: ms(r.FinishedMs), BytesSource: r.BytesSource, BytesOutput: r.BytesOutput,
+		Files: r.Files, SHA256: clip(r.Sha256, 64), OutputName: clip(r.OutputName, 255), Error: clip(r.Error, 4000)}
+	switch out.Status {
+	case "ok", "warning", "failed", "canceled":
+	default:
+		if out.Final {
+			out.Status = "failed"
+		}
+	}
+	for i, l := range r.Logs {
+		if i >= 3000 {
+			break
+		}
+		lv := l.Level
+		if lv != "warn" && lv != "error" {
+			lv = "info"
+		}
+		out.Logs = append(out.Logs, store.RunLog{Seq: int(l.Seq), At: ms(l.UnixMs), Level: lv, Text: l.Text})
+	}
+	return out
+}
+
 func New(st *store.Store, version string) *Server {
 	return &Server{Store: st, ServerVersion: version, Limiter: ratelimit.New(10, 10*time.Minute), online: map[int64]*conn{}}
 }
@@ -229,6 +306,7 @@ func (s *Server) Connect(stream pb.AgentService_ConnectServer) error {
 	if err := stream.Send(&pb.ServerMessage{Body: &pb.ServerMessage_Welcome{Welcome: &pb.Welcome{ServerVersion: s.ServerVersion, HeartbeatSeconds: HeartbeatSeconds}}}); err != nil {
 		return err
 	}
+	s.PushJobs(ctx, a.ID)
 	// escritor: tudo o que o Server envia passa por aqui (stream.Send não é seguro em paralelo)
 	errc := make(chan error, 1)
 	go func() {
@@ -272,6 +350,19 @@ func (s *Server) Connect(stream pb.AgentService_ConnectServer) error {
 				}
 			}
 			idle.Reset(idleTimeout)
+			if rr := m.GetRunReport(); rr != nil {
+				err := s.Store.ApplyReport(ctx, reportFrom(a.ID, rr))
+				if err != nil {
+					slog.Warn("relatório de execução não gravado", "agente", a.ID, "execução", rr.RunUid, "erro", err.Error())
+				}
+				// confirma quando gravou ou quando o job não existe mais (reenviar não adiantaria); erro de banco => sem ack, o agente reenvia
+				if rr.State == pb.RunReport_FINISHED && (err == nil || errors.Is(err, store.ErrNotFound)) {
+					select {
+					case c.send <- &pb.ServerMessage{Body: &pb.ServerMessage_ReportAck{ReportAck: &pb.ReportAck{RunUid: rr.RunUid}}}:
+					default:
+					}
+				}
+			}
 			if hb := m.GetHeartbeat(); hb != nil {
 				_ = s.Store.Seen(ctx, a.ID)
 				select {

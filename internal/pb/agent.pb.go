@@ -21,6 +21,55 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type RunReport_State int32
+
+const (
+	RunReport_STARTED  RunReport_State = 0
+	RunReport_PROGRESS RunReport_State = 1
+	RunReport_FINISHED RunReport_State = 2
+)
+
+// Enum value maps for RunReport_State.
+var (
+	RunReport_State_name = map[int32]string{
+		0: "STARTED",
+		1: "PROGRESS",
+		2: "FINISHED",
+	}
+	RunReport_State_value = map[string]int32{
+		"STARTED":  0,
+		"PROGRESS": 1,
+		"FINISHED": 2,
+	}
+)
+
+func (x RunReport_State) Enum() *RunReport_State {
+	p := new(RunReport_State)
+	*p = x
+	return p
+}
+
+func (x RunReport_State) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RunReport_State) Descriptor() protoreflect.EnumDescriptor {
+	return file_coruja_v1_agent_proto_enumTypes[0].Descriptor()
+}
+
+func (RunReport_State) Type() protoreflect.EnumType {
+	return &file_coruja_v1_agent_proto_enumTypes[0]
+}
+
+func (x RunReport_State) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RunReport_State.Descriptor instead.
+func (RunReport_State) EnumDescriptor() ([]byte, []int) {
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{15, 0}
+}
+
 type EnrollRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Token         string                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
@@ -163,6 +212,7 @@ type AgentMessage struct {
 	//
 	//	*AgentMessage_Hello
 	//	*AgentMessage_Heartbeat
+	//	*AgentMessage_RunReport
 	Body          isAgentMessage_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -223,6 +273,15 @@ func (x *AgentMessage) GetHeartbeat() *Heartbeat {
 	return nil
 }
 
+func (x *AgentMessage) GetRunReport() *RunReport {
+	if x != nil {
+		if x, ok := x.Body.(*AgentMessage_RunReport); ok {
+			return x.RunReport
+		}
+	}
+	return nil
+}
+
 type isAgentMessage_Body interface {
 	isAgentMessage_Body()
 }
@@ -235,9 +294,15 @@ type AgentMessage_Heartbeat struct {
 	Heartbeat *Heartbeat `protobuf:"bytes,2,opt,name=heartbeat,proto3,oneof"`
 }
 
+type AgentMessage_RunReport struct {
+	RunReport *RunReport `protobuf:"bytes,3,opt,name=run_report,json=runReport,proto3,oneof"`
+}
+
 func (*AgentMessage_Hello) isAgentMessage_Body() {}
 
 func (*AgentMessage_Heartbeat) isAgentMessage_Body() {}
+
+func (*AgentMessage_RunReport) isAgentMessage_Body() {}
 
 type Hello struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
@@ -382,6 +447,10 @@ type ServerMessage struct {
 	//	*ServerMessage_Welcome
 	//	*ServerMessage_Ack
 	//	*ServerMessage_Revoked
+	//	*ServerMessage_SyncJobs
+	//	*ServerMessage_RunNow
+	//	*ServerMessage_CancelRun
+	//	*ServerMessage_ReportAck
 	Body          isServerMessage_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -451,6 +520,42 @@ func (x *ServerMessage) GetRevoked() *Revoked {
 	return nil
 }
 
+func (x *ServerMessage) GetSyncJobs() *SyncJobs {
+	if x != nil {
+		if x, ok := x.Body.(*ServerMessage_SyncJobs); ok {
+			return x.SyncJobs
+		}
+	}
+	return nil
+}
+
+func (x *ServerMessage) GetRunNow() *RunNow {
+	if x != nil {
+		if x, ok := x.Body.(*ServerMessage_RunNow); ok {
+			return x.RunNow
+		}
+	}
+	return nil
+}
+
+func (x *ServerMessage) GetCancelRun() *CancelRun {
+	if x != nil {
+		if x, ok := x.Body.(*ServerMessage_CancelRun); ok {
+			return x.CancelRun
+		}
+	}
+	return nil
+}
+
+func (x *ServerMessage) GetReportAck() *ReportAck {
+	if x != nil {
+		if x, ok := x.Body.(*ServerMessage_ReportAck); ok {
+			return x.ReportAck
+		}
+	}
+	return nil
+}
+
 type isServerMessage_Body interface {
 	isServerMessage_Body()
 }
@@ -467,11 +572,35 @@ type ServerMessage_Revoked struct {
 	Revoked *Revoked `protobuf:"bytes,3,opt,name=revoked,proto3,oneof"`
 }
 
+type ServerMessage_SyncJobs struct {
+	SyncJobs *SyncJobs `protobuf:"bytes,4,opt,name=sync_jobs,json=syncJobs,proto3,oneof"`
+}
+
+type ServerMessage_RunNow struct {
+	RunNow *RunNow `protobuf:"bytes,5,opt,name=run_now,json=runNow,proto3,oneof"`
+}
+
+type ServerMessage_CancelRun struct {
+	CancelRun *CancelRun `protobuf:"bytes,6,opt,name=cancel_run,json=cancelRun,proto3,oneof"`
+}
+
+type ServerMessage_ReportAck struct {
+	ReportAck *ReportAck `protobuf:"bytes,7,opt,name=report_ack,json=reportAck,proto3,oneof"`
+}
+
 func (*ServerMessage_Welcome) isServerMessage_Body() {}
 
 func (*ServerMessage_Ack) isServerMessage_Body() {}
 
 func (*ServerMessage_Revoked) isServerMessage_Body() {}
+
+func (*ServerMessage_SyncJobs) isServerMessage_Body() {}
+
+func (*ServerMessage_RunNow) isServerMessage_Body() {}
+
+func (*ServerMessage_CancelRun) isServerMessage_Body() {}
+
+func (*ServerMessage_ReportAck) isServerMessage_Body() {}
 
 type Welcome struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
@@ -613,6 +742,550 @@ func (x *Revoked) GetReason() string {
 	return ""
 }
 
+// JobSpec é a definição completa de um job. O Server envia o conjunto inteiro (snapshot) e o agente agenda sozinho:
+// se o Server estiver fora no horário, o backup roda mesmo assim e o resultado fica na fila local até reconectar.
+type JobSpec struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	JobId         int64                  `protobuf:"varint,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Kind          string                 `protobuf:"bytes,3,opt,name=kind,proto3" json:"kind,omitempty"` // "files"
+	Enabled       bool                   `protobuf:"varint,4,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	Cron          string                 `protobuf:"bytes,5,opt,name=cron,proto3" json:"cron,omitempty"`                               // 5 campos (minuto hora dia mês dia-da-semana)
+	Timezone      string                 `protobuf:"bytes,6,opt,name=timezone,proto3" json:"timezone,omitempty"`                       // ex.: America/Sao_Paulo
+	Paths         []string               `protobuf:"bytes,7,rep,name=paths,proto3" json:"paths,omitempty"`                             // pastas/arquivos a salvar (caminhos do servidor)
+	Excludes      []string               `protobuf:"bytes,8,rep,name=excludes,proto3" json:"excludes,omitempty"`                       // padrões excluídos (* casa qualquer coisa, inclusive "/")
+	DestSubdir    string                 `protobuf:"bytes,9,opt,name=dest_subdir,json=destSubdir,proto3" json:"dest_subdir,omitempty"` // subpasta dentro da pasta de backups do agente (nunca caminho absoluto)
+	Keep          int32                  `protobuf:"varint,10,opt,name=keep,proto3" json:"keep,omitempty"`                             // quantas cópias manter no destino local (após verificar)
+	Version       int32                  `protobuf:"varint,11,opt,name=version,proto3" json:"version,omitempty"`                       // muda a cada edição (o agente descarta agendas antigas)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *JobSpec) Reset() {
+	*x = JobSpec{}
+	mi := &file_coruja_v1_agent_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JobSpec) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JobSpec) ProtoMessage() {}
+
+func (x *JobSpec) ProtoReflect() protoreflect.Message {
+	mi := &file_coruja_v1_agent_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JobSpec.ProtoReflect.Descriptor instead.
+func (*JobSpec) Descriptor() ([]byte, []int) {
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *JobSpec) GetJobId() int64 {
+	if x != nil {
+		return x.JobId
+	}
+	return 0
+}
+
+func (x *JobSpec) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *JobSpec) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *JobSpec) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *JobSpec) GetCron() string {
+	if x != nil {
+		return x.Cron
+	}
+	return ""
+}
+
+func (x *JobSpec) GetTimezone() string {
+	if x != nil {
+		return x.Timezone
+	}
+	return ""
+}
+
+func (x *JobSpec) GetPaths() []string {
+	if x != nil {
+		return x.Paths
+	}
+	return nil
+}
+
+func (x *JobSpec) GetExcludes() []string {
+	if x != nil {
+		return x.Excludes
+	}
+	return nil
+}
+
+func (x *JobSpec) GetDestSubdir() string {
+	if x != nil {
+		return x.DestSubdir
+	}
+	return ""
+}
+
+func (x *JobSpec) GetKeep() int32 {
+	if x != nil {
+		return x.Keep
+	}
+	return 0
+}
+
+func (x *JobSpec) GetVersion() int32 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+type SyncJobs struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Jobs          []*JobSpec             `protobuf:"bytes,1,rep,name=jobs,proto3" json:"jobs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SyncJobs) Reset() {
+	*x = SyncJobs{}
+	mi := &file_coruja_v1_agent_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SyncJobs) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SyncJobs) ProtoMessage() {}
+
+func (x *SyncJobs) ProtoReflect() protoreflect.Message {
+	mi := &file_coruja_v1_agent_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SyncJobs.ProtoReflect.Descriptor instead.
+func (*SyncJobs) Descriptor() ([]byte, []int) {
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *SyncJobs) GetJobs() []*JobSpec {
+	if x != nil {
+		return x.Jobs
+	}
+	return nil
+}
+
+type RunNow struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	JobId         int64                  `protobuf:"varint,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	RunUid        string                 `protobuf:"bytes,2,opt,name=run_uid,json=runUid,proto3" json:"run_uid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RunNow) Reset() {
+	*x = RunNow{}
+	mi := &file_coruja_v1_agent_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunNow) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunNow) ProtoMessage() {}
+
+func (x *RunNow) ProtoReflect() protoreflect.Message {
+	mi := &file_coruja_v1_agent_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunNow.ProtoReflect.Descriptor instead.
+func (*RunNow) Descriptor() ([]byte, []int) {
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *RunNow) GetJobId() int64 {
+	if x != nil {
+		return x.JobId
+	}
+	return 0
+}
+
+func (x *RunNow) GetRunUid() string {
+	if x != nil {
+		return x.RunUid
+	}
+	return ""
+}
+
+type CancelRun struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RunUid        string                 `protobuf:"bytes,1,opt,name=run_uid,json=runUid,proto3" json:"run_uid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CancelRun) Reset() {
+	*x = CancelRun{}
+	mi := &file_coruja_v1_agent_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelRun) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelRun) ProtoMessage() {}
+
+func (x *CancelRun) ProtoReflect() protoreflect.Message {
+	mi := &file_coruja_v1_agent_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelRun.ProtoReflect.Descriptor instead.
+func (*CancelRun) Descriptor() ([]byte, []int) {
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *CancelRun) GetRunUid() string {
+	if x != nil {
+		return x.RunUid
+	}
+	return ""
+}
+
+type ReportAck struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RunUid        string                 `protobuf:"bytes,1,opt,name=run_uid,json=runUid,proto3" json:"run_uid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReportAck) Reset() {
+	*x = ReportAck{}
+	mi := &file_coruja_v1_agent_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReportAck) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReportAck) ProtoMessage() {}
+
+func (x *ReportAck) ProtoReflect() protoreflect.Message {
+	mi := &file_coruja_v1_agent_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReportAck.ProtoReflect.Descriptor instead.
+func (*ReportAck) Descriptor() ([]byte, []int) {
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ReportAck) GetRunUid() string {
+	if x != nil {
+		return x.RunUid
+	}
+	return ""
+}
+
+type LogLine struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Seq           int32                  `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`
+	UnixMs        int64                  `protobuf:"varint,2,opt,name=unix_ms,json=unixMs,proto3" json:"unix_ms,omitempty"`
+	Level         string                 `protobuf:"bytes,3,opt,name=level,proto3" json:"level,omitempty"`
+	Text          string                 `protobuf:"bytes,4,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LogLine) Reset() {
+	*x = LogLine{}
+	mi := &file_coruja_v1_agent_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LogLine) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LogLine) ProtoMessage() {}
+
+func (x *LogLine) ProtoReflect() protoreflect.Message {
+	mi := &file_coruja_v1_agent_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LogLine.ProtoReflect.Descriptor instead.
+func (*LogLine) Descriptor() ([]byte, []int) {
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *LogLine) GetSeq() int32 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
+
+func (x *LogLine) GetUnixMs() int64 {
+	if x != nil {
+		return x.UnixMs
+	}
+	return 0
+}
+
+func (x *LogLine) GetLevel() string {
+	if x != nil {
+		return x.Level
+	}
+	return ""
+}
+
+func (x *LogLine) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+// RunReport é idempotente: o Server faz "upsert" por run_uid. FINISHED carrega o log completo e entra na fila local
+// do agente até receber ReportAck.
+type RunReport struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	RunUid         string                 `protobuf:"bytes,1,opt,name=run_uid,json=runUid,proto3" json:"run_uid,omitempty"`
+	JobId          int64                  `protobuf:"varint,2,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	State          RunReport_State        `protobuf:"varint,3,opt,name=state,proto3,enum=coruja.v1.RunReport_State" json:"state,omitempty"`
+	Trigger        string                 `protobuf:"bytes,4,opt,name=trigger,proto3" json:"trigger,omitempty"`                                        // "schedule" | "manual"
+	ScheduledForMs int64                  `protobuf:"varint,5,opt,name=scheduled_for_ms,json=scheduledForMs,proto3" json:"scheduled_for_ms,omitempty"` // horário previsto (agendados); 0 nos manuais
+	StartedMs      int64                  `protobuf:"varint,6,opt,name=started_ms,json=startedMs,proto3" json:"started_ms,omitempty"`
+	FinishedMs     int64                  `protobuf:"varint,7,opt,name=finished_ms,json=finishedMs,proto3" json:"finished_ms,omitempty"`
+	Status         string                 `protobuf:"bytes,8,opt,name=status,proto3" json:"status,omitempty"` // FINISHED: "ok" | "warning" | "failed" | "canceled"
+	BytesSource    int64                  `protobuf:"varint,9,opt,name=bytes_source,json=bytesSource,proto3" json:"bytes_source,omitempty"`
+	BytesOutput    int64                  `protobuf:"varint,10,opt,name=bytes_output,json=bytesOutput,proto3" json:"bytes_output,omitempty"`
+	Files          int64                  `protobuf:"varint,11,opt,name=files,proto3" json:"files,omitempty"`
+	Sha256         string                 `protobuf:"bytes,12,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	OutputName     string                 `protobuf:"bytes,13,opt,name=output_name,json=outputName,proto3" json:"output_name,omitempty"`
+	Error          string                 `protobuf:"bytes,14,opt,name=error,proto3" json:"error,omitempty"`
+	Logs           []*LogLine             `protobuf:"bytes,15,rep,name=logs,proto3" json:"logs,omitempty"`
+	JobVersion     int32                  `protobuf:"varint,16,opt,name=job_version,json=jobVersion,proto3" json:"job_version,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *RunReport) Reset() {
+	*x = RunReport{}
+	mi := &file_coruja_v1_agent_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunReport) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunReport) ProtoMessage() {}
+
+func (x *RunReport) ProtoReflect() protoreflect.Message {
+	mi := &file_coruja_v1_agent_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunReport.ProtoReflect.Descriptor instead.
+func (*RunReport) Descriptor() ([]byte, []int) {
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *RunReport) GetRunUid() string {
+	if x != nil {
+		return x.RunUid
+	}
+	return ""
+}
+
+func (x *RunReport) GetJobId() int64 {
+	if x != nil {
+		return x.JobId
+	}
+	return 0
+}
+
+func (x *RunReport) GetState() RunReport_State {
+	if x != nil {
+		return x.State
+	}
+	return RunReport_STARTED
+}
+
+func (x *RunReport) GetTrigger() string {
+	if x != nil {
+		return x.Trigger
+	}
+	return ""
+}
+
+func (x *RunReport) GetScheduledForMs() int64 {
+	if x != nil {
+		return x.ScheduledForMs
+	}
+	return 0
+}
+
+func (x *RunReport) GetStartedMs() int64 {
+	if x != nil {
+		return x.StartedMs
+	}
+	return 0
+}
+
+func (x *RunReport) GetFinishedMs() int64 {
+	if x != nil {
+		return x.FinishedMs
+	}
+	return 0
+}
+
+func (x *RunReport) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *RunReport) GetBytesSource() int64 {
+	if x != nil {
+		return x.BytesSource
+	}
+	return 0
+}
+
+func (x *RunReport) GetBytesOutput() int64 {
+	if x != nil {
+		return x.BytesOutput
+	}
+	return 0
+}
+
+func (x *RunReport) GetFiles() int64 {
+	if x != nil {
+		return x.Files
+	}
+	return 0
+}
+
+func (x *RunReport) GetSha256() string {
+	if x != nil {
+		return x.Sha256
+	}
+	return ""
+}
+
+func (x *RunReport) GetOutputName() string {
+	if x != nil {
+		return x.OutputName
+	}
+	return ""
+}
+
+func (x *RunReport) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *RunReport) GetLogs() []*LogLine {
+	if x != nil {
+		return x.Logs
+	}
+	return nil
+}
+
+func (x *RunReport) GetJobVersion() int32 {
+	if x != nil {
+		return x.JobVersion
+	}
+	return 0
+}
+
 var File_coruja_v1_agent_proto protoreflect.FileDescriptor
 
 const file_coruja_v1_agent_proto_rawDesc = "" +
@@ -629,10 +1302,12 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"credential\x18\x02 \x01(\tR\n" +
 	"credential\x12%\n" +
-	"\x0eserver_version\x18\x03 \x01(\tR\rserverVersion\"v\n" +
+	"\x0eserver_version\x18\x03 \x01(\tR\rserverVersion\"\xad\x01\n" +
 	"\fAgentMessage\x12(\n" +
 	"\x05hello\x18\x01 \x01(\v2\x10.coruja.v1.HelloH\x00R\x05hello\x124\n" +
-	"\theartbeat\x18\x02 \x01(\v2\x14.coruja.v1.HeartbeatH\x00R\theartbeatB\x06\n" +
+	"\theartbeat\x18\x02 \x01(\v2\x14.coruja.v1.HeartbeatH\x00R\theartbeat\x125\n" +
+	"\n" +
+	"run_report\x18\x03 \x01(\v2\x14.coruja.v1.RunReportH\x00R\trunReportB\x06\n" +
 	"\x04body\"\x97\x01\n" +
 	"\x05Hello\x12#\n" +
 	"\ragent_version\x18\x01 \x01(\tR\fagentVersion\x12\x1a\n" +
@@ -643,11 +1318,17 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\tHeartbeat\x12\x17\n" +
 	"\aunix_ms\x18\x01 \x01(\x03R\x06unixMs\x12%\n" +
 	"\x0euptime_seconds\x18\x02 \x01(\x03R\ruptimeSeconds\x12\x14\n" +
-	"\x05load1\x18\x03 \x01(\x01R\x05load1\"\x9b\x01\n" +
+	"\x05load1\x18\x03 \x01(\x01R\x05load1\"\xeb\x02\n" +
 	"\rServerMessage\x12.\n" +
 	"\awelcome\x18\x01 \x01(\v2\x12.coruja.v1.WelcomeH\x00R\awelcome\x12\"\n" +
 	"\x03ack\x18\x02 \x01(\v2\x0e.coruja.v1.AckH\x00R\x03ack\x12.\n" +
-	"\arevoked\x18\x03 \x01(\v2\x12.coruja.v1.RevokedH\x00R\arevokedB\x06\n" +
+	"\arevoked\x18\x03 \x01(\v2\x12.coruja.v1.RevokedH\x00R\arevoked\x122\n" +
+	"\tsync_jobs\x18\x04 \x01(\v2\x13.coruja.v1.SyncJobsH\x00R\bsyncJobs\x12,\n" +
+	"\arun_now\x18\x05 \x01(\v2\x11.coruja.v1.RunNowH\x00R\x06runNow\x125\n" +
+	"\n" +
+	"cancel_run\x18\x06 \x01(\v2\x14.coruja.v1.CancelRunH\x00R\tcancelRun\x125\n" +
+	"\n" +
+	"report_ack\x18\a \x01(\v2\x14.coruja.v1.ReportAckH\x00R\treportAckB\x06\n" +
 	"\x04body\"]\n" +
 	"\aWelcome\x12%\n" +
 	"\x0eserver_version\x18\x01 \x01(\tR\rserverVersion\x12+\n" +
@@ -655,7 +1336,61 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\x03Ack\x12\x17\n" +
 	"\aunix_ms\x18\x01 \x01(\x03R\x06unixMs\"!\n" +
 	"\aRevoked\x12\x16\n" +
-	"\x06reason\x18\x01 \x01(\tR\x06reason2\x8f\x01\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"\x93\x02\n" +
+	"\aJobSpec\x12\x15\n" +
+	"\x06job_id\x18\x01 \x01(\x03R\x05jobId\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
+	"\x04kind\x18\x03 \x01(\tR\x04kind\x12\x18\n" +
+	"\aenabled\x18\x04 \x01(\bR\aenabled\x12\x12\n" +
+	"\x04cron\x18\x05 \x01(\tR\x04cron\x12\x1a\n" +
+	"\btimezone\x18\x06 \x01(\tR\btimezone\x12\x14\n" +
+	"\x05paths\x18\a \x03(\tR\x05paths\x12\x1a\n" +
+	"\bexcludes\x18\b \x03(\tR\bexcludes\x12\x1f\n" +
+	"\vdest_subdir\x18\t \x01(\tR\n" +
+	"destSubdir\x12\x12\n" +
+	"\x04keep\x18\n" +
+	" \x01(\x05R\x04keep\x12\x18\n" +
+	"\aversion\x18\v \x01(\x05R\aversion\"2\n" +
+	"\bSyncJobs\x12&\n" +
+	"\x04jobs\x18\x01 \x03(\v2\x12.coruja.v1.JobSpecR\x04jobs\"8\n" +
+	"\x06RunNow\x12\x15\n" +
+	"\x06job_id\x18\x01 \x01(\x03R\x05jobId\x12\x17\n" +
+	"\arun_uid\x18\x02 \x01(\tR\x06runUid\"$\n" +
+	"\tCancelRun\x12\x17\n" +
+	"\arun_uid\x18\x01 \x01(\tR\x06runUid\"$\n" +
+	"\tReportAck\x12\x17\n" +
+	"\arun_uid\x18\x01 \x01(\tR\x06runUid\"^\n" +
+	"\aLogLine\x12\x10\n" +
+	"\x03seq\x18\x01 \x01(\x05R\x03seq\x12\x17\n" +
+	"\aunix_ms\x18\x02 \x01(\x03R\x06unixMs\x12\x14\n" +
+	"\x05level\x18\x03 \x01(\tR\x05level\x12\x12\n" +
+	"\x04text\x18\x04 \x01(\tR\x04text\"\xaf\x04\n" +
+	"\tRunReport\x12\x17\n" +
+	"\arun_uid\x18\x01 \x01(\tR\x06runUid\x12\x15\n" +
+	"\x06job_id\x18\x02 \x01(\x03R\x05jobId\x120\n" +
+	"\x05state\x18\x03 \x01(\x0e2\x1a.coruja.v1.RunReport.StateR\x05state\x12\x18\n" +
+	"\atrigger\x18\x04 \x01(\tR\atrigger\x12(\n" +
+	"\x10scheduled_for_ms\x18\x05 \x01(\x03R\x0escheduledForMs\x12\x1d\n" +
+	"\n" +
+	"started_ms\x18\x06 \x01(\x03R\tstartedMs\x12\x1f\n" +
+	"\vfinished_ms\x18\a \x01(\x03R\n" +
+	"finishedMs\x12\x16\n" +
+	"\x06status\x18\b \x01(\tR\x06status\x12!\n" +
+	"\fbytes_source\x18\t \x01(\x03R\vbytesSource\x12!\n" +
+	"\fbytes_output\x18\n" +
+	" \x01(\x03R\vbytesOutput\x12\x14\n" +
+	"\x05files\x18\v \x01(\x03R\x05files\x12\x16\n" +
+	"\x06sha256\x18\f \x01(\tR\x06sha256\x12\x1f\n" +
+	"\voutput_name\x18\r \x01(\tR\n" +
+	"outputName\x12\x14\n" +
+	"\x05error\x18\x0e \x01(\tR\x05error\x12&\n" +
+	"\x04logs\x18\x0f \x03(\v2\x12.coruja.v1.LogLineR\x04logs\x12\x1f\n" +
+	"\vjob_version\x18\x10 \x01(\x05R\n" +
+	"jobVersion\"0\n" +
+	"\x05State\x12\v\n" +
+	"\aSTARTED\x10\x00\x12\f\n" +
+	"\bPROGRESS\x10\x01\x12\f\n" +
+	"\bFINISHED\x10\x022\x8f\x01\n" +
 	"\fAgentService\x12=\n" +
 	"\x06Enroll\x12\x18.coruja.v1.EnrollRequest\x1a\x19.coruja.v1.EnrollResponse\x12@\n" +
 	"\aConnect\x12\x17.coruja.v1.AgentMessage\x1a\x18.coruja.v1.ServerMessage(\x010\x01B5Z3github.com/AprendendoLinux/corujabackup/internal/pbb\x06proto3"
@@ -672,33 +1407,50 @@ func file_coruja_v1_agent_proto_rawDescGZIP() []byte {
 	return file_coruja_v1_agent_proto_rawDescData
 }
 
-var file_coruja_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_coruja_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_coruja_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_coruja_v1_agent_proto_goTypes = []any{
-	(*EnrollRequest)(nil),  // 0: coruja.v1.EnrollRequest
-	(*EnrollResponse)(nil), // 1: coruja.v1.EnrollResponse
-	(*AgentMessage)(nil),   // 2: coruja.v1.AgentMessage
-	(*Hello)(nil),          // 3: coruja.v1.Hello
-	(*Heartbeat)(nil),      // 4: coruja.v1.Heartbeat
-	(*ServerMessage)(nil),  // 5: coruja.v1.ServerMessage
-	(*Welcome)(nil),        // 6: coruja.v1.Welcome
-	(*Ack)(nil),            // 7: coruja.v1.Ack
-	(*Revoked)(nil),        // 8: coruja.v1.Revoked
+	(RunReport_State)(0),   // 0: coruja.v1.RunReport.State
+	(*EnrollRequest)(nil),  // 1: coruja.v1.EnrollRequest
+	(*EnrollResponse)(nil), // 2: coruja.v1.EnrollResponse
+	(*AgentMessage)(nil),   // 3: coruja.v1.AgentMessage
+	(*Hello)(nil),          // 4: coruja.v1.Hello
+	(*Heartbeat)(nil),      // 5: coruja.v1.Heartbeat
+	(*ServerMessage)(nil),  // 6: coruja.v1.ServerMessage
+	(*Welcome)(nil),        // 7: coruja.v1.Welcome
+	(*Ack)(nil),            // 8: coruja.v1.Ack
+	(*Revoked)(nil),        // 9: coruja.v1.Revoked
+	(*JobSpec)(nil),        // 10: coruja.v1.JobSpec
+	(*SyncJobs)(nil),       // 11: coruja.v1.SyncJobs
+	(*RunNow)(nil),         // 12: coruja.v1.RunNow
+	(*CancelRun)(nil),      // 13: coruja.v1.CancelRun
+	(*ReportAck)(nil),      // 14: coruja.v1.ReportAck
+	(*LogLine)(nil),        // 15: coruja.v1.LogLine
+	(*RunReport)(nil),      // 16: coruja.v1.RunReport
 }
 var file_coruja_v1_agent_proto_depIdxs = []int32{
-	3, // 0: coruja.v1.AgentMessage.hello:type_name -> coruja.v1.Hello
-	4, // 1: coruja.v1.AgentMessage.heartbeat:type_name -> coruja.v1.Heartbeat
-	6, // 2: coruja.v1.ServerMessage.welcome:type_name -> coruja.v1.Welcome
-	7, // 3: coruja.v1.ServerMessage.ack:type_name -> coruja.v1.Ack
-	8, // 4: coruja.v1.ServerMessage.revoked:type_name -> coruja.v1.Revoked
-	0, // 5: coruja.v1.AgentService.Enroll:input_type -> coruja.v1.EnrollRequest
-	2, // 6: coruja.v1.AgentService.Connect:input_type -> coruja.v1.AgentMessage
-	1, // 7: coruja.v1.AgentService.Enroll:output_type -> coruja.v1.EnrollResponse
-	5, // 8: coruja.v1.AgentService.Connect:output_type -> coruja.v1.ServerMessage
-	7, // [7:9] is the sub-list for method output_type
-	5, // [5:7] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	4,  // 0: coruja.v1.AgentMessage.hello:type_name -> coruja.v1.Hello
+	5,  // 1: coruja.v1.AgentMessage.heartbeat:type_name -> coruja.v1.Heartbeat
+	16, // 2: coruja.v1.AgentMessage.run_report:type_name -> coruja.v1.RunReport
+	7,  // 3: coruja.v1.ServerMessage.welcome:type_name -> coruja.v1.Welcome
+	8,  // 4: coruja.v1.ServerMessage.ack:type_name -> coruja.v1.Ack
+	9,  // 5: coruja.v1.ServerMessage.revoked:type_name -> coruja.v1.Revoked
+	11, // 6: coruja.v1.ServerMessage.sync_jobs:type_name -> coruja.v1.SyncJobs
+	12, // 7: coruja.v1.ServerMessage.run_now:type_name -> coruja.v1.RunNow
+	13, // 8: coruja.v1.ServerMessage.cancel_run:type_name -> coruja.v1.CancelRun
+	14, // 9: coruja.v1.ServerMessage.report_ack:type_name -> coruja.v1.ReportAck
+	10, // 10: coruja.v1.SyncJobs.jobs:type_name -> coruja.v1.JobSpec
+	0,  // 11: coruja.v1.RunReport.state:type_name -> coruja.v1.RunReport.State
+	15, // 12: coruja.v1.RunReport.logs:type_name -> coruja.v1.LogLine
+	1,  // 13: coruja.v1.AgentService.Enroll:input_type -> coruja.v1.EnrollRequest
+	3,  // 14: coruja.v1.AgentService.Connect:input_type -> coruja.v1.AgentMessage
+	2,  // 15: coruja.v1.AgentService.Enroll:output_type -> coruja.v1.EnrollResponse
+	6,  // 16: coruja.v1.AgentService.Connect:output_type -> coruja.v1.ServerMessage
+	15, // [15:17] is the sub-list for method output_type
+	13, // [13:15] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_coruja_v1_agent_proto_init() }
@@ -709,24 +1461,30 @@ func file_coruja_v1_agent_proto_init() {
 	file_coruja_v1_agent_proto_msgTypes[2].OneofWrappers = []any{
 		(*AgentMessage_Hello)(nil),
 		(*AgentMessage_Heartbeat)(nil),
+		(*AgentMessage_RunReport)(nil),
 	}
 	file_coruja_v1_agent_proto_msgTypes[5].OneofWrappers = []any{
 		(*ServerMessage_Welcome)(nil),
 		(*ServerMessage_Ack)(nil),
 		(*ServerMessage_Revoked)(nil),
+		(*ServerMessage_SyncJobs)(nil),
+		(*ServerMessage_RunNow)(nil),
+		(*ServerMessage_CancelRun)(nil),
+		(*ServerMessage_ReportAck)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coruja_v1_agent_proto_rawDesc), len(file_coruja_v1_agent_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   9,
+			NumEnums:      1,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_coruja_v1_agent_proto_goTypes,
 		DependencyIndexes: file_coruja_v1_agent_proto_depIdxs,
+		EnumInfos:         file_coruja_v1_agent_proto_enumTypes,
 		MessageInfos:      file_coruja_v1_agent_proto_msgTypes,
 	}.Build()
 	File_coruja_v1_agent_proto = out.File

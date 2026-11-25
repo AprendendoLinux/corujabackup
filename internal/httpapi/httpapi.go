@@ -24,6 +24,9 @@ type Pinger interface {
 type AgentHub interface {
 	Online() map[int64]time.Time
 	Revoke(id int64, reason string)
+	PushJobs(ctx context.Context, agentID int64)
+	RunNow(agentID, jobID int64, runUID string) error
+	CancelRun(agentID int64, runUID string) error
 }
 
 type Server struct {
@@ -80,6 +83,15 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("PATCH /api/agents/{id}", s.authed(roleOperator, s.renameAgent))
 	mux.HandleFunc("POST /api/agents/{id}/revoke", s.authed(roleOperator, s.revokeAgent))
 	mux.HandleFunc("DELETE /api/agents/{id}", s.authed(roleOperator, s.deleteAgent))
+	mux.HandleFunc("GET /api/jobs", s.authed(roleAny, s.listJobs))
+	mux.HandleFunc("POST /api/jobs", s.authed(roleOperator, s.createJob))
+	mux.HandleFunc("PATCH /api/jobs/{id}", s.authed(roleOperator, s.updateJob))
+	mux.HandleFunc("DELETE /api/jobs/{id}", s.authed(roleOperator, s.deleteJob))
+	mux.HandleFunc("POST /api/jobs/{id}/run", s.authed(roleOperator, s.runJobNow))
+	mux.HandleFunc("GET /api/runs", s.authed(roleAny, s.listRuns))
+	mux.HandleFunc("GET /api/runs/{id}", s.authed(roleAny, s.getRun))
+	mux.HandleFunc("POST /api/runs/{id}/cancel", s.authed(roleOperator, s.cancelRun))
+	mux.HandleFunc("GET /api/stats", s.authed(roleAny, s.stats))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"error": "rota inexistente"})
 	})

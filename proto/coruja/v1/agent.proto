@@ -28,6 +28,7 @@ message AgentMessage {
   oneof body {
     Hello hello = 1;
     Heartbeat heartbeat = 2;
+    RunReport run_report = 3;
   }
 }
 
@@ -50,9 +51,61 @@ message ServerMessage {
     Welcome welcome = 1;
     Ack ack = 2;
     Revoked revoked = 3;
+    SyncJobs sync_jobs = 4;
+    RunNow run_now = 5;
+    CancelRun cancel_run = 6;
+    ReportAck report_ack = 7;
   }
 }
 
 message Welcome { string server_version = 1; int32 heartbeat_seconds = 2; }
 message Ack { int64 unix_ms = 1; }
 message Revoked { string reason = 1; }
+
+// ---- Fase 2: jobs de arquivos -------------------------------------------------------------------------------------
+
+// JobSpec é a definição completa de um job. O Server envia o conjunto inteiro (snapshot) e o agente agenda sozinho:
+// se o Server estiver fora no horário, o backup roda mesmo assim e o resultado fica na fila local até reconectar.
+message JobSpec {
+  int64 job_id = 1;
+  string name = 2;
+  string kind = 3;                 // "files"
+  bool enabled = 4;
+  string cron = 5;                 // 5 campos (minuto hora dia mês dia-da-semana)
+  string timezone = 6;             // ex.: America/Sao_Paulo
+  repeated string paths = 7;       // pastas/arquivos a salvar (caminhos do servidor)
+  repeated string excludes = 8;    // padrões excluídos (* casa qualquer coisa, inclusive "/")
+  string dest_subdir = 9;          // subpasta dentro da pasta de backups do agente (nunca caminho absoluto)
+  int32 keep = 10;                 // quantas cópias manter no destino local (após verificar)
+  int32 version = 11;              // muda a cada edição (o agente descarta agendas antigas)
+}
+
+message SyncJobs { repeated JobSpec jobs = 1; }
+
+message RunNow { int64 job_id = 1; string run_uid = 2; }
+message CancelRun { string run_uid = 1; }
+message ReportAck { string run_uid = 1; }
+
+message LogLine { int32 seq = 1; int64 unix_ms = 2; string level = 3; string text = 4; }
+
+// RunReport é idempotente: o Server faz "upsert" por run_uid. FINISHED carrega o log completo e entra na fila local
+// do agente até receber ReportAck.
+message RunReport {
+  enum State { STARTED = 0; PROGRESS = 1; FINISHED = 2; }
+  string run_uid = 1;
+  int64 job_id = 2;
+  State state = 3;
+  string trigger = 4;              // "schedule" | "manual"
+  int64 scheduled_for_ms = 5;      // horário previsto (agendados); 0 nos manuais
+  int64 started_ms = 6;
+  int64 finished_ms = 7;
+  string status = 8;               // FINISHED: "ok" | "warning" | "failed" | "canceled"
+  int64 bytes_source = 9;
+  int64 bytes_output = 10;
+  int64 files = 11;
+  string sha256 = 12;
+  string output_name = 13;
+  string error = 14;
+  repeated LogLine logs = 15;
+  int32 job_version = 16;
+}

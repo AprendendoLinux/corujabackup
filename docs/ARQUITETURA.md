@@ -24,3 +24,14 @@
 - O agente fixa (pinning) a impressão digital do certificado do Server, vinda do próprio token. Não há "confiar no primeiro uso".
 - Após a matrícula, o agente usa uma credencial própria (`id.segredo`), guardada como hash; revogar derruba o canal na hora.
 - Tentativas de matrícula/autenticação são limitadas por IP; o login por IP e por usuário.
+
+## Execução de jobs (Fase 2)
+- **Quem agenda:** o Server guarda os jobs e envia o conjunto completo ao agente (`SyncJobs`); o **agente agenda sozinho**
+  (cron com fuso) e persiste jobs e "último horário disparado" no disco. Assim o backup roda mesmo com o Server offline.
+- **Resultados:** cada execução tem um UUID. O agente grava o relatório final (com o log completo) na fila local e só
+  apaga quando recebe `ReportAck`; o Server faz *upsert* por UUID, então reenvios nunca duplicam.
+- **Perdidos:** o Server marca como `missed` o horário previsto sem execução (após 15 min de tolerância). Se o agente
+  recuperar o atraso depois, a linha é adotada pela execução real.
+- **Segurança:** o destino é sempre uma subpasta relativa dentro de `CORUJA_BACKUP_DIR` (o agente recusa `..` e caminhos
+  absolutos); as origens são lidas via `CORUJA_HOST_ROOT` (o host montado somente leitura).
+- **Destinos:** nesta fase o destino é local (no agente). Os conectores de nuvem (Fase 3) enviam esse mesmo arquivo.

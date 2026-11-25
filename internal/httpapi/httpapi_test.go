@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AprendendoLinux/corujabackup/internal/agentsrv"
 	"github.com/AprendendoLinux/corujabackup/internal/auth"
 	"github.com/AprendendoLinux/corujabackup/internal/ratelimit"
 	"github.com/AprendendoLinux/corujabackup/internal/store"
@@ -22,10 +23,24 @@ type fakePing struct{ err error }
 
 func (f fakePing) PingContext(context.Context) error { return f.err }
 
-type fakeHub struct{ revoked []int64 }
+type fakeHub struct {
+	revoked []int64
+	pushes  int
+	runs    []string
+	offline bool
+}
 
-func (f *fakeHub) Online() map[int64]time.Time { return map[int64]time.Time{} }
-func (f *fakeHub) Revoke(id int64, _ string)   { f.revoked = append(f.revoked, id) }
+func (f *fakeHub) Online() map[int64]time.Time     { return map[int64]time.Time{} }
+func (f *fakeHub) Revoke(id int64, _ string)       { f.revoked = append(f.revoked, id) }
+func (f *fakeHub) PushJobs(context.Context, int64) { f.pushes++ }
+func (f *fakeHub) RunNow(_, jobID int64, uid string) error {
+	if f.offline {
+		return agentsrv.ErrOffline
+	}
+	f.runs = append(f.runs, uid)
+	return nil
+}
+func (f *fakeHub) CancelRun(int64, string) error { return nil }
 
 // ---------------------------------------------------------------- sem banco
 
@@ -353,3 +368,154 @@ func enrollHashOf(t *testing.T, c *client, e *env) string {
 
 func jsonString(v any) string { b, _ := json.Marshal(v); return string(b) }
 func itoa(i int) string       { b, _ := json.Marshal(i); return string(b) }
+
+// ---------------------------------------------------------------- jobs e execuções
+
+func newAgent(t *testing.T, e *env, name string) *store.Agent {
+	t.Helper()
+	ctx := context.Background()
+	h := auth.SHA256Hex("tok-" + name)
+	if err := e.api.Store.CreateEnrollToken(ctx, h, name, 0, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	a, err := e.api.Store.Enroll(ctx, h, "host", "linux", "amd64", "0.0.2", "10.0.0.1", auth.SHA256Hex("c"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a
+}
+
+func TestJobsCRUDValidacoesEPush(t *testing.T) {
+	e := newEnv(t)
+	c := setupAdmin(e)
+	a := newAgent(t, e, "srv-1")
+	good := map[string]any{"name": "Backup do etc", "agent_id": a.ID, "paths": []string{"/etc", "/srv/"}, "excludes": []string{"*.tmp"}, "cron": "10 0 * * *", "keep": 5}
+
+	bad := func(mod func(m map[string]any)) int {
+		m := map[string]any{}
+		for k, v := range good {
+			m[k] = v
+		}
+		mod(m)
+		code, _ := c.do("POST", "/api/jobs", m)
+		return code
+	}
+	for name, mod := range map[string]func(map[string]any){
+		"nome vazio":         func(m map[string]any) { m["name"] = "" },
+		"agente inexistente": func(m map[string]any) { m["agent_id"] = 9999 },
+		"cron inválido":      func(m map[string]any) { m["cron"] = "99 * * * *" },
+		"cron @daily":        func(m map[string]any) { m["cron"] = "@daily" },
+		"fuso inválido":      func(m map[string]any) { m["timezone"] = "Marte/X" },
+		"caminho relativo":   func(m map[string]any) { m["paths"] = []string{"etc"} },
+		"sem caminhos":       func(m map[string]any) { m["paths"] = []string{} },
+		"destino com ..":     func(m map[string]any) { m["dest_subdir"] = "../fora" },
+		"destino absoluto":   func(m map[string]any) { m["dest_subdir"] = "/etc" },
+		"keep zero":          func(m map[string]any) { m["keep"] = 0 },
+		"campo desconhecido": func(m map[string]any) { m["foo"] = 1 },
+	} {
+		if code := bad(mod); code != 400 {
+			t.Errorf("%s: esperava 400, veio %d", name, code)
+		}
+	}
+	r := c.mustOK("POST", "/api/jobs", good)
+	id := int(r["id"].(float64))
+	if e.hub.pushes != 1 {
+		t.Fatalf("criar job deveria enviar a agenda ao agente: %d", e.hub.pushes)
+	}
+	if code, _ := c.do("POST", "/api/jobs", good); code != 409 {
+		t.Fatalf("nome repetido no mesmo agente: %d", code)
+	}
+	jobs := c.mustOK("GET", "/api/jobs", nil)["jobs"].([]any)
+	j := jobs[0].(map[string]any)
+	if j["dest_subdir"] != "backup-do-etc" || j["agent_name"] != "srv-1" || j["next_run_at"] == nil || j["timezone"] != "America/Sao_Paulo" {
+		t.Fatalf("padrões/campos calculados inesperados: %v", j)
+	}
+	if ps := j["paths"].([]any); ps[1] != "/srv" {
+		t.Fatalf("caminhos devem ser normalizados: %v", ps)
+	}
+	c.mustOK("PATCH", "/api/jobs/"+itoa(id), map[string]any{"enabled": false, "keep": 9})
+	jobs = c.mustOK("GET", "/api/jobs", nil)["jobs"].([]any)
+	j = jobs[0].(map[string]any)
+	if j["enabled"] != false || j["keep"] != float64(9) || j["version"] != float64(2) || j["next_run_at"] != nil {
+		t.Fatalf("edição não aplicada: %v", j)
+	}
+	if e.hub.pushes != 2 {
+		t.Fatalf("editar deveria reenviar a agenda: %d", e.hub.pushes)
+	}
+	c.mustOK("DELETE", "/api/jobs/"+itoa(id), nil)
+	if len(c.mustOK("GET", "/api/jobs", nil)["jobs"].([]any)) != 0 || e.hub.pushes != 3 {
+		t.Fatal("exclusão não aplicada")
+	}
+}
+
+func TestExecucaoManualRelatoriosEPermissoes(t *testing.T) {
+	e := newEnv(t)
+	c := setupAdmin(e)
+	a := newAgent(t, e, "srv-2")
+	id := int(c.mustOK("POST", "/api/jobs", map[string]any{"name": "j1", "agent_id": a.ID, "paths": []string{"/etc"}})["id"].(float64))
+
+	c.mustOK("POST", "/api/users", map[string]string{"username": "leitor", "password": pw, "role": "viewer"})
+	v := e.client()
+	v.mustOK("POST", "/api/login", map[string]string{"username": "leitor", "password": pw})
+	if code, _ := v.do("POST", "/api/jobs/"+itoa(id)+"/run", nil); code != 403 {
+		t.Fatalf("viewer não executa backup: %d", code)
+	}
+	if code, _ := v.do("GET", "/api/runs", nil); code != 200 {
+		t.Fatalf("viewer consulta histórico: %d", code)
+	}
+
+	e.hub.offline = true
+	if code, _ := c.do("POST", "/api/jobs/"+itoa(id)+"/run", nil); code != 409 {
+		t.Fatalf("agente offline deveria dar 409: %d", code)
+	}
+	if n := len(c.mustOK("GET", "/api/runs", nil)["runs"].([]any)); n != 0 {
+		t.Fatalf("pedido que não chegou ao agente não pode ficar no histórico: %d", n)
+	}
+	e.hub.offline = false
+	uid := c.mustOK("POST", "/api/jobs/"+itoa(id)+"/run", nil)["run_uid"].(string)
+	if len(e.hub.runs) != 1 || e.hub.runs[0] != uid {
+		t.Fatalf("o agente deveria receber a ordem: %v", e.hub.runs)
+	}
+	// o agente relata início e fim
+	ctx := context.Background()
+	now := time.Now().UTC()
+	if err := e.api.Store.ApplyReport(ctx, store.Report{UID: uid, JobID: int64(id), AgentID: a.ID, Trigger: "manual", Started: true, StartedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	runs := c.mustOK("GET", "/api/runs?status=running", nil)["runs"].([]any)
+	if len(runs) != 1 {
+		t.Fatalf("deveria haver 1 em execução: %v", runs)
+	}
+	if err := e.api.Store.ApplyReport(ctx, store.Report{UID: uid, JobID: int64(id), AgentID: a.ID, Final: true, Status: "ok", StartedAt: now, FinishedAt: now.Add(time.Minute),
+		BytesOutput: 1234, Files: 10, SHA256: strings.Repeat("a", 64), OutputName: "j1-x.tar.gz",
+		Logs: []store.RunLog{{Seq: 1, At: now, Level: "info", Text: "início"}, {Seq: 2, At: now, Level: "warn", Text: "aviso"}}}); err != nil {
+		t.Fatal(err)
+	}
+	// relatório repetido/atrasado não reabre nem duplica
+	_ = e.api.Store.ApplyReport(ctx, store.Report{UID: uid, JobID: int64(id), AgentID: a.ID, Started: true, StartedAt: now})
+	_ = e.api.Store.ApplyReport(ctx, store.Report{UID: uid, JobID: int64(id), AgentID: a.ID, Final: true, Status: "failed", Logs: []store.RunLog{{Seq: 1, At: now, Text: "dup"}}})
+	all := c.mustOK("GET", "/api/runs", nil)["runs"].([]any)
+	if len(all) != 1 || all[0].(map[string]any)["status"] != "ok" || all[0].(map[string]any)["output_name"] != "j1-x.tar.gz" {
+		t.Fatalf("execução final não pode mudar: %v", all)
+	}
+	d := c.mustOK("GET", "/api/runs/"+itoa(int(all[0].(map[string]any)["id"].(float64))), nil)
+	if lg := d["logs"].([]any); len(lg) != 2 || lg[0].(map[string]any)["text"] != "início" {
+		t.Fatalf("logs: %v", lg)
+	}
+	jobs := c.mustOK("GET", "/api/jobs", nil)["jobs"].([]any)
+	if lr := jobs[0].(map[string]any)["last_run"].(map[string]any); lr["status"] != "ok" {
+		t.Fatalf("última execução deveria aparecer no job: %v", lr)
+	}
+	st := c.mustOK("GET", "/api/stats", nil)["last_24h"].(map[string]any)
+	if st["ok"] != float64(1) {
+		t.Fatalf("estatísticas: %v", st)
+	}
+	// outro agente não consegue relatar jobs alheios
+	b := newAgent(t, e, "srv-3")
+	if err := e.api.Store.ApplyReport(ctx, store.Report{UID: "x", JobID: int64(id), AgentID: b.ID, Final: true, Status: "ok"}); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("agente só relata os próprios jobs: %v", err)
+	}
+	if code, _ := c.do("GET", "/api/runs?status=bobagem", nil); code != 400 {
+		t.Fatalf("filtro inválido: %d", code)
+	}
+}

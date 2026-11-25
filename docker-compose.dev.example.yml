@@ -2,16 +2,19 @@
 #   docker compose -f docker-compose.dev.yml up -d --build      ->  http://187.110.161.52:8081
 services:
   server:
-    build: { context: ., target: server, args: { VERSION: "0.0.1" } }
+    build: { context: ., target: server, args: { VERSION: "0.0.2" } }
     container_name: corujabackup-dev-server
     restart: unless-stopped
-    ports: ["8081:8080"]
+    ports: ["8081:8080", "8444:8443"]   # 8081 = interface web · 8444 = canal dos agentes
     environment:
       CORUJA_DB_HOST: db-server
       CORUJA_DB_NAME: corujabackup_dev
       CORUJA_DB_USER: corujabackup_dev
       CORUJA_DB_PASSWORD: "troque-pela-senha"
+    volumes: [coruja-dev-data:/data]
     networks: [echelon]
+volumes:
+  coruja-dev-data:
 networks:
   echelon:
     external: true

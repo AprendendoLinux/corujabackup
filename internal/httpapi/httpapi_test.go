@@ -1,59 +1,355 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/AprendendoLinux/corujabackup/internal/auth"
+	"github.com/AprendendoLinux/corujabackup/internal/ratelimit"
+	"github.com/AprendendoLinux/corujabackup/internal/store"
+	"github.com/AprendendoLinux/corujabackup/internal/testutil"
 )
 
 type fakePing struct{ err error }
 
 func (f fakePing) PingContext(context.Context) error { return f.err }
 
-func get(t *testing.T, s *Server, path string) (*httptest.ResponseRecorder, map[string]any) {
-	t.Helper()
-	rec := httptest.NewRecorder()
-	s.Routes().ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
-	var m map[string]any
-	_ = json.Unmarshal(rec.Body.Bytes(), &m)
-	return rec, m
-}
+type fakeHub struct{ revoked []int64 }
 
-func TestHealthOk(t *testing.T) {
-	rec, m := get(t, &Server{Pinger: fakePing{}, Started: time.Now()}, "/api/health")
-	if rec.Code != 200 || m["status"] != "ok" || m["database"] != true {
-		t.Fatalf("%d %v", rec.Code, m)
+func (f *fakeHub) Online() map[int64]time.Time { return map[int64]time.Time{} }
+func (f *fakeHub) Revoke(id int64, _ string)   { f.revoked = append(f.revoked, id) }
+
+// ---------------------------------------------------------------- sem banco
+
+func TestHealthEVersaoSemBanco(t *testing.T) {
+	s := &Server{Pinger: fakePing{}, Started: time.Now()}
+	rec := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rec, httptest.NewRequest("GET", "/api/health", nil))
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"status":"ok"`) {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
-	if rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+	if rec.Header().Get("X-Content-Type-Options") != "nosniff" || rec.Header().Get("Content-Security-Policy") == "" {
 		t.Fatal("faltam cabeçalhos de segurança")
 	}
-}
-
-func TestHealthBancoCaido(t *testing.T) {
-	rec, m := get(t, &Server{Pinger: fakePing{errors.New("x")}, Started: time.Now()}, "/api/health")
-	if rec.Code != 503 || m["status"] != "degraded" {
-		t.Fatalf("%d %v", rec.Code, m)
+	s = &Server{Pinger: fakePing{errors.New("x")}, Started: time.Now()}
+	rec = httptest.NewRecorder()
+	s.Routes().ServeHTTP(rec, httptest.NewRequest("GET", "/api/health", nil))
+	if rec.Code != 503 {
+		t.Fatalf("banco caído deveria dar 503, deu %d", rec.Code)
 	}
 }
 
-func TestVersaoERotaInexistente(t *testing.T) {
+func TestCSRFeOrigem(t *testing.T) {
 	s := &Server{Started: time.Now()}
-	if _, m := get(t, s, "/api/version"); m["version"] == "" || m["name"] != "Coruja Backup" {
+	h := s.Routes()
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("POST", "/api/login", strings.NewReader(`{}`)))
+	if rec.Code != 403 {
+		t.Fatalf("POST sem cabeçalho CSRF deveria dar 403, deu %d", rec.Code)
+	}
+	req := httptest.NewRequest("POST", "/api/login", strings.NewReader(`{}`))
+	req.Header.Set("X-Coruja-CSRF", "1")
+	req.Header.Set("Origin", "https://evil.example")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 403 {
+		t.Fatalf("origem diferente deveria dar 403, deu %d", rec.Code)
+	}
+}
+
+// ---------------------------------------------------------------- com banco real
+
+type env struct {
+	t   *testing.T
+	srv *httptest.Server
+	api *Server
+	hub *fakeHub
+	now time.Time
+}
+
+func newEnv(t *testing.T) *env {
+	t.Helper()
+	d := testutil.DB(t)
+	e := &env{t: t, hub: &fakeHub{}, now: time.Now().UTC().Truncate(time.Second)}
+	e.api = &Server{DB: d, Store: store.New(d), Pinger: d, Agents: e.hub, Started: time.Now(), Fingerprint: strings.Repeat("ab", 32), AgentPort: "8443",
+		LoginLimiter: ratelimit.New(5, 15*time.Minute), now: func() time.Time { return e.now }}
+	e.srv = httptest.NewServer(e.api.Routes())
+	t.Cleanup(e.srv.Close)
+	return e
+}
+
+type client struct {
+	e *env
+	c *http.Client
+}
+
+func (e *env) client() *client {
+	jar, _ := cookiejar.New(nil)
+	return &client{e: e, c: &http.Client{Jar: jar}}
+}
+
+func (c *client) do(method, path string, body any) (int, map[string]any) {
+	c.e.t.Helper()
+	var rd *bytes.Reader
+	if body != nil {
+		b, _ := json.Marshal(body)
+		rd = bytes.NewReader(b)
+	} else {
+		rd = bytes.NewReader(nil)
+	}
+	req, _ := http.NewRequest(method, c.e.srv.URL+path, rd)
+	req.Header.Set("X-Coruja-CSRF", "1")
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.c.Do(req)
+	if err != nil {
+		c.e.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var m map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&m)
+	return resp.StatusCode, m
+}
+
+func (c *client) mustOK(method, path string, body any) map[string]any {
+	c.e.t.Helper()
+	code, m := c.do(method, path, body)
+	if code >= 300 {
+		c.e.t.Fatalf("%s %s => %d %v", method, path, code, m)
+	}
+	return m
+}
+
+const pw = "senha-bem-forte-1"
+
+func setupAdmin(e *env) *client {
+	c := e.client()
+	c.mustOK("POST", "/api/setup", map[string]string{"username": "admin", "password": pw})
+	return c
+}
+
+func TestSetupSoUmaVez(t *testing.T) {
+	e := newEnv(t)
+	c := e.client()
+	if _, m := c.do("GET", "/api/setup/status", nil); m["needs_setup"] != true {
+		t.Fatalf("deveria precisar de setup: %v", m)
+	}
+	if code, _ := c.do("POST", "/api/setup", map[string]string{"username": "Admin!", "password": pw}); code != 400 {
+		t.Fatalf("usuário inválido deveria dar 400, deu %d", code)
+	}
+	if code, _ := c.do("POST", "/api/setup", map[string]string{"username": "admin", "password": "curta"}); code != 400 {
+		t.Fatalf("senha fraca deveria dar 400, deu %d", code)
+	}
+	c.mustOK("POST", "/api/setup", map[string]string{"username": "admin", "password": pw})
+	if _, m := c.do("GET", "/api/me", nil); m["user"] == nil {
+		t.Fatalf("setup deveria deixar logado: %v", m)
+	}
+	if code, _ := e.client().do("POST", "/api/setup", map[string]string{"username": "outro", "password": pw}); code != 409 {
+		t.Fatalf("segundo setup deveria dar 409, deu %d", code)
+	}
+	if _, m := c.do("GET", "/api/setup/status", nil); m["needs_setup"] != false {
 		t.Fatalf("%v", m)
 	}
-	if rec, _ := get(t, s, "/api/nada"); rec.Code != 404 {
-		t.Fatalf("esperava 404, veio %d", rec.Code)
+}
+
+func TestLoginErroGenericoELimite(t *testing.T) {
+	e := newEnv(t)
+	setupAdmin(e)
+	c := e.client()
+	code1, m1 := c.do("POST", "/api/login", map[string]string{"username": "admin", "password": "errada-errada"})
+	code2, m2 := c.do("POST", "/api/login", map[string]string{"username": "naoexiste", "password": "errada-errada"})
+	if code1 != 401 || code2 != 401 || m1["error"] != m2["error"] {
+		t.Fatalf("mensagem deve ser igual para usuário existente ou não: %v %v", m1, m2)
+	}
+	for i := 0; i < 5; i++ {
+		c.do("POST", "/api/login", map[string]string{"username": "admin", "password": "errada-errada"})
+	}
+	if code, _ := c.do("POST", "/api/login", map[string]string{"username": "admin", "password": pw}); code != 429 {
+		t.Fatalf("após várias falhas deveria bloquear (429), deu %d", code)
 	}
 }
 
-func TestMetodoNaoPermitido(t *testing.T) {
-	rec := httptest.NewRecorder()
-	(&Server{Started: time.Now()}).Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/health", nil))
-	if rec.Code == 200 {
-		t.Fatal("POST em /api/health não deveria funcionar")
+func TestSessaoLogoutEPermissoes(t *testing.T) {
+	e := newEnv(t)
+	adm := setupAdmin(e)
+	adm.mustOK("POST", "/api/users", map[string]string{"username": "visitante", "password": pw, "role": "viewer", "display_name": "V"})
+	adm.mustOK("POST", "/api/users", map[string]string{"username": "operador", "password": pw, "role": "operator"})
+
+	v := e.client()
+	v.mustOK("POST", "/api/login", map[string]string{"username": "visitante", "password": pw})
+	if code, _ := v.do("GET", "/api/agents", nil); code != 200 {
+		t.Fatalf("viewer deveria listar agentes, deu %d", code)
+	}
+	for _, rq := range []struct{ m, p string }{{"GET", "/api/users"}, {"GET", "/api/audit"}, {"POST", "/api/agents/tokens"}} {
+		if code, _ := v.do(rq.m, rq.p, map[string]any{"name": "x1"}); code != 403 {
+			t.Fatalf("viewer em %s %s deveria dar 403, deu %d", rq.m, rq.p, code)
+		}
+	}
+	o := e.client()
+	o.mustOK("POST", "/api/login", map[string]string{"username": "operador", "password": pw})
+	if code, _ := o.do("GET", "/api/users", nil); code != 403 {
+		t.Fatalf("operador não administra usuários: %d", code)
+	}
+	if code, _ := o.do("POST", "/api/agents/tokens", map[string]any{"name": "srv-1"}); code != 201 {
+		t.Fatalf("operador deveria criar token: %d", code)
+	}
+	adm.mustOK("POST", "/api/logout", nil)
+	if code, _ := adm.do("GET", "/api/me", nil); code != 401 {
+		t.Fatalf("após logout deveria dar 401, deu %d", code)
+	}
+	if code, _ := e.client().do("GET", "/api/agents", nil); code != 401 {
+		t.Fatal("sem sessão deveria dar 401")
 	}
 }
+
+func TestDoisFatoresEndToEnd(t *testing.T) {
+	e := newEnv(t)
+	c := setupAdmin(e)
+	begin := c.mustOK("POST", "/api/me/2fa/begin", nil)
+	secret := begin["secret"].(string)
+	if !strings.HasPrefix(begin["uri"].(string), "otpauth://totp/") {
+		t.Fatalf("uri: %v", begin["uri"])
+	}
+	if code, _ := c.do("POST", "/api/me/2fa/enable", map[string]string{"code": "000000"}); code != 400 {
+		t.Fatalf("código errado deveria dar 400, deu %d", code)
+	}
+	code1, _ := auth.TOTPCode(secret, e.now)
+	en := c.mustOK("POST", "/api/me/2fa/enable", map[string]string{"code": code1})
+	rec := en["recovery_codes"].([]any)
+	if len(rec) != 8 {
+		t.Fatalf("esperava 8 códigos de recuperação, vieram %d", len(rec))
+	}
+
+	// novo login passa a exigir o segundo fator
+	e.now = e.now.Add(2 * time.Minute)
+	c2 := e.client()
+	_, m := c2.do("POST", "/api/login", map[string]string{"username": "admin", "password": pw})
+	if m["needs_2fa"] != true {
+		t.Fatalf("deveria pedir 2FA: %v", m)
+	}
+	if code, _ := c2.do("GET", "/api/me", nil); code != 401 {
+		t.Fatalf("sessão pendente não pode acessar a API: %d", code)
+	}
+	if code, _ := c2.do("POST", "/api/login/2fa", map[string]string{"code": "123456"}); code != 401 {
+		t.Fatalf("código errado deveria dar 401, deu %d", code)
+	}
+	good, _ := auth.TOTPCode(secret, e.now)
+	c2.mustOK("POST", "/api/login/2fa", map[string]string{"code": good})
+	if code, _ := c2.do("GET", "/api/me", nil); code != 200 {
+		t.Fatalf("após o 2FA deveria acessar: %d", code)
+	}
+
+	// o mesmo código não vale duas vezes (anti-replay)
+	c3 := e.client()
+	c3.do("POST", "/api/login", map[string]string{"username": "admin", "password": pw})
+	if code, _ := c3.do("POST", "/api/login/2fa", map[string]string{"code": good}); code != 401 {
+		t.Fatalf("reuso do código deveria falhar: %d", code)
+	}
+	// código de recuperação vale uma vez só
+	rc := rec[0].(string)
+	if code, _ := c3.do("POST", "/api/login/2fa", map[string]string{"code": rc}); code != 200 {
+		t.Fatalf("código de recuperação deveria funcionar: %d", code)
+	}
+	c4 := e.client()
+	c4.do("POST", "/api/login", map[string]string{"username": "admin", "password": pw})
+	if code, _ := c4.do("POST", "/api/login/2fa", map[string]string{"code": rc}); code != 401 {
+		t.Fatalf("código de recuperação reutilizado deveria falhar: %d", code)
+	}
+	// desativar exige senha + código
+	e.now = e.now.Add(2 * time.Minute)
+	fresh, _ := auth.TOTPCode(secret, e.now)
+	if code, _ := c3.do("POST", "/api/me/2fa/disable", map[string]string{"password": "errada-errada", "code": fresh}); code != 400 {
+		t.Fatalf("senha errada: %d", code)
+	}
+	c3.mustOK("POST", "/api/me/2fa/disable", map[string]string{"password": pw, "code": fresh})
+	c5 := e.client()
+	if _, m := c5.do("POST", "/api/login", map[string]string{"username": "admin", "password": pw}); m["needs_2fa"] != false {
+		t.Fatalf("2FA deveria estar desligado: %v", m)
+	}
+}
+
+func TestUltimoAdminProtegidoESenha(t *testing.T) {
+	e := newEnv(t)
+	c := setupAdmin(e)
+	_, me := c.do("GET", "/api/me", nil)
+	id := int(me["user"].(map[string]any)["id"].(float64))
+	path := "/api/users/" + itoa(id)
+	if code, _ := c.do("DELETE", path, nil); code != 409 {
+		t.Fatalf("não pode excluir a si mesmo: %d", code)
+	}
+	if code, _ := c.do("PATCH", path, map[string]any{"role": "viewer"}); code != 409 {
+		t.Fatalf("não pode rebaixar o último admin: %d", code)
+	}
+	if code, _ := c.do("PATCH", path, map[string]any{"disabled": true}); code != 409 {
+		t.Fatalf("não pode desativar o último admin: %d", code)
+	}
+	if code, _ := c.do("POST", "/api/me/password", map[string]string{"current": "x", "new": "novasenha-123"}); code != 400 {
+		t.Fatalf("senha atual errada: %d", code)
+	}
+	c.mustOK("POST", "/api/me/password", map[string]string{"current": pw, "new": "novasenha-123"})
+	if code, _ := e.client().do("POST", "/api/login", map[string]string{"username": "admin", "password": pw}); code != 401 {
+		t.Fatal("a senha antiga não deveria mais valer")
+	}
+	e.client().mustOK("POST", "/api/login", map[string]string{"username": "admin", "password": "novasenha-123"})
+}
+
+func TestTokensDeMatriculaEAgentes(t *testing.T) {
+	e := newEnv(t)
+	c := setupAdmin(e)
+	if code, _ := c.do("POST", "/api/agents/tokens", map[string]any{"name": "a"}); code != 400 {
+		t.Fatalf("nome curto: %d", code)
+	}
+	tk := c.mustOK("POST", "/api/agents/tokens", map[string]any{"name": "umami-server2", "ttl_hours": 9999})
+	if !strings.HasPrefix(tk["token"].(string), "cb1."+strings.Repeat("ab", 16)+".") {
+		t.Fatalf("token deveria carregar a impressão digital: %v", tk["token"])
+	}
+	list := c.mustOK("GET", "/api/agents", nil)
+	if len(list["pending_tokens"].([]any)) != 1 || strings.Contains(jsonString(list), "cb1.") {
+		t.Fatalf("o token em si nunca deve ser listado: %v", list)
+	}
+	// agente criado direto no banco para testar renomear/revogar/excluir
+	a, err := e.api.Store.Enroll(context.Background(), enrollHashOf(t, c, e), "host", "linux", "amd64", "0.0.1", "10.0.0.1", auth.SHA256Hex("cred"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := c.do("POST", "/api/agents/tokens", map[string]any{"name": "umami-server2"}); code != 409 {
+		t.Fatalf("nome de agente existente: %d", code)
+	}
+	c.mustOK("PATCH", "/api/agents/"+itoa(int(a.ID)), map[string]string{"name": "umami-s2"})
+	c.mustOK("POST", "/api/agents/"+itoa(int(a.ID))+"/revoke", nil)
+	if len(e.hub.revoked) != 1 || e.hub.revoked[0] != a.ID {
+		t.Fatalf("revogar deveria derrubar o canal: %v", e.hub.revoked)
+	}
+	l := c.mustOK("GET", "/api/agents", nil)["agents"].([]any)
+	if len(l) != 1 || l[0].(map[string]any)["revoked_at"] == nil || l[0].(map[string]any)["name"] != "umami-s2" {
+		t.Fatalf("%v", l)
+	}
+	c.mustOK("DELETE", "/api/agents/"+itoa(int(a.ID)), nil)
+	if l := c.mustOK("GET", "/api/agents", nil)["agents"].([]any); len(l) != 0 {
+		t.Fatalf("deveria ter sido excluído: %v", l)
+	}
+	aud := c.mustOK("GET", "/api/audit", nil)["entries"].([]any)
+	if len(aud) < 3 {
+		t.Fatalf("auditoria deveria registrar as ações: %d", len(aud))
+	}
+}
+
+// enrollHashOf recupera o hash do token pendente mais recente (testes não conhecem o segredo, só o hash no banco).
+func enrollHashOf(t *testing.T, c *client, e *env) string {
+	t.Helper()
+	var h string
+	if err := e.api.DB.QueryRow("SELECT token_hash FROM enrollment_tokens ORDER BY id DESC LIMIT 1").Scan(&h); err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+func jsonString(v any) string { b, _ := json.Marshal(v); return string(b) }
+func itoa(i int) string       { b, _ := json.Marshal(i); return string(b) }

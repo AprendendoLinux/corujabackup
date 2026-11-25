@@ -1,0 +1,58 @@
+syntax = "proto3";
+package coruja.v1;
+option go_package = "github.com/AprendendoLinux/corujabackup/internal/pb";
+
+// Canal entre o Agente e o Server. Sempre iniciado pelo agente (funciona atrás de NAT/firewall).
+service AgentService {
+  // Matrícula: troca o token de matrícula (uso único, gerado na interface) por uma credencial própria do agente.
+  rpc Enroll(EnrollRequest) returns (EnrollResponse);
+  // Canal permanente. Autenticado por metadata: "authorization: Bearer <agent_id>.<credential>".
+  rpc Connect(stream AgentMessage) returns (stream ServerMessage);
+}
+
+message EnrollRequest {
+  string token = 1;
+  string hostname = 2;
+  string os = 3;
+  string arch = 4;
+  string agent_version = 5;
+}
+
+message EnrollResponse {
+  int64 agent_id = 1;
+  string credential = 2;      // mostrada UMA vez; o Server guarda só o hash
+  string server_version = 3;
+}
+
+message AgentMessage {
+  oneof body {
+    Hello hello = 1;
+    Heartbeat heartbeat = 2;
+  }
+}
+
+message Hello {
+  string agent_version = 1;
+  string hostname = 2;
+  string os = 3;
+  string arch = 4;
+  bool docker_available = 5;
+}
+
+message Heartbeat {
+  int64 unix_ms = 1;
+  int64 uptime_seconds = 2;
+  double load1 = 3;
+}
+
+message ServerMessage {
+  oneof body {
+    Welcome welcome = 1;
+    Ack ack = 2;
+    Revoked revoked = 3;
+  }
+}
+
+message Welcome { string server_version = 1; int32 heartbeat_seconds = 2; }
+message Ack { int64 unix_ms = 1; }
+message Revoked { string reason = 1; }

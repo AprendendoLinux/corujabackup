@@ -28,9 +28,11 @@ func TestMigrateIdempotente(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	for _, tb := range []string{"settings", "schema_migrations"} {
+	d.Exec("SET FOREIGN_KEY_CHECKS=0")
+	for _, tb := range []string{"audit_log", "enrollment_tokens", "agents", "sessions", "users", "settings", "schema_migrations"} {
 		d.Exec("DROP TABLE IF EXISTS " + tb)
 	}
+	d.Exec("SET FOREIGN_KEY_CHECKS=1")
 	a, err := Migrate(ctx, d)
 	if err != nil || len(a) == 0 {
 		t.Fatalf("primeira migração: %v %v", a, err)

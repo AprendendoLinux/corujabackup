@@ -16,9 +16,11 @@ import (
 	"time"
 
 	"github.com/AprendendoLinux/corujabackup/internal/agentsrv"
+	"github.com/AprendendoLinux/corujabackup/internal/cloudmgr"
 	"github.com/AprendendoLinux/corujabackup/internal/config"
 	"github.com/AprendendoLinux/corujabackup/internal/db"
 	"github.com/AprendendoLinux/corujabackup/internal/httpapi"
+	"github.com/AprendendoLinux/corujabackup/internal/secrets"
 	"github.com/AprendendoLinux/corujabackup/internal/store"
 	"github.com/AprendendoLinux/corujabackup/internal/tlsutil"
 	"github.com/AprendendoLinux/corujabackup/internal/version"
@@ -69,10 +71,17 @@ func main() {
 	}
 	log.Info("banco pronto", "migrações_aplicadas", applied)
 
+	box, err := secrets.Open(cfg.DataDir + "/secrets")
+	if err != nil {
+		log.Error("não foi possível preparar a chave de criptografia (o volume /data é gravável?)", "erro", err.Error())
+		os.Exit(1)
+	}
 	st := store.New(d)
+	clouds := cloudmgr.New(st, box)
 	hub := agentsrv.New(st, version.Version)
+	hub.Cloud = clouds
 	_, agentPort, _ := net.SplitHostPort(cfg.AgentListen)
-	api := &httpapi.Server{DB: d, Store: st, Pinger: d, Agents: hub, Started: time.Now(), Web: webui.Handler(),
+	api := &httpapi.Server{DB: d, Store: st, Pinger: d, Agents: hub, Clouds: clouds, Started: time.Now(), Web: webui.Handler(),
 		Fingerprint: fp, AgentPort: agentPort, TrustProxy: cfg.TrustProxy}
 	srv := &http.Server{Addr: cfg.Listen, Handler: api.Routes(), ReadHeaderTimeout: 10 * time.Second}
 

@@ -29,6 +29,8 @@ message AgentMessage {
     Hello hello = 1;
     Heartbeat heartbeat = 2;
     RunReport run_report = 3;
+    UploadRequest upload_request = 4;
+    UploadDone upload_done = 5;
   }
 }
 
@@ -38,6 +40,7 @@ message Hello {
   string os = 3;
   string arch = 4;
   bool docker_available = 5;
+  repeated string active_runs = 6;   // execuções em andamento neste agente (o Server dá como falhas as demais)
 }
 
 message Heartbeat {
@@ -55,6 +58,8 @@ message ServerMessage {
     RunNow run_now = 5;
     CancelRun cancel_run = 6;
     ReportAck report_ack = 7;
+    UploadSession upload_session = 8;
+    UploadVerdict upload_verdict = 9;
   }
 }
 
@@ -78,6 +83,8 @@ message JobSpec {
   string dest_subdir = 9;          // subpasta dentro da pasta de backups do agente (nunca caminho absoluto)
   int32 keep = 10;                 // quantas cópias manter no destino local (após verificar)
   int32 version = 11;              // muda a cada edição (o agente descarta agendas antigas)
+  int64 cloud_account_id = 12;     // 0 = sem nuvem (só cópia local)
+  string cloud_folder = 13;        // pasta na nuvem (informativo; quem decide é o Server)
 }
 
 message SyncJobs { repeated JobSpec jobs = 1; }
@@ -108,4 +115,58 @@ message RunReport {
   string error = 14;
   repeated LogLine logs = 15;
   int32 job_version = 16;
+  string phase = 17;               // archiving | uploading | verifying
+  int32 progress_pct = 18;
+  string cloud_status = 19;        // none | ok | failed
+  string cloud_path = 20;
+  string cloud_hash = 21;
+  string cloud_verified_by = 22;
+}
+
+// ---- Fase 3: envio para a nuvem ------------------------------------------------------------------------------------
+// O arquivo vai DIRETO do agente para a nuvem. O Server (único a guardar as credenciais) só emite a sessão de upload e,
+// depois, confere o resultado e aplica a retenção na nuvem.
+
+message UploadRequest {
+  string request_id = 1;
+  string run_uid = 2;
+  int64 job_id = 3;
+  string file_name = 4;
+  int64 size = 5;
+}
+
+message UploadSession {
+  string request_id = 1;
+  bool ok = 2;
+  string error = 3;
+  string protocol = 4;             // "graph" (OneDrive) | "gdrive" (Google Drive)
+  string url = 5;                  // URL da sessão (já autenticada; o agente não recebe tokens)
+  int64 chunk_size = 6;
+  int64 expires_unix_ms = 7;
+  string remote_path = 8;
+}
+
+message UploadDone {
+  string request_id = 1;
+  string run_uid = 2;
+  int64 job_id = 3;
+  string file_name = 4;
+  int64 size = 5;
+  string md5 = 6;
+  string sha1 = 7;
+  string quickxor = 8;
+  string sha256 = 9;
+  string remote_id = 10;
+  bool ok = 11;
+  string error = 12;
+}
+
+message UploadVerdict {
+  string request_id = 1;
+  bool ok = 2;
+  string message = 3;
+  string verified_by = 4;          // quickxor | sha1 | md5 | size
+  string remote_path = 5;
+  string remote_hash = 6;
+  repeated string retention_log = 7;
 }

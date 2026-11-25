@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Job, Run, RunLog, User, api, ApiError, fmtBytes, fmtDate, fmtDuration, STATUS } from '../api'
+import { Job, PHASE, Run, RunLog, User, api, ApiError, fmtBytes, fmtDate, fmtDuration, STATUS } from '../api'
 import { Badge, Button, Card, ErrorBox, Modal } from '../ui'
 
 export function StatusBadge({ s }: { s: string }) {
@@ -54,7 +54,7 @@ export default function Runs({ me, jobFilter }: { me: User; jobFilter: number })
               <tr key={r.id} className="cursor-pointer border-b border-border last:border-0 hover:bg-bg" onClick={() => setOpen(r.id)}>
                 <td className="p-3 whitespace-nowrap">{fmtDate(r.started_at ?? r.scheduled_for ?? r.created_at)}<div className="text-xs text-muted">{r.trigger === 'manual' ? 'manual' : 'agendado'}</div></td>
                 <td className="p-3"><b>{r.job_name}</b><div className="text-xs text-muted">{r.agent_name}</div></td>
-                <td className="p-3"><StatusBadge s={r.status} /></td>
+                <td className="p-3"><StatusBadge s={r.status} />{r.status === 'running' && r.phase && <div className="mt-1 text-xs text-muted">{PHASE[r.phase] ?? r.phase}{r.phase === 'uploading' ? ` ${r.progress_pct}%` : ''}</div>}{r.cloud_status === 'ok' && <div className="mt-1 text-xs text-muted">☁ na nuvem</div>}{r.cloud_status === 'failed' && <div className="mt-1 text-xs text-danger">☁ envio falhou</div>}</td>
                 <td className="p-3 text-muted">{fmtDuration(r.started_at, r.finished_at)}</td>
                 <td className="p-3 text-muted">{fmtBytes(r.bytes_output)}</td>
                 <td className="p-3 text-muted">{r.files || '—'}</td>
@@ -85,11 +85,18 @@ function Detail({ id, me, onChange }: { id: number; me: User; onChange: () => vo
         {live && me.role !== 'viewer' && <Button variant="danger" className="ml-auto" onClick={() => confirm('Cancelar este backup?') && api('POST', `/api/runs/${r.id}/cancel`).then(() => { onChange(); load() }).catch((x) => setErr((x as ApiError).message))}>Cancelar</Button>}
       </div>
       <ErrorBox message={err || (r.status === 'failed' || r.status === 'missed' ? r.error : '')} />
+      {live && r.phase && (
+        <div>
+          <div className="mb-1 text-xs text-muted">{PHASE[r.phase] ?? r.phase}{r.phase === 'uploading' ? ` · ${r.progress_pct}%` : ''}</div>
+          <div className="h-2 overflow-hidden rounded-full bg-border"><div className="h-full bg-primary transition-all" style={{ width: `${r.phase === 'uploading' ? r.progress_pct : 8}%` }} /></div>
+        </div>
+      )}
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
         <Item k="Início" v={fmtDate(r.started_at)} /><Item k="Fim" v={fmtDate(r.finished_at)} /><Item k="Duração" v={fmtDuration(r.started_at, r.finished_at)} />
         <Item k="Origem" v={fmtBytes(r.bytes_source)} /><Item k="Arquivo gerado" v={fmtBytes(r.bytes_output)} /><Item k="Itens" v={String(r.files || '—')} />
         <div className="col-span-2 sm:col-span-3"><Item k="Arquivo" v={r.output_name || '—'} /></div>
         <div className="col-span-2 sm:col-span-3"><Item k="SHA-256" v={r.sha256 || '—'} mono /></div>
+        {r.cloud_status !== 'none' && <div className="col-span-2 sm:col-span-3"><Item k={`Nuvem (${r.cloud_status === 'ok' ? `conferido por ${r.cloud_verified_by}` : 'falhou'})`} v={r.cloud_path || '—'} /></div>}
       </dl>
       <div>
         <div className="mb-1 font-medium">Log</div>

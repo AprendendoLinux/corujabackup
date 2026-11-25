@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AprendendoLinux/corujabackup/internal/cloud"
+	"github.com/AprendendoLinux/corujabackup/internal/cloudmgr"
 	"github.com/AprendendoLinux/corujabackup/internal/ratelimit"
 	"github.com/AprendendoLinux/corujabackup/internal/store"
 	"github.com/AprendendoLinux/corujabackup/internal/version"
@@ -29,11 +31,21 @@ type AgentHub interface {
 	CancelRun(agentID int64, runUID string) error
 }
 
+// CloudAdmin é o que a API precisa do gerenciador de contas de nuvem (cloudmgr.Manager).
+type CloudAdmin interface {
+	Create(ctx context.Context, name, typ string, cfg cloudmgr.AccountConfig) (int64, *cloud.Device, error)
+	Reauthorize(ctx context.Context, id int64) (*cloud.Device, error)
+	PollDevice(ctx context.Context, id int64) (string, *cloud.Device, error)
+	Test(ctx context.Context, id int64) (string, cloud.Quota, error)
+	Invalidate(id int64)
+}
+
 type Server struct {
 	DB          *sql.DB
 	Store       *store.Store
 	Pinger      Pinger
 	Agents      AgentHub
+	Clouds      CloudAdmin
 	Started     time.Time
 	Web         http.Handler
 	Fingerprint string // impressão digital do certificado do canal dos agentes
@@ -83,6 +95,12 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("PATCH /api/agents/{id}", s.authed(roleOperator, s.renameAgent))
 	mux.HandleFunc("POST /api/agents/{id}/revoke", s.authed(roleOperator, s.revokeAgent))
 	mux.HandleFunc("DELETE /api/agents/{id}", s.authed(roleOperator, s.deleteAgent))
+	mux.HandleFunc("GET /api/clouds", s.authed(roleAny, s.listClouds))
+	mux.HandleFunc("POST /api/clouds", s.authed(roleAdmin, s.createCloud))
+	mux.HandleFunc("POST /api/clouds/{id}/poll", s.authed(roleAdmin, s.pollCloud))
+	mux.HandleFunc("POST /api/clouds/{id}/reauthorize", s.authed(roleAdmin, s.reauthCloud))
+	mux.HandleFunc("POST /api/clouds/{id}/test", s.authed(roleOperator, s.testCloud))
+	mux.HandleFunc("DELETE /api/clouds/{id}", s.authed(roleAdmin, s.deleteCloud))
 	mux.HandleFunc("GET /api/jobs", s.authed(roleAny, s.listJobs))
 	mux.HandleFunc("POST /api/jobs", s.authed(roleOperator, s.createJob))
 	mux.HandleFunc("PATCH /api/jobs/{id}", s.authed(roleOperator, s.updateJob))

@@ -35,3 +35,16 @@
 - **Segurança:** o destino é sempre uma subpasta relativa dentro de `CORUJA_BACKUP_DIR` (o agente recusa `..` e caminhos
   absolutos); as origens são lidas via `CORUJA_HOST_ROOT` (o host montado somente leitura).
 - **Destinos:** nesta fase o destino é local (no agente). Os conectores de nuvem (Fase 3) enviam esse mesmo arquivo.
+
+## Nuvem (Fase 3)
+- **Credenciais só no Server**, cifradas (AES-256-GCM; chave em `/data/secrets/secret.key`). O agente recebe apenas a URL de uma
+  sessão de upload já autenticada, que expira.
+- **Fluxo:** agente `UploadRequest` -> Server abre a sessão no provedor -> agente envia os blocos direto à nuvem e confere os
+  hashes devolvidos -> `UploadDone` -> o Server consulta a nuvem (Stat), confere e **só então** aplica a retenção -> `UploadVerdict`.
+- **Nomes controlados:** o Server só aceita nomes no padrão `<slug-do-job>-AAAAMMDD-HHMMSS.tar.gz` e pastas validadas
+  (sem `..`); a retenção só toca arquivos com esse padrão.
+- **Verificação:** OneDrive Business: quickXorHash (implementação própria, validada contra o rclone); OneDrive pessoal: SHA-1;
+  Google Drive: MD5; sem hash disponível, cai para o tamanho (registrado no histórico).
+- **Falhas:** envio falhou => execução `failed`, arquivo local preservado, nuvem intacta. Conta com token revogado fica em
+  estado de erro até ser reautorizada.
+- **Provedores futuros:** basta implementar `cloud.Provider` e registrar em `cloudmgr`.

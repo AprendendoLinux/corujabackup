@@ -7,7 +7,8 @@ const LABEL: Record<string, string> = {
   'password.changed': 'Senha alterada', '2fa.enabled': '2FA ativado', '2fa.disabled': '2FA desativado', '2fa.recovery_used': 'Código de recuperação usado',
   'user.created': 'Usuário criado', 'user.updated': 'Usuário alterado', 'user.deleted': 'Usuário excluído',
   'agent.token_created': 'Token de agente criado', 'agent.enrolled': 'Agente matriculado', 'agent.enroll_denied': 'Matrícula negada',
-  'agent.renamed': 'Agente renomeado', 'agent.revoked': 'Agente revogado', 'agent.deleted': 'Agente excluído',
+  'agent.renamed': 'Agente renomeado', 'cloud.created': 'Conta de nuvem criada', 'cloud.connected': 'Conta de nuvem conectada', 'cloud.deleted': 'Conta de nuvem excluída',
+  'job.created': 'Job criado', 'job.updated': 'Job alterado', 'job.deleted': 'Job excluído', 'job.run_now': 'Backup executado manualmente', 'run.cancel': 'Backup cancelado', 'agent.revoked': 'Agente revogado', 'agent.deleted': 'Agente excluído',
 }
 
 export default function Audit() {

@@ -17,6 +17,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/AprendendoLinux/corujabackup/internal/slug"
 )
 
 // FilesJob é o que o executor precisa para salvar pastas num .tar.gz.
@@ -26,10 +28,15 @@ type FilesJob struct {
 	Excludes []string
 	Subdir   string
 	Keep     int
+	// SkipRetention: quem chama aplica a retenção depois (por exemplo, só após o envio à nuvem ser verificado).
+	SkipRetention bool
 }
 
 type Result struct {
 	OutputName  string
+	OutputPath  string
+	DestDir     string
+	Prefix      string
 	BytesSource int64
 	BytesOutput int64
 	Files       int64
@@ -50,16 +57,8 @@ func (h Hooks) log(level, f string, a ...any) {
 
 var ErrCanceled = errors.New("backup cancelado")
 
-var slugRE = regexp.MustCompile(`[^a-z0-9]+`)
-
 // Slug transforma o nome do job em prefixo seguro de arquivo.
-func Slug(s string) string {
-	s = strings.Trim(slugRE.ReplaceAllString(strings.ToLower(s), "-"), "-")
-	if s == "" {
-		return "backup"
-	}
-	return s
-}
+func Slug(s string) string { return slug.Of(s) }
 
 // SafeSubdir resolve a subpasta do job dentro de backupDir e recusa qualquer coisa que escape dela.
 func SafeSubdir(backupDir, subdir string) (string, error) {
@@ -101,6 +100,13 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 	}
 	prefix := Slug(job.Name)
 	name := fmt.Sprintf("%s-%s.tar.gz", prefix, now.In(loc).Format("20060102-150405"))
+	for i := 0; i < 120; i++ { // duas execuções no mesmo segundo não podem sobrescrever uma à outra
+		if _, err := os.Lstat(filepath.Join(dest, name)); err != nil {
+			break
+		}
+		now = now.Add(time.Second)
+		name = fmt.Sprintf("%s-%s.tar.gz", prefix, now.In(loc).Format("20060102-150405"))
+	}
 	final := filepath.Join(dest, name)
 	tmp := filepath.Join(dest, "."+name+".tmp")
 	defer os.Remove(tmp)
@@ -252,7 +258,7 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 	if err := os.Rename(tmp, final); err != nil {
 		return res, err
 	}
-	res.OutputName = name
+	res.OutputName, res.OutputPath, res.DestDir, res.Prefix = name, final, dest, prefix
 	h.log("info", "arquivo gerado: %s (%s, %d itens)", name, HumanBytes(res.BytesOutput), entries)
 
 	if err := VerifyArchive(ctx, final, res.SHA256, entries); err != nil {
@@ -261,6 +267,9 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 	}
 	h.log("info", "verificação ok: SHA-256 conferido e %d itens legíveis", entries)
 
+	if job.SkipRetention {
+		return res, nil
+	}
 	if removed := ApplyRetention(dest, prefix, job.Keep); len(removed) > 0 {
 		h.log("info", "retenção (manter %d): %d cópia(s) antiga(s) removida(s)", job.Keep, len(removed))
 	}

@@ -6,6 +6,7 @@ import { Card } from './ui'
 import { Login, Setup } from './pages/Auth'
 import Agents from './pages/Agents'
 import Jobs from './pages/Jobs'
+import Clouds from './pages/Clouds'
 import Runs from './pages/Runs'
 import Users from './pages/Users'
 import Audit from './pages/Audit'
@@ -27,7 +28,7 @@ export default function App() {
   const [theme, setTheme] = useState('coruja')
   const [phase, setPhase] = useState<Phase>('loading')
   const [me, setMe] = useState<Me | null>(null)
-  const [version, setVersion] = useState('0.0.3')
+  const [version, setVersion] = useState('0.0.4')
   const route = useRoute()
 
   useEffect(() => {
@@ -61,6 +62,7 @@ export default function App() {
               <NavLink to="painel" cur={route}>Painel</NavLink>
               <NavLink to="agentes" cur={route}>Agentes</NavLink>
               <NavLink to="jobs" cur={route}>Jobs</NavLink>
+              <NavLink to="nuvem" cur={route}>Nuvem</NavLink>
               <NavLink to="historico" cur={route}>Histórico</NavLink>
               {me.user.role === 'admin' && <NavLink to="usuarios" cur={route}>Usuários</NavLink>}
               {me.user.role === 'admin' && <NavLink to="auditoria" cur={route}>Auditoria</NavLink>}
@@ -87,6 +89,7 @@ export default function App() {
         {phase === 'app' && me && (
           route === 'agentes' ? <Agents me={me.user} />
           : route === 'jobs' ? <Jobs me={me.user} />
+          : route === 'nuvem' ? <Clouds me={me.user} />
           : route.split('?')[0] === 'historico' ? <Runs me={me.user} jobFilter={Number(new URLSearchParams(route.split('?')[1] ?? '').get('job') ?? 0)} />
           : route === 'usuarios' && me.user.role === 'admin' ? <Users me={me.user} />
           : route === 'auditoria' && me.user.role === 'admin' ? <Audit />

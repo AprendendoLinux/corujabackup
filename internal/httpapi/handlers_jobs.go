@@ -12,14 +12,15 @@ import (
 
 	"github.com/AprendendoLinux/corujabackup/internal/agentsrv"
 	"github.com/AprendendoLinux/corujabackup/internal/auth"
+	"github.com/AprendendoLinux/corujabackup/internal/cloud"
 	"github.com/AprendendoLinux/corujabackup/internal/sched"
+	"github.com/AprendendoLinux/corujabackup/internal/slug"
 	"github.com/AprendendoLinux/corujabackup/internal/store"
 )
 
 var (
 	jobNameRE = regexp.MustCompile(`^[A-Za-z0-9._][A-Za-z0-9._ -]{1,99}$`)
 	subdirRE  = regexp.MustCompile(`^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$`)
-	slugRE    = regexp.MustCompile(`[^a-z0-9]+`)
 )
 
 type jobIn struct {
@@ -32,15 +33,15 @@ type jobIn struct {
 	Excludes   *[]string `json:"excludes"`
 	DestSubdir *string   `json:"dest_subdir"`
 	Keep       *int      `json:"keep"`
+
+	CloudAccountID *int64  `json:"cloud_account_id"`
+	CloudFolder    *string `json:"cloud_folder"`
+	CloudKeep      *int    `json:"cloud_keep"`
+	CloudKeepDays  *int    `json:"cloud_keep_days"`
+	ClearCloud     bool    `json:"clear_cloud"`
 }
 
-func slugify(s string) string {
-	s = strings.Trim(slugRE.ReplaceAllString(strings.ToLower(s), "-"), "-")
-	if s == "" {
-		s = "backup"
-	}
-	return s
-}
+func slugify(s string) string { return slug.Of(s) }
 
 func cleanList(in []string, max, maxLen int, requireAbs bool) ([]string, string) {
 	out := make([]string, 0, len(in))
@@ -126,7 +127,53 @@ func (s *Server) applyJobIn(ctx context.Context, j *store.Job, in jobIn) string 
 	if in.Keep != nil {
 		j.Keep = *in.Keep
 	}
-	if j.Keep < 1 || j.Keep > 365 {
+	if in.ClearCloud {
+		j.CloudAccountID, j.CloudFolder, j.CloudKeep, j.CloudKeepDays = nil, "", 0, 0
+	}
+	if in.CloudAccountID != nil && *in.CloudAccountID > 0 {
+		acc, err := s.Store.GetCloud(ctx, *in.CloudAccountID)
+		if err != nil {
+			return "conta de nuvem inexistente"
+		}
+		if acc.Status != "connected" {
+			return "a conta de nuvem ainda não está conectada"
+		}
+		id := acc.ID
+		j.CloudAccountID = &id
+	}
+	if in.CloudKeep != nil {
+		j.CloudKeep = *in.CloudKeep
+	}
+	if in.CloudKeepDays != nil {
+		j.CloudKeepDays = *in.CloudKeepDays
+	}
+	if in.CloudFolder != nil {
+		j.CloudFolder = strings.TrimSpace(*in.CloudFolder)
+	}
+	if j.CloudAccountID != nil {
+		if j.CloudFolder == "" {
+			j.CloudFolder = "Coruja Backup/" + a.Name + "/" + slugify(j.Name)
+		}
+		f, err := cloud.CleanFolder(j.CloudFolder)
+		if err != nil {
+			return err.Error()
+		}
+		j.CloudFolder = f
+		if j.CloudKeep < 0 || j.CloudKeep > 3650 || j.CloudKeepDays < 0 || j.CloudKeepDays > 3650 {
+			return "retenção na nuvem inválida (0 a 3650)"
+		}
+		if j.CloudKeep == 0 && j.CloudKeepDays == 0 {
+			return "defina a retenção na nuvem: quantidade de cópias e/ou número de dias"
+		}
+	}
+	minKeep := 1
+	if j.CloudAccountID != nil {
+		minKeep = 0 // 0 = apagar a cópia local depois que a nuvem confirmar
+	}
+	if j.Keep < minKeep || j.Keep > 365 {
+		if minKeep == 0 {
+			return "a quantidade de cópias locais deve ficar entre 0 e 365 (0 = apagar depois do envio à nuvem)"
+		}
 		return "a quantidade de cópias a manter deve ficar entre 1 e 365"
 	}
 	j.Kind = "files"

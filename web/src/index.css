@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+/* Temas = conjuntos de variáveis CSS. Novos temas entram só adicionando um bloco [data-theme="..."]. */
+:root, [data-theme="coruja"] {
+  --bg: #f6f5fb; --surface: #ffffff; --text: #1e1b2e; --muted: #6b6784; --border: #e3e0f0;
+  --primary: #3b2a6b; --primary-contrast: #ffffff; --accent: #f5a524; --ok: #1f9d55; --danger: #d64545;
+}
+[data-theme="noturno"] {
+  --bg: #12101c; --surface: #1c1930; --text: #ece9fa; --muted: #9a95b8; --border: #2e2a4a;
+  --primary: #8b73e8; --primary-contrast: #12101c; --accent: #f5a524; --ok: #3ccf7b; --danger: #ff6b6b;
+}
+[data-theme="floresta"] {
+  --bg: #f1f6f2; --surface: #ffffff; --text: #16251b; --muted: #5c7364; --border: #d9e6dc;
+  --primary: #1f6b45; --primary-contrast: #ffffff; --accent: #e0a526; --ok: #1f9d55; --danger: #c93c3c;
+}
+
+@theme inline {
+  --color-bg: var(--bg); --color-surface: var(--surface); --color-text: var(--text); --color-muted: var(--muted);
+  --color-border: var(--border); --color-primary: var(--primary); --color-primary-contrast: var(--primary-contrast);
+  --color-accent: var(--accent); --color-ok: var(--ok); --color-danger: var(--danger);
+}
+
+body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }

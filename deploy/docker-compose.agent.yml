@@ -1,0 +1,18 @@
+# Coruja Backup · Agente. Informe só o endereço do Server e o token gerado na interface web.
+services:
+  agent:
+    image: ghcr.io/aprendendolinux/corujabackup-agent:0.0.1
+    container_name: corujabackup-agent
+    restart: always
+    environment:
+      CORUJA_SERVER: "IP_DO_SERVER:8080"
+      CORUJA_TOKEN: "TOKEN_GERADO_NA_INTERFACE"
+    # Opcional (desligado por padrão): permite ao agente entrar em contêineres de banco para fazer dumps.
+    # volumes:
+    #   - /var/run/docker.sock:/var/run/docker.sock
+    # Pastas do servidor a proteger (somente leitura), a partir da Fase 2:
+    #   - /etc:/host/etc:ro
+    networks: [echelon]
+networks:
+  echelon:
+    external: true

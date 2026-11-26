@@ -12,7 +12,7 @@ RUN mkdir -p /src/internal/webui && npm run build
 # Os estágios web e gobuild rodam na plataforma nativa do runner (sem emulação); só o binário é cruzado.
 # --- binários Go -----------------------------------------------------------------------------------------------------
 FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS gobuild
-ARG VERSION=0.0.8
+ARG VERSION=0.0.9
 ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /src
@@ -27,7 +27,7 @@ RUN go build -trimpath -ldflags "-s -w -X github.com/AprendendoLinux/corujabacku
 
 # --- Server ------------------------------------------------------------------------------------------------------------
 FROM alpine:3.21 AS server
-ARG VERSION=0.0.8
+ARG VERSION=0.0.9
 LABEL org.opencontainers.image.title="Coruja Backup Server" \
       org.opencontainers.image.description="Backup centralizado: orquestração, agendamentos, nuvem e interface web" \
       org.opencontainers.image.source="https://github.com/AprendendoLinux/corujabackup" \
@@ -43,7 +43,7 @@ ENTRYPOINT ["/usr/local/bin/coruja-server"]
 
 # --- Agente ------------------------------------------------------------------------------------------------------------
 FROM alpine:3.21 AS agent
-ARG VERSION=0.0.8
+ARG VERSION=0.0.9
 LABEL org.opencontainers.image.title="Coruja Backup Agent" \
       org.opencontainers.image.description="Agente leve do Coruja Backup (conecta ao Server por IP:porta)" \
       org.opencontainers.image.source="https://github.com/AprendendoLinux/corujabackup" \

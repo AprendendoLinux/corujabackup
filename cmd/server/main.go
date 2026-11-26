@@ -31,6 +31,9 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "theme" {
+		os.Exit(themeCmd(os.Args[2:]))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "admin" {
 		os.Exit(adminCmd(os.Args[2:]))
 	}

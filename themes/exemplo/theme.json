@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "exemplo",
+  "name": "Exemplo",
+  "version": "1.0.0",
+  "author": "Seu nome",
+  "description": "Pacote de exemplo: copie esta pasta, troque as cores e a logo.",
+  "colors": {
+    "bg": "#f4f6f8", "surface": "#ffffff", "text": "#1b2430", "muted": "#66727f", "border": "#dde3e9",
+    "primary": "#2a6f97", "primary_contrast": "#ffffff", "accent": "#e9a23b", "ok": "#2f9e62", "danger": "#cf4b4b"
+  },
+  "logo": { "ui": "logo.png", "document": "logo.png" }
+}

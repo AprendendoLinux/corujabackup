@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/AprendendoLinux/corujabackup/blob/main/docs/theme.schema.json",
+  "title": "Coruja Backup · theme.json (schema 1)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "name", "colors"],
+  "properties": {
+    "schema": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,29}$", "not": { "enum": ["coruja", "noturno", "floresta"] } },
+    "name": { "type": "string", "minLength": 1, "maxLength": 40 },
+    "version": { "type": "string", "pattern": "^[0-9A-Za-z.+-]{1,20}$" },
+    "author": { "type": "string", "maxLength": 80 },
+    "description": { "type": "string", "maxLength": 300 },
+    "colors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bg", "surface", "text", "muted", "border", "primary", "primary_contrast", "accent", "ok", "danger"],
+      "patternProperties": { "^(bg|surface|text|muted|border|primary|primary_contrast|accent|ok|danger)$": { "$ref": "#/$defs/color" } }
+    },
+    "document": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": { "^(bg|text|muted|border|primary|accent|ok|danger)$": { "$ref": "#/$defs/color" } }
+    },
+    "logo": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "ui": { "type": "string" }, "document": { "type": "string" } }
+    },
+    "preview": { "type": "string" }
+  },
+  "$defs": { "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" } }
+}

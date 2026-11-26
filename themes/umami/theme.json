@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "umami",
+  "name": "Umami",
+  "version": "1.0.0",
+  "author": "Coruja Backup",
+  "description": "Identidade visual da Umami: azul-marinho, dourado e vinho.",
+  "colors": {
+    "bg": "#f5f7fa", "surface": "#ffffff", "text": "#1d2a44", "muted": "#5d6b86", "border": "#e3e8f0",
+    "primary": "#263754", "primary_contrast": "#ffffff", "accent": "#e3b740", "ok": "#1f9d55", "danger": "#a71835"
+  },
+  "logo": { "ui": "logo.png", "document": "logo.png" }
+}

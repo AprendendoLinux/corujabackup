@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "id": "melloait",
+  "name": "MelloAIT",
+  "version": "1.0.0",
+  "author": "Coruja Backup",
+  "description": "Identidade visual da MelloAIT: interface escura (laranja e azul) e relatórios claros.",
+  "colors": {
+    "bg": "#06080e", "surface": "#0c101d", "text": "#f4f6fb", "muted": "#9ca3af", "border": "#1f2740",
+    "primary": "#f5a400", "primary_contrast": "#06080e", "accent": "#008bd2", "ok": "#4ade80", "danger": "#f87171"
+  },
+  "document": {
+    "bg": "#f5f7fa", "text": "#0c101d", "muted": "#5b6475", "border": "#e1e5ee",
+    "primary": "#0b6fa8", "accent": "#f5a400", "ok": "#1f9d55", "danger": "#d64545"
+  },
+  "logo": { "ui": "logo.png", "document": "logo.png" }
+}

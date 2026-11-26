@@ -53,6 +53,20 @@ export default function Appearance() {
       setMsg('Logo atualizada.'); reload()
     } catch (x) { setErr((x as ApiError).message) }
   }
+  async function importPkg(e: ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]; e.target.value = ''
+    if (!f) return
+    setErr(''); setMsg('')
+    try {
+      const res = await fetch('/api/branding/themes/import', { method: 'POST', headers: { 'X-Coruja-CSRF': '1', 'Content-Type': 'application/zip' }, body: f })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) throw new ApiError(res.status, j.error ?? 'Falha ao importar o pacote')
+      const t = j.theme as CustomTheme
+      const list = j.replaced ? themes.map((x) => (x.id === t.id ? t : x)) : [...themes, t]
+      setThemes(list); preview(t.id, list)
+      setMsg(`Tema "${t.label}" ${j.replaced ? 'atualizado' : 'importado'}. Use "Usar como padrão" e salve para aplicá-lo ao e-mail e ao PDF.`); reload()
+    } catch (x) { setErr((x as ApiError).message) }
+  }
   async function removeLogo() {
     try { await api('DELETE', '/api/branding/logo'); setMsg('Logo removida (volta a coruja padrão).'); reload() } catch (x) { setErr((x as ApiError).message) }
   }
@@ -93,6 +107,10 @@ export default function Appearance() {
       <Card>
         <div className="mb-3 flex items-center justify-between gap-3">
           <h2 className="font-semibold">Temas personalizados</h2>
+          <label className="cursor-pointer rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm font-medium hover:bg-bg">
+            Importar pacote (.zip)
+            <input type="file" accept=".zip,application/zip" className="sr-only" onChange={importPkg} />
+          </label>
           {themes.length < 10 && (
             <select aria-label="Novo tema a partir de" className="rounded-md border border-border bg-surface px-2 py-1.5 text-sm" value="" onChange={(e) => e.target.value && addTheme(e.target.value)}>
               <option value="">+ Novo tema a partir de…</option>
@@ -106,9 +124,9 @@ export default function Appearance() {
           {themes.map((t) => (
             <li key={t.id} className="flex items-center gap-3 py-2">
               <span className="flex gap-1" aria-hidden>{['bg', 'primary', 'accent'].map((k) => <span key={k} className="inline-block h-4 w-4 rounded-full border border-border" style={{ background: t.vars[k] }} />)}</span>
-              <b>{t.label}</b> {theme === t.id && <span className="text-xs text-muted">(padrão)</span>}
+              <b>{t.label}</b>{t.pkg && <span className="rounded bg-bg px-1.5 text-xs text-muted" title={t.pkg.description}>pacote{t.pkg.version ? ` ${t.pkg.version}` : ''}</span>} {theme === t.id && <span className="text-xs text-muted">(padrão)</span>}
               <span className="ml-auto flex gap-3">
-                <button className="text-primary hover:underline" onClick={() => { setEditing(t.id); preview(t.id) }}>Editar</button>
+                <button className="text-primary hover:underline" onClick={() => { setEditing(t.id); preview(t.id) }}>{t.pkg ? 'Ver cores' : 'Editar'}</button>
                 <button className="text-danger hover:underline" onClick={() => confirm(`Excluir o tema "${t.label}"?`) && remove(t.id)}>Excluir</button>
               </span>
             </li>

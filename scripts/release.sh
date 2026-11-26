@@ -1,8 +1,8 @@
 #!/bin/sh
 # Publicação manual das imagens multi-arquitetura (o fluxo normal é o workflow "Release", disparado pela tag vX.Y.Z).
-# Uso: ./scripts/release.sh 0.0.8      (precisa de "docker login ghcr.io" e do buildx)
+# Uso: ./scripts/release.sh 0.0.9      (precisa de "docker login ghcr.io" e do buildx)
 set -e
-V="${1:?informe a versão, ex.: 0.0.8}"
+V="${1:?informe a versão, ex.: 0.0.9}"
 OWNER="${OWNER:-aprendendolinux}"
 cd "$(dirname "$0")/.."
 for t in server agent; do

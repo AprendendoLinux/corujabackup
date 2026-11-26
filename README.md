@@ -3,7 +3,7 @@
 Sistema de backup **centralizado**, em Docker, gerenciado por **interface web**. Um **Server** orquestra tudo; **Agentes** leves rodam
 nos servidores de destino e se conectam a ele informando só **IP:porta + token**.
 
-> **Versão 0.0.16** · [Changelog](CHANGELOG.md) · [Instalação](docs/INSTALACAO.md) · [Operação](docs/OPERACAO.md) · [Segurança](docs/SEGURANCA.md) · [FAQ](docs/FAQ.md)
+> **Versão 0.0.17** · [Changelog](CHANGELOG.md) · [Instalação](docs/INSTALACAO.md) · [Operação](docs/OPERACAO.md) · [Segurança](docs/SEGURANCA.md) · [FAQ](docs/FAQ.md)
 
 ## O que faz
 
@@ -21,17 +21,17 @@ nos servidores de destino e se conectam a ele informando só **IP:porta + token*
 ## Como funciona
 
 ```
- ┌────────────┐  gRPC/TLS 1.3 (agente → server)   ┌───────────────────────┐   MySQL   ┌────────┐
- │  Agente    │ ────────────────────────────────▶ │  Server (UI + API)    │ ────────▶ │ mysql  │
- │ (cada host)│   IP:8443 + token                 │  agenda, orquestra    │           └────────┘
+ ┌────────────┐  gRPC/TLS 1.3 (server → agente)   ┌───────────────────────┐   MySQL   ┌────────┐
+ │  Agente    │ ◀──────────────────────────────── │  Server (UI + API)    │ ────────▶ │ mysql  │
+ │ (cada host)│   IP:porta do agente + token      │  agenda, orquestra    │           └────────┘
  └─────┬──────┘                                   └──────────┬────────────┘
        │ envio direto (sessão emitida pelo Server)            │ credenciais da nuvem ficam só aqui (cifradas)
        ▼                                                      ▼
    Drive · OneDrive · Dropbox                         e-mail · Telegram · Prometheus
 ```
 
-- O **Server** guarda configuração, histórico e credenciais (cifradas) e expõe duas portas: `8080` (interface/API) e `8443` (agentes).
-- O **Agente** só faz conexões de saída, não abre portas, e executa apenas o que a política local permitir.
+- O **Server** guarda configuração, histórico e credenciais (cifradas), expõe só a interface/API (`8080`) e **conecta em cada agente** pelo IP e pela porta cadastrados na interface.
+- O **Agente** escuta numa porta (padrão `23847`), só aceita a conexão de quem prova ser o seu Server (certificado fixado no token) e executa apenas o que a política local permitir.
 - Tudo é configurado pela interface; as variáveis de ambiente dos compose são mínimas.
 
 ## Instalação rápida
@@ -69,4 +69,4 @@ docker run --rm --network SUA_REDE -e CORUJA_TEST_DSN='usuario:senha@tcp(db:3306
 ```
 
 ---
-Coruja Backup - Versão 0.0.16 - Desenvolvido por [Henrique Fagundes](https://henrique.tec.br) · Licença MIT
+Coruja Backup - Versão 0.0.17 - Desenvolvido por [Henrique Fagundes](https://henrique.tec.br) · Licença MIT

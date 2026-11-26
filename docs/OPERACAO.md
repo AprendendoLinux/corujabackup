@@ -22,6 +22,12 @@ As imagens oficiais embutem o aplicativo do Google do projeto: o ID do cliente �
 
 Enquanto a marca do aplicativo não estiver verificada pelo Google, o app aceita até 100 usuários no total.
 
+## Migração para a 0.0.17 (o Server conecta nos agentes)
+Os agentes já matriculados **não precisam de token novo**: a credencial e o certificado fixado continuam valendo.
+1. Atualize o Server. A porta dos agentes no compose do Server deixa de ser usada (pode remover o `8443`).
+2. Em cada agente: imagem `0.0.17` ou mais nova, troque `CORUJA_SERVER` por `ports: ["23847:23847"]` e recrie o contêiner **mantendo o volume de dados**.
+3. Na interface, em **Agentes**, use o ícone de endereço para informar o **IP e a porta** de cada agente. O Server conecta em poucos segundos.
+
 ## Atualização
 ```bash
 docker compose -f docker-compose.server.yml pull && docker compose -f docker-compose.server.yml up -d
@@ -52,8 +58,9 @@ A nova senha é lida do terminal (ou de `CORUJA_NEW_PASSWORD`). Todas as sessõe
 ## Solução de problemas
 | Sintoma | Causa provável | O que fazer |
 | :--- | :--- | :--- |
-| Os comandos de **Novo agente** mostram a porta errada | o canal está publicado em outra porta ou nome (ex.: `8444:8443`) | em **Agentes**, ajuste **Endereço para os agentes** |
-| Agente "offline" | rede/porta `8443` bloqueada, token já usado, agente revogado | `docker logs corujabackup-agent`; libere a porta; gere novo token |
+| Agente "offline" com **tempo esgotado** | firewall bloqueando a porta do agente, IP errado ou máquina desligada | libere a porta do agente para o IP do Server; confira o endereço em **Agentes** (ícone de endereço) |
+| Agente "offline" com **conexão recusada** | o agente não está rodando ou a porta não foi publicada na stack | `docker ps`, `docker logs corujabackup-agent`; confira o `ports:` da stack |
+| "o agente aceitou a conexão, mas não concluiu a autenticação" | token errado ou já usado, ou o certificado do Server mudou (volume `/data` recriado) | gere um novo agente na interface e use o token novo; se o Server foi reinstalado, apague o volume do agente e matricule de novo |
 | "o certificado do Server não confere" | o volume `/data` do Server foi recriado | restaure `tls/` ou matricule os agentes de novo |
 | Backup "Perdido" | agente parado/offline no horário | veja o log do agente; o agente recupera horários perdidos em até 6 h |
 | "o envio para a nuvem falhou" | token revogado, cota cheia, rede | página Nuvem (Testar conexão); depois **Reenviar** no detalhe da execução |

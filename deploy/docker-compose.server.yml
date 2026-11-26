@@ -31,14 +31,14 @@ services:
     networks: [echelon]
 
   server:
-    image: ghcr.io/aprendendolinux/corujabackup-server:0.0.16
+    image: ghcr.io/aprendendolinux/corujabackup-server:0.0.17
     container_name: corujabackup-server
     restart: always
     depends_on:
       db: { condition: service_healthy }
     ports:
       - "8080:8080"   # interface web e API (ponha atrás do seu proxy reverso com HTTPS)
-      - "8443:8443"   # canal dos agentes (gRPC/TLS): é a porta que os agentes alcançam
+      # Não há porta para os agentes: é o Server quem conecta em cada agente (IP e porta cadastrados na interface).
     environment:
       CORUJA_DB_PASSWORD: "COLOQUE_UMA_SENHA_FORTE"
       # CORUJA_TRUST_PROXY: "true"

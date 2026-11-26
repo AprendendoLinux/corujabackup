@@ -94,9 +94,7 @@ func (s *Server) destFolders(w http.ResponseWriter, r *http.Request, _ *ctxUser)
 	writeJSON(w, 200, map[string]any{"folders": slices.Compact(out)})
 }
 
-const settingAgentAddress = "agent_address"
-
-// parseAgentAddress valida "host:porta" (o texto vai para dentro dos comandos de instalação, então é restrito).
+// parseAgentAddress valida o endereço "host:porta" onde o Server conecta no agente.
 func parseAgentAddress(v string) (string, bool) {
 	v = strings.TrimSpace(v)
 	if v == "" {
@@ -111,24 +109,4 @@ func parseAgentAddress(v string) (string, bool) {
 		return "", false
 	}
 	return net.JoinHostPort(host, strconv.Itoa(n)), true
-}
-
-func (s *Server) saveAgentAddress(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
-	var in struct {
-		Address string `json:"address"`
-	}
-	if !decode(w, r, &in) {
-		return
-	}
-	addr, ok := parseAgentAddress(in.Address)
-	if !ok {
-		writeErr(w, 400, "informe no formato endereço:porta (ex.: backup.exemplo.com:8443 ou 203.0.113.10:8444), sem http://")
-		return
-	}
-	if err := s.Store.SetSetting(r.Context(), settingAgentAddress, addr); err != nil {
-		writeErr(w, 500, "erro interno")
-		return
-	}
-	s.Store.Audit(r.Context(), cu.User.ID, cu.User.Username, "system.agent_address", addr, s.clientIP(r))
-	writeJSON(w, 200, map[string]string{"agent_address": addr})
 }

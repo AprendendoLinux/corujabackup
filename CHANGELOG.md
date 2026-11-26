@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.17] - O Server conecta nos agentes
+- **O Server conecta nos agentes:** o agente é cadastrado na interface com **nome, IP e porta** (assistente Novo agente), e a stack dele fica só com a porta publicada e o token. O Server disca cada agente, tenta de novo sozinho com espera crescente e mostra na tela por que não conectou (tempo esgotado, conexão recusada, autenticação recusada).
+- **Segurança:** o agente só aceita a conexão de quem prova ser o seu Server (TLS 1.3 com o certificado fixado no token); o Server autentica o agente pelo token e depois pela credencial, como antes. A porta do agente deve ficar liberada só para o IP do Server.
+- **Porta padrão do agente: `23847`**, sem uso por nenhum serviço registrado na IANA e fora das faixas de portas temporárias do Linux e do Windows.
+- O Server não expõe mais porta para os agentes (o `8443` sai do compose do Server); a opção "Endereço para os agentes" saiu, porque não há mais comandos que apontem para o Server.
+- **Atualização:** agentes já matriculados não precisam de token novo. Atualize a imagem, troque `CORUJA_SERVER` por `ports: ["23847:23847"]`, mantenha o volume e informe o IP e a porta do agente na interface (veja docs/OPERACAO.md).
+
 ## [0.0.16] - Interface nova
 - **Interface nova:** menu lateral à esquerda, com ícones e grupos (Operação e Administração), que pode ser recolhido; no celular vira uma gaveta. Cartões, login e painel redesenhados.
 - **Ícones no lugar dos links** de ação (executar, histórico, editar, pausar, excluir, testar...), com dica ao passar o mouse ou focar pelo teclado.

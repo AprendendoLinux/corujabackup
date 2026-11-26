@@ -1,6 +1,6 @@
 # Perguntas frequentes
 
-**Preciso abrir portas nos servidores com agente?** Não. O agente só faz conexões de saída para o Server (`8443`).
+**Preciso abrir portas nos servidores com agente?** Sim, uma: a porta do agente (padrão `23847`), **só para o IP do Server**. É o Server quem conecta no agente. O agente recusa qualquer conexão que não prove ser o seu Server (o certificado do Server é fixado no token de matrícula). Agentes atrás de NAT precisam de um redirecionamento dessa porta ou de uma VPN até o Server.
 
 **O arquivo de backup passa pelo Server?** Não. O agente envia direto à nuvem por uma sessão emitida pelo Server; as credenciais da nuvem ficam só no Server.
 

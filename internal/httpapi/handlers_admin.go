@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"errors"
+	"github.com/AprendendoLinux/corujabackup/internal/agentsrv"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -176,8 +177,14 @@ func (s *Server) audit(w http.ResponseWriter, r *http.Request, _ *ctxUser) {
 
 type agentView struct {
 	store.Agent
-	Online      bool       `json:"online"`
-	ConnectedAt *time.Time `json:"connected_at"`
+	Online      bool                `json:"online"`
+	ConnectedAt *time.Time          `json:"connected_at"`
+	Link        *agentsrv.LinkState `json:"link,omitempty"` // situação da conexão do Server com o agente (quando offline)
+}
+
+type pendingView struct {
+	store.PendingToken
+	Link *agentsrv.LinkState `json:"link,omitempty"`
 }
 
 func (s *Server) listAgents(w http.ResponseWriter, r *http.Request, _ *ctxUser) {
@@ -190,22 +197,38 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request, _ *ctxUser) 
 	if s.Agents != nil {
 		online = s.Agents.Online()
 	}
+	links := map[string]agentsrv.LinkState{}
+	if s.Agents != nil {
+		links = s.Agents.Links()
+	}
 	out := make([]agentView, 0, len(ags))
 	for _, a := range ags {
 		v := agentView{Agent: a}
 		if t, ok := online[a.ID]; ok && a.RevokedAt == nil {
 			v.Online, v.ConnectedAt = true, &t
 		}
+		if l, ok := links[a.Address]; ok && a.RevokedAt == nil && !v.Online {
+			v.Link = &l
+		}
 		out = append(out, v)
 	}
 	tokens, _ := s.Store.ListPendingTokens(r.Context())
-	writeJSON(w, 200, map[string]any{"agents": out, "pending_tokens": tokens})
+	pending := make([]pendingView, 0, len(tokens))
+	for _, t := range tokens {
+		p := pendingView{PendingToken: t}
+		if l, ok := links[t.Address]; ok {
+			p.Link = &l
+		}
+		pending = append(pending, p)
+	}
+	writeJSON(w, 200, map[string]any{"agents": out, "pending_tokens": pending})
 }
 
 func (s *Server) createToken(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
 	var in struct {
 		Name     string `json:"name"`
 		TTLHours int    `json:"ttl_hours"`
+		Address  string `json:"address"`
 	}
 	if !decodeLoose(w, r, &in) {
 		return
@@ -213,6 +236,11 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request, cu *ctxUser
 	in.Name = strings.TrimSpace(in.Name)
 	if !agentNameRE.MatchString(in.Name) {
 		writeErr(w, 400, "nome inválido: use 2 a 100 caracteres (letras, números, ponto, hífen ou sublinhado)")
+		return
+	}
+	addr, ok := parseAgentAddress(in.Address)
+	if !ok || addr == "" {
+		writeErr(w, 400, "informe o endereço do agente: IP ou nome e a porta (ex.: 192.0.2.10:23847)")
 		return
 	}
 	if in.TTLHours <= 0 {
@@ -228,7 +256,7 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request, cu *ctxUser
 	}
 	parsed, _ := enroll.Parse(tok)
 	exp := s.clock().Add(time.Duration(in.TTLHours) * time.Hour)
-	if err := s.Store.CreateEnrollToken(r.Context(), parsed.Hash(), in.Name, cu.User.ID, exp); err != nil {
+	if err := s.Store.CreateEnrollTokenAt(r.Context(), parsed.Hash(), in.Name, addr, cu.User.ID, exp); err != nil {
 		if errors.Is(err, store.ErrDuplicate) {
 			writeErr(w, 409, "já existe um agente com esse nome")
 			return
@@ -236,8 +264,11 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request, cu *ctxUser
 		writeErr(w, 500, "erro interno")
 		return
 	}
-	s.Store.Audit(r.Context(), cu.User.ID, cu.User.Username, "agent.token_created", in.Name, s.clientIP(r))
-	writeJSON(w, 201, map[string]any{"token": tok, "expires_at": exp, "name": in.Name}) // o token só aparece agora
+	s.Store.Audit(r.Context(), cu.User.ID, cu.User.Username, "agent.token_created", in.Name+" "+addr, s.clientIP(r))
+	if s.Agents != nil {
+		s.Agents.Wake()
+	}
+	writeJSON(w, 201, map[string]any{"token": tok, "expires_at": exp, "name": in.Name, "address": addr}) // o token só aparece agora
 }
 
 func (s *Server) deleteToken(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
@@ -252,16 +283,47 @@ func (s *Server) deleteToken(w http.ResponseWriter, r *http.Request, cu *ctxUser
 
 func (s *Server) renameAgent(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
 	id, ok := pathID(r)
-	var in struct{ Name string }
+	var in struct {
+		Name    *string `json:"name"`
+		Address *string `json:"address"`
+	}
 	if !ok || !decodeLoose(w, r, &in) {
 		return
 	}
-	in.Name = strings.TrimSpace(in.Name)
-	if !agentNameRE.MatchString(in.Name) {
+	if in.Address != nil {
+		addr, ok := parseAgentAddress(*in.Address)
+		if !ok || addr == "" {
+			writeErr(w, 400, "endereço inválido: use IP ou nome e a porta (ex.: 192.0.2.10:23847)")
+			return
+		}
+		if err := s.Store.SetAgentAddress(r.Context(), id, addr); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				writeErr(w, 404, "agente não encontrado")
+				return
+			}
+			writeErr(w, 500, "erro interno")
+			return
+		}
+		s.Store.Audit(r.Context(), cu.User.ID, cu.User.Username, "agent.address", addr, s.clientIP(r))
+		if s.Agents != nil {
+			s.Agents.Wake()
+		}
+		if in.Name == nil {
+			writeJSON(w, 200, map[string]bool{"ok": true})
+			return
+		}
+	}
+	if in.Name == nil {
+		writeErr(w, 400, "nada para alterar")
+		return
+	}
+	name := strings.TrimSpace(*in.Name)
+	if !agentNameRE.MatchString(name) {
 		writeErr(w, 400, "nome inválido")
 		return
 	}
-	if err := s.Store.RenameAgent(r.Context(), id, in.Name); err != nil {
+	in.Name = &name
+	if err := s.Store.RenameAgent(r.Context(), id, name); err != nil {
 		if errors.Is(err, store.ErrDuplicate) {
 			writeErr(w, 409, "já existe um agente com esse nome")
 			return
@@ -269,7 +331,7 @@ func (s *Server) renameAgent(w http.ResponseWriter, r *http.Request, cu *ctxUser
 		writeErr(w, 500, "erro interno")
 		return
 	}
-	s.Store.Audit(r.Context(), cu.User.ID, cu.User.Username, "agent.renamed", in.Name, s.clientIP(r))
+	s.Store.Audit(r.Context(), cu.User.ID, cu.User.Username, "agent.renamed", name, s.clientIP(r))
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 

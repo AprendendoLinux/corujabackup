@@ -31,9 +31,11 @@ export type User = {
 export type Agent = {
   id: number; name: string; hostname: string; os: string; arch: string; agent_version: string
   docker_available: boolean; ip: string; created_at: string; last_seen_at: string | null
-  revoked_at: string | null; online: boolean
+  revoked_at: string | null; online: boolean; address: string; link?: LinkState
 }
-export type PendingToken = { id: number; name: string; created_at: string; expires_at: string }
+/** Situação da conexão do Server com o endereço de um agente. */
+export type LinkState = { address: string; state: 'connecting' | 'connected' | 'error'; error?: string; since: string; next_try?: string }
+export type PendingToken = { id: number; name: string; created_at: string; expires_at: string; address: string; link?: LinkState }
 export type AuditEntry = { id: number; at: string; username: string; action: string; detail: string; ip: string }
 
 export const ROLE_LABEL = { admin: 'Administrador', operator: 'Operador', viewer: 'Somente leitura' } as const

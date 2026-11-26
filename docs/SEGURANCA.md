@@ -26,7 +26,7 @@
 
 ## Checklist de endurecimento
 - [ ] HTTPS na interface (proxy reverso com `CORUJA_TRUST_PROXY=true`, ou `CORUJA_TLS_CERT/KEY`).
-- [ ] Porta `8080` acessível só a quem administra; `8443` só aos servidores com agente (firewall).
+- [ ] Porta `8080` acessível só a quem administra; a porta de cada agente (padrão `23847`) acessível só ao IP do Server (firewall).
 - [ ] 2FA ativo e **exigido** (Segurança > Exigir 2FA); sessão curta (ex.: 8 h).
 - [ ] Backup do banco **e** do volume `/data` guardados **fora** do servidor (veja Operação).
 - [ ] Agentes com `CORUJA_ALLOWED_PATHS` / `CORUJA_ALLOWED_CONTAINERS` e `/host` montado só com o necessário.
@@ -62,3 +62,10 @@ Para a **pasta do backup local** ser escolhida no painel, o agente precisa grava
 A pasta de dados do agente guarda a credencial dele e a definição dos jobs, que pode conter senhas de bancos e de destinos de rede (arquivos com permissão 600). Ela **nunca entra na origem de um backup**, mesmo quando o `/` inteiro é selecionado. Consequência: para recuperar um agente perdido, matricule-o de novo com um token novo.
 
 Isso vale só para essa pasta. Um backup de pastas do sistema continua levando os outros segredos do servidor que estiverem nelas (inclusive o arquivo da stack, se tiver senhas ou token); trate o destino como um local confidencial.
+
+## Conexão do Server com os agentes
+Desde a 0.0.17 é o Server quem abre a conexão TCP com cada agente, no IP e na porta cadastrados na interface. O resto não mudou:
+- **O agente confere o Server primeiro:** antes de qualquer outra coisa, ele faz o handshake TLS 1.3 como cliente e exige o certificado cuja impressão digital veio no token de matrícula. Quem não tiver a chave privada do Server não passa daí (testado com um "Server" impostor). Um ataque de interceptação na rede também não.
+- **O Server confere o agente:** na primeira conexão, pelo token de uso único; depois, pela credencial do agente (o Server guarda só o hash).
+- **Porta aberta no agente:** é uma superfície nova. O agente limita os handshakes simultâneos, derruba conexões que não concluem o TLS em 15 s e não registra no log cada tentativa estranha. Mesmo assim, **libere a porta só para o IP do Server**.
+- **Quem cadastra o endereço:** Operador ou Administrador. O Server só tenta um handshake TLS nesse endereço; não envia dados a quem não for o agente.

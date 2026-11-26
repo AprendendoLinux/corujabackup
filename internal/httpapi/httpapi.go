@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/AprendendoLinux/corujabackup/internal/agentsrv"
 	"github.com/AprendendoLinux/corujabackup/internal/cloud"
 	"github.com/AprendendoLinux/corujabackup/internal/cloudmgr"
 	"github.com/AprendendoLinux/corujabackup/internal/netdest"
@@ -37,6 +38,8 @@ type AgentHub interface {
 	CancelRun(agentID int64, runUID string) error
 	Call(ctx context.Context, agentID int64, kind string, payload []byte, timeout time.Duration) ([]byte, error)
 	Action(agentID int64, act *pb.AgentAction) error
+	Links() map[string]agentsrv.LinkState
+	Wake()
 }
 
 // CloudAdmin é o que a API precisa do gerenciador de contas de nuvem (cloudmgr.Manager).
@@ -67,7 +70,6 @@ type Server struct {
 	Started     time.Time
 	Web         http.Handler
 	Fingerprint string // impressão digital do certificado do canal dos agentes
-	AgentPort   string
 	TrustProxy  bool
 	SetupCode   string // código de uma execução, mostrado nos logs, exigido na configuração inicial
 
@@ -137,7 +139,6 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("DELETE /api/agents/{id}", s.authed(roleOperator, s.deleteAgent))
 	mux.HandleFunc("GET /api/agents/{id}/containers", s.authed(roleOperator, s.agentContainers))
 	mux.HandleFunc("GET /api/agents/{id}/browse", s.authed(roleOperator, s.agentBrowse))
-	mux.HandleFunc("PUT /api/system/agent-address", s.authed(roleAdmin, s.saveAgentAddress))
 	mux.HandleFunc("POST /api/agents/{id}/db-test", s.authed(roleOperator, s.dbTest))
 	mux.HandleFunc("GET /api/notifications/channels", s.authed(roleAdmin, s.listChannels))
 	mux.HandleFunc("POST /api/notifications/channels", s.authed(roleAdmin, s.createChannel))
@@ -257,12 +258,7 @@ func (s *Server) version(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) system(w http.ResponseWriter, r *http.Request, _ *ctxUser) {
-	set, err := s.Store.GetSettings(r.Context(), settingAgentAddress)
-	if err != nil {
-		writeErr(w, 500, "erro interno")
-		return
-	}
-	writeJSON(w, 200, map[string]any{"version": version.Version, "agent_port": s.AgentPort, "agent_address": set[settingAgentAddress], "fingerprint": s.Fingerprint})
+	writeJSON(w, 200, map[string]any{"version": version.Version, "fingerprint": s.Fingerprint})
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

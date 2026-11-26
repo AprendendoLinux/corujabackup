@@ -19,12 +19,12 @@ import (
 )
 
 func main() {
-	server := flag.String("server", os.Getenv("CORUJA_SERVER"), "endereço do canal dos agentes no Server (IP:porta)")
+	listen := flag.String("listen", envOr("CORUJA_LISTEN", ":23847"), "porta onde o agente espera a conexão do Server")
 	token := flag.String("token", os.Getenv("CORUJA_TOKEN"), "token de matrícula (gerado na interface web; uso único)")
 	dataDir := flag.String("data", envOr("CORUJA_DATA_DIR", "/var/lib/coruja-agent"), "pasta onde o agente guarda a própria credencial e a fila local")
-	hostRoot := flag.String("host-root", envOr("CORUJA_HOST_ROOT", "/"), "raiz do servidor vista pelo agente (use /host se montar o host nesse caminho)")
+	hostRoot := flag.String("host-root", envOr("CORUJA_HOST_ROOT", "/"), "raiz da máquina vista pelo agente (use /host se montar a máquina nesse caminho)")
 	backupDir := flag.String("backup-dir", envOr("CORUJA_BACKUP_DIR", "/backups"), "pasta onde os arquivos de backup são gravados")
-	hostWrite := flag.String("host-write", os.Getenv("CORUJA_HOST_WRITE"), "raiz gravável do servidor, só para a pasta de backup local escolhida na interface (padrão: /host-rw no contêiner)")
+	hostWrite := flag.String("host-write", os.Getenv("CORUJA_HOST_WRITE"), "raiz gravável da máquina, só para a pasta de backup local escolhida na interface (padrão: /host-rw no contêiner)")
 	showVersion := flag.Bool("version", false, "mostra a versão e sai")
 	flag.Parse()
 	if *showVersion {
@@ -34,29 +34,19 @@ func main() {
 	log := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	if os.Getenv("CORUJA_SERVER") != "" {
+		log.Warn("CORUJA_SERVER é ignorada: desde a versão 0.0.17 é o Server que conecta no agente (pode remover da stack)")
+	}
 
 	stPath := filepath.Join(*dataDir, "agent.json")
 	st, err := agentcore.LoadCredentials(stPath)
 	if err != nil {
-		if strings.TrimSpace(*server) == "" || strings.TrimSpace(*token) == "" {
-			log.Error("agente ainda não matriculado: informe --server IP:porta e --token (ou CORUJA_SERVER e CORUJA_TOKEN)")
+		st = nil
+		if strings.TrimSpace(*token) == "" {
+			log.Error("agente ainda não matriculado: informe o token gerado na interface (CORUJA_TOKEN)")
 			os.Exit(2)
 		}
-		st, err = agentcore.Enroll(ctx, log, *server, *token)
-		if err != nil {
-			log.Error("matrícula recusada", "erro", err.Error())
-			os.Exit(1)
-		}
-		if err := agentcore.SaveCredentials(stPath, st); err != nil {
-			log.Error("não foi possível gravar a credencial (a pasta de dados é gravável?)", "pasta", *dataDir, "erro", err.Error())
-			os.Exit(1)
-		}
-		log.Info("matrícula concluída", "agente", st.AgentID)
-	} else if s := strings.TrimSpace(*server); s != "" && s != st.Server {
-		st.Server = s // o Server mudou de endereço; a credencial e a impressão digital continuam valendo
-		_ = agentcore.SaveCredentials(stPath, st)
 	}
-	log.Info("agente iniciado", "versão", version.Version, "server", st.Server, "agente", st.AgentID)
 	local, err := agentcore.NewState(*dataDir)
 	if err != nil {
 		log.Error("não foi possível preparar a pasta de dados do agente", "erro", err.Error())
@@ -69,13 +59,21 @@ func main() {
 			*hostWrite = "/host-rw"
 		}
 	}
-	core := agentcore.New(agentcore.Config{HostRoot: *hostRoot, HostWriteRoot: *hostWrite, BackupRoots: splitList(os.Getenv("CORUJA_BACKUP_ROOTS")), BackupDir: *backupDir, AllowedPaths: splitList(os.Getenv("CORUJA_ALLOWED_PATHS")), AllowedContainers: splitList(os.Getenv("CORUJA_ALLOWED_CONTAINERS")), DestDir: envOr("CORUJA_DEST_DIR", "/destinos")}, local, log)
+	core := agentcore.New(agentcore.Config{HostRoot: *hostRoot, HostWriteRoot: *hostWrite, BackupRoots: splitList(os.Getenv("CORUJA_BACKUP_ROOTS")), BackupDir: *backupDir,
+		AllowedPaths: splitList(os.Getenv("CORUJA_ALLOWED_PATHS")), AllowedContainers: splitList(os.Getenv("CORUJA_ALLOWED_CONTAINERS")), DestDir: envOr("CORUJA_DEST_DIR", "/destinos")}, local, log)
 	if err := os.MkdirAll(*backupDir, 0o750); err != nil {
 		log.Warn("a pasta de backups não está disponível (monte um volume gravável)", "pasta", *backupDir, "erro", err.Error())
 	}
-	log.Info("áreas de trabalho", "origem_do_host", *hostRoot, "pasta_de_backups", *backupDir)
+	id := int64(0)
+	if st != nil {
+		id = st.AgentID
+	}
+	log.Info("agente iniciado", "versão", version.Version, "agente", id, "origem_do_host", *hostRoot, "pasta_de_backups", *backupDir)
 	go core.Run(ctx)
-	agentcore.Run(ctx, log, st, core)
+	if err := agentcore.Listen(ctx, log, agentcore.ListenConfig{Addr: *listen, Token: strings.TrimSpace(*token), StatePath: stPath}, st, core); err != nil {
+		log.Error("o agente não pôde iniciar", "erro", err.Error())
+		os.Exit(1)
+	}
 	log.Info("agente encerrado")
 }
 

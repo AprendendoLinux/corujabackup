@@ -1,12 +1,14 @@
 # Coruja Backup · Agente
-# Informe o endereço do canal dos agentes do Server e o token gerado na interface (Agentes > Novo agente; vale uma vez).
+# Cadastre o agente na interface (Agentes > Novo agente: nome, IP e porta). Ela gera o token (vale uma vez) e esta stack pronta.
+# O Server conecta no agente pela porta publicada abaixo: libere-a só para o IP do Server.
 services:
   agent:
-    image: ghcr.io/aprendendolinux/corujabackup-agent:0.0.16
+    image: ghcr.io/aprendendolinux/corujabackup-agent:0.0.17
     container_name: corujabackup-agent
     restart: always
+    ports:
+      - "23847:23847"                        # o Server conecta aqui (a porta da esquerda é a cadastrada na interface)
     environment:
-      CORUJA_SERVER: "IP_DO_SERVER:8443"
       CORUJA_TOKEN: "TOKEN_GERADO_NA_INTERFACE"
       CORUJA_HOST_ROOT: "/host"          # o servidor, como o agente o enxerga (veja o volume abaixo)
       # Defesa em profundidade (opcional, recomendado): o agente só executa o que estas listas permitirem,

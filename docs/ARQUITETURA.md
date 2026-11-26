@@ -3,8 +3,8 @@
 | Tema | Decisão | Motivo |
 | :--- | :--- | :--- |
 | Linguagem (Server e Agente) | Go, um módulo só | binário estático (~15 MB), pouca RAM no agente, concorrência nativa, fácil imagem mínima |
-| Comunicação | gRPC em stream bidirecional sobre TLS, **iniciado pelo agente** | funciona atrás de NAT/firewall; comandos e progresso tipados; um canal por agente |
-| Portas | `8080` (interface + API REST, atrás de proxy reverso/HTTPS) e `8443` (canal gRPC/TLS dos agentes) | o canal dos agentes tem TLS próprio e fixado por impressão digital; a UI pode ficar atrás do proxy |
+| Comunicação | gRPC em stream bidirecional sobre TLS; **o Server abre a conexão TCP** com cada agente (IP:porta cadastrados na interface) e, sobre ela, continua sendo o lado servidor do TLS e do gRPC | toda a configuração fica na interface; a stack do agente só publica a porta e leva o token. O agente confere a impressão digital do Server antes de qualquer coisa; comandos e progresso tipados; um canal por agente |
+| Portas | Server: `8080` (interface + API REST, atrás de proxy reverso/HTTPS). Agente: `23847` (padrão), alcançável só pelo Server | o canal tem TLS próprio e fixado por impressão digital; o Server não expõe porta para os agentes |
 | Interface | React + TypeScript + Vite + Tailwind, embutida (`go:embed`) | sem contêiner extra; temas = variáveis CSS; logo por upload |
 | Banco do Server | MySQL (`mysql:latest`; recomendado fixar `8.4`) | pedido do projeto; `db` no compose de produção, `db-server` no desenvolvimento |
 | Caminho dos dados | **agente → nuvem direto**, com sessão de upload emitida pelo Server | credenciais ficam só no Server; o tráfego pesado não passa por ele |

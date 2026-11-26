@@ -2,7 +2,7 @@
 
 ## Requisitos
 - Docker 24+ com Compose v2 no servidor do **Server** e nos servidores dos **agentes**.
-- O Server precisa de um MySQL 8.x (o compose já traz um). Os agentes só precisam alcançar o Server na porta `8443`.
+- O Server precisa de um MySQL 8.x (o compose já traz um). O **Server precisa alcançar cada agente** na porta dele (padrão `23847`).
 - Arquiteturas: `amd64` e `arm64`.
 
 ## 1. Server
@@ -25,7 +25,7 @@ O compose usa a rede Docker externa `echelon`; crie-a (`docker network create ec
 | Porta | Para quê | Quem deve alcançar |
 | :--- | :--- | :--- |
 | `8080` | Interface web e API | Administradores (de preferência atrás de HTTPS) |
-| `8443` | Canal gRPC/TLS dos agentes | Os servidores com agente |
+| `23847` (na máquina de cada **agente**) | Canal gRPC/TLS: o Server conecta no agente | Só o IP do Server |
 
 ### HTTPS
 Escolha **uma** opção:
@@ -43,7 +43,7 @@ location / {
     proxy_read_timeout 1h;
 }
 ```
-Não publique o canal dos agentes (`8443`) pelo proxy HTTP: ele tem TLS próprio e é fixado por impressão digital.
+O canal dos agentes não passa pelo proxy HTTP: o Server conecta direto em cada agente, com TLS próprio fixado por impressão digital.
 
 **B) HTTPS direto no Server.** Monte um certificado e uma chave PEM e defina `CORUJA_TLS_CERT` e `CORUJA_TLS_KEY`.
 
@@ -51,11 +51,11 @@ Não publique o canal dos agentes (`8443`) pelo proxy HTTP: ele tem TLS próprio
 Defina `CORUJA_DB_HOST`, `CORUJA_DB_NAME`, `CORUJA_DB_USER`, `CORUJA_DB_PASSWORD` e, se não estiver na mesma rede Docker, `CORUJA_DB_TLS=true` (ou `skip-verify`).
 
 ## 2. Agente
-Na interface: **Agentes > Novo agente** gera o comando pronto (com o token de uso único). Em resumo:
+Na interface: **Agentes > Novo agente** pede o nome, o **IP e a porta** da máquina do agente e gera a stack pronta (com o token de uso único). Depois que o agente sobe, o Server conecta nele sozinho. Em resumo:
 
 ```bash
-docker run -d --name corujabackup-agent --restart always \
-  -e CORUJA_SERVER=IP_DO_SERVER:8443 -e CORUJA_TOKEN=cb1.... -e CORUJA_HOST_ROOT=/host \
+docker run -d --name corujabackup-agent --restart always -p 23847:23847 \
+  -e CORUJA_TOKEN=cb1.... -e CORUJA_HOST_ROOT=/host \
   -v coruja-agent-data:/var/lib/coruja-agent -v /:/host:ro -v /:/host-rw -v /srv/coruja-backups:/backups \
   ghcr.io/aprendendolinux/corujabackup-agent:latest
 ```
@@ -64,6 +64,7 @@ docker run -d --name corujabackup-agent --restart always \
 - `/host-rw` permite escolher no painel a **pasta do backup local** em qualquer disco do servidor, vendo o espaço livre. Ele dá ao agente permissão de gravação no servidor (veja [Segurança](SEGURANCA.md)). `/backups` é a pasta padrão do agente.
 - **Docker socket** (`-v /var/run/docker.sock:/var/run/docker.sock`): só para jobs de banco em contêineres. Dá ao agente controle total do Docker do servidor.
 - **Restrinja o agente** (recomendado): `CORUJA_ALLOWED_PATHS=/etc,/srv,/home` e `CORUJA_ALLOWED_CONTAINERS=db-*,mongo`.
+- **Firewall:** libere a porta publicada (`23847` no exemplo) **só para o IP do Server**.
 - O arquivo `deploy/docker-compose.agent.yml` traz tudo isso, com `cap_drop: ALL` e só as capacidades necessárias.
 
 ## 3. Primeiros passos
@@ -81,7 +82,6 @@ docker run -d --name corujabackup-agent --restart always \
 | `CORUJA_DB_HOST` / `PORT` / `NAME` / `USER` | `db` / `3306` / `corujabackup` / `corujabackup` | Conexão com o MySQL |
 | `CORUJA_DB_TLS` | vazio | `true`, `skip-verify` ou `preferred` (TLS com o MySQL) |
 | `CORUJA_LISTEN` | `:8080` | Interface web/API |
-| `CORUJA_AGENT_LISTEN` | `:8443` | Canal dos agentes |
 | `CORUJA_DATA_DIR` | `/data` | Certificado do canal dos agentes e chave de criptografia |
 | `CORUJA_TRUST_PROXY` | `false` | Confiar em `X-Forwarded-*` (só atrás de proxy confiável) |
 | `CORUJA_TLS_CERT` / `CORUJA_TLS_KEY` | vazio | HTTPS direto na interface |
@@ -89,7 +89,7 @@ docker run -d --name corujabackup-agent --restart always \
 ### Agente
 | Variável | Padrão | Descrição |
 | :--- | :--- | :--- |
-| `CORUJA_SERVER` | — | `IP:8443` do Server |
+| `CORUJA_LISTEN` | `:23847` | Porta onde o agente espera a conexão do Server (publique-a na stack) |
 | `CORUJA_TOKEN` | — | Token de matrícula (uso único; depois o agente guarda a própria credencial) |
 | `CORUJA_HOST_ROOT` | `/` | Onde o servidor está montado dentro do contêiner |
 | `CORUJA_BACKUP_DIR` | `/backups` | Onde os arquivos de backup são gravados |

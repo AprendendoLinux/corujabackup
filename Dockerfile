@@ -12,7 +12,7 @@ RUN mkdir -p /src/internal/webui && npm run build
 # Os estágios web e gobuild rodam na plataforma nativa do runner (sem emulação); só o binário é cruzado.
 # --- binários Go -----------------------------------------------------------------------------------------------------
 FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS gobuild
-ARG VERSION=0.0.16
+ARG VERSION=0.0.17
 ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /src
@@ -32,7 +32,7 @@ RUN --mount=type=secret,id=google_client_secret --mount=type=secret,id=google_we
 
 # --- Server ------------------------------------------------------------------------------------------------------------
 FROM alpine:3.21 AS server
-ARG VERSION=0.0.16
+ARG VERSION=0.0.17
 LABEL org.opencontainers.image.title="Coruja Backup Server" \
       org.opencontainers.image.description="Backup centralizado: orquestração, agendamentos, nuvem e interface web" \
       org.opencontainers.image.source="https://github.com/AprendendoLinux/corujabackup" \
@@ -42,13 +42,13 @@ COPY --from=gobuild /out/coruja-server /usr/local/bin/coruja-server
 RUN mkdir -p /data && chown coruja /data
 VOLUME /data
 USER coruja
-EXPOSE 8080 8443
+EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 CMD ["/usr/local/bin/coruja-server", "-healthcheck"]
 ENTRYPOINT ["/usr/local/bin/coruja-server"]
 
 # --- Agente ------------------------------------------------------------------------------------------------------------
 FROM alpine:3.21 AS agent
-ARG VERSION=0.0.16
+ARG VERSION=0.0.17
 LABEL org.opencontainers.image.title="Coruja Backup Agent" \
       org.opencontainers.image.description="Agente leve do Coruja Backup (conecta ao Server por IP:porta)" \
       org.opencontainers.image.source="https://github.com/AprendendoLinux/corujabackup" \
@@ -58,4 +58,5 @@ RUN apk add --no-cache ca-certificates tzdata mariadb-client postgresql17-client
 COPY --from=gobuild /out/coruja-agent /usr/local/bin/coruja-agent
 VOLUME /var/lib/coruja-agent
 # Roda como root: a Fase 2 precisa ler pastas do host (montadas somente leitura).
+EXPOSE 23847
 ENTRYPOINT ["/usr/local/bin/coruja-agent"]

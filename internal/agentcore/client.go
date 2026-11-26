@@ -3,19 +3,23 @@ package agentcore
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 
@@ -27,74 +31,162 @@ import (
 
 // Credentials é o que o agente guarda depois de matriculado (arquivo agent.json, permissão 600).
 type Credentials struct {
-	Server      string `json:"server"`
+	Server      string `json:"server,omitempty"` // só de versões antigas (antes da 0.0.17 o agente discava o Server)
 	Fingerprint string `json:"fingerprint"`
 	AgentID     int64  `json:"agent_id"`
 	Credential  string `json:"credential"`
 }
 
-func Dial(addr, fp string) (*grpc.ClientConn, error) {
-	return grpc.NewClient(addr,
-		grpc.WithTransportCredentials(credentials.NewTLS(tlsutil.PinnedConfig(fp))),
-		grpc.WithKeepaliveParams(keepalive.ClientParameters{Time: 30 * time.Second, Timeout: 10 * time.Second, PermitWithoutStream: true}),
-	)
+// ListenConfig descreve como o agente espera o Server: ele escuta numa porta e o Server conecta nele.
+type ListenConfig struct {
+	Addr      string // ex.: ":23847"
+	Token     string // token de matrícula (só na primeira vez)
+	StatePath string // onde a credencial fica gravada
 }
 
-func Enroll(ctx context.Context, log *slog.Logger, server, tokenStr string) (*Credentials, error) {
-	tk, err := enroll.Parse(tokenStr)
-	if err != nil {
-		return nil, err
+// oneShot entrega ao gRPC a conexão já aberta pelo Server (uma única vez: sem ela, a sessão termina).
+func oneShot(c net.Conn) func(context.Context, string) (net.Conn, error) {
+	var used atomic.Bool
+	return func(context.Context, string) (net.Conn, error) {
+		if used.Swap(true) {
+			return nil, errors.New("conexão encerrada: aguardando o Server conectar de novo")
+		}
+		return c, nil
 	}
-	conn, err := Dial(server, tk.Fingerprint)
-	if err != nil {
-		return nil, err
+}
+
+// Listen recebe as conexões do Server. Cada uma só vira sessão se o TLS provar que do outro lado está o Server certo
+// (impressão digital fixada, vinda do token de matrícula). A primeira conexão faz a matrícula; as seguintes usam a
+// credencial gravada. Uma conexão nova substitui a anterior.
+func Listen(ctx context.Context, log *slog.Logger, cfg ListenConfig, st *Credentials, core *Core) error {
+	var fp string
+	if st != nil {
+		fp = st.Fingerprint
+	} else {
+		tk, err := enroll.Parse(cfg.Token)
+		if err != nil {
+			return err
+		}
+		fp = tk.Fingerprint
 	}
-	defer conn.Close()
+	ln, err := net.Listen("tcp", cfg.Addr)
+	if err != nil {
+		return fmt.Errorf("não foi possível escutar em %s: %w", cfg.Addr, err)
+	}
+	go func() { <-ctx.Done(); _ = ln.Close() }()
+	log.Info("aguardando o Server conectar", "porta", cfg.Addr)
+
+	var mu sync.Mutex
+	cur := st
+	var stopCur context.CancelFunc
+	revoked := false
+	slots := make(chan struct{}, 4) // limita handshakes simultâneos (conexões de estranhos não esgotam o agente)
+	lastWarn := time.Time{}
+	for {
+		raw, err := ln.Accept()
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		select {
+		case slots <- struct{}{}:
+		default:
+			_ = raw.Close()
+			continue
+		}
+		go func() {
+			defer func() { <-slots }()
+			mu.Lock()
+			pin, isRevoked := fp, revoked
+			mu.Unlock()
+			if isRevoked {
+				_ = raw.Close()
+				return
+			}
+			_ = raw.SetDeadline(time.Now().Add(15 * time.Second))
+			tc := tls.Client(raw, tlsutil.PinnedConfig(pin))
+			if err := tc.HandshakeContext(ctx); err != nil {
+				_ = raw.Close()
+				mu.Lock()
+				if time.Since(lastWarn) > time.Minute { // conexões de estranhos não enchem o log
+					lastWarn = time.Now()
+					log.Warn("conexão recusada: não é o Server deste agente (ou o certificado do Server mudou)", "de", raw.RemoteAddr().String(), "erro", err.Error())
+				}
+				mu.Unlock()
+				return
+			}
+			_ = raw.SetDeadline(time.Time{})
+			cc, err := grpc.NewClient("passthrough:///coruja-server",
+				grpc.WithTransportCredentials(insecure.NewCredentials()), // o TLS (com pinning) já foi feito acima, nesta mesma conexão
+				grpc.WithContextDialer(oneShot(tc)),
+				grpc.WithKeepaliveParams(keepalive.ClientParameters{Time: 30 * time.Second, Timeout: 10 * time.Second, PermitWithoutStream: true}))
+			if err != nil {
+				_ = tc.Close()
+				return
+			}
+			defer cc.Close()
+			mu.Lock()
+			creds := cur
+			mu.Unlock()
+			if creds == nil {
+				nc, err := enrollOver(ctx, cc, cfg.Token, pin)
+				if err != nil {
+					log.Error("matrícula recusada", "erro", err.Error())
+					return
+				}
+				if err := SaveCredentials(cfg.StatePath, nc); err != nil {
+					log.Error("não foi possível gravar a credencial (a pasta de dados é gravável?)", "erro", err.Error())
+					return
+				}
+				log.Info("matrícula concluída", "agente", nc.AgentID)
+				mu.Lock()
+				if cur == nil {
+					cur = nc
+				}
+				creds = cur
+				mu.Unlock()
+			}
+			sctx, cancel := context.WithCancel(ctx)
+			mu.Lock()
+			if stopCur != nil {
+				stopCur() // a conexão nova substitui a anterior
+			}
+			stopCur = cancel
+			mu.Unlock()
+			defer cancel()
+			wasRevoked, err := session(sctx, ctx, log, creds, core, cc)
+			if wasRevoked {
+				mu.Lock()
+				revoked = true
+				mu.Unlock()
+				log.Error("este agente foi revogado no Server; recusando novas conexões (remova-o ou matricule de novo com um token novo)")
+				return
+			}
+			if err != nil && sctx.Err() == nil {
+				log.Warn("canal encerrado; aguardando o Server conectar de novo", "erro", err.Error())
+			}
+		}()
+	}
+}
+
+func enrollOver(ctx context.Context, cc *grpc.ClientConn, token, fp string) (*Credentials, error) {
 	host, _ := os.Hostname()
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	resp, err := pb.NewAgentServiceClient(conn).Enroll(cctx, &pb.EnrollRequest{
-		Token: tokenStr, Hostname: host, Os: runtime.GOOS, Arch: runtime.GOARCH, AgentVersion: version.Version})
+	resp, err := pb.NewAgentServiceClient(cc).Enroll(cctx, &pb.EnrollRequest{
+		Token: token, Hostname: host, Os: runtime.GOOS, Arch: runtime.GOARCH, AgentVersion: version.Version})
 	if err != nil {
 		return nil, err
 	}
-	return &Credentials{Server: server, Fingerprint: tk.Fingerprint, AgentID: resp.AgentId, Credential: resp.Credential}, nil
+	return &Credentials{Fingerprint: fp, AgentID: resp.AgentId, Credential: resp.Credential}, nil
 }
 
-// run mantém o canal aberto, reconectando com espera crescente (1s até 30s).
-func Run(ctx context.Context, log *slog.Logger, st *Credentials, core *Core) {
-	backoff := time.Second
-	for ctx.Err() == nil {
-		start := time.Now()
-		revoked, err := session(ctx, log, st, core)
-		if revoked {
-			log.Error("este agente foi revogado no Server; ficando ocioso (remova-o ou matricule de novo com um token novo)")
-			<-ctx.Done()
-			return
-		}
-		if err != nil && ctx.Err() == nil {
-			log.Warn("canal encerrado", "erro", err.Error(), "nova_tentativa_em", backoff.String())
-		}
-		if time.Since(start) > 2*time.Minute {
-			backoff = time.Second
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(backoff):
-		}
-		if backoff < 30*time.Second {
-			backoff *= 2
-		}
-	}
-}
-
-func session(ctx context.Context, log *slog.Logger, st *Credentials, core *Core) (revoked bool, err error) {
-	conn, err := Dial(st.Server, st.Fingerprint)
-	if err != nil {
-		return false, err
-	}
-	defer conn.Close()
+// session conduz um canal. ctx termina com o canal; base é o contexto do agente (ações e consultas em andamento não
+// são interrompidas quando o Server reconecta).
+func session(ctx, base context.Context, log *slog.Logger, st *Credentials, core *Core, conn *grpc.ClientConn) (revoked bool, err error) {
 	sctx, cancel := context.WithCancel(metadata.AppendToOutgoingContext(ctx, "authorization", fmt.Sprintf("Bearer %d.%s", st.AgentID, st.Credential)))
 	defer cancel()
 	stream, err := pb.NewAgentServiceClient(conn).Connect(sctx)
@@ -152,10 +244,10 @@ func session(ctx context.Context, log *slog.Logger, st *Credentials, core *Core)
 			case m.GetCancelRun() != nil:
 				core.Cancel(m.GetCancelRun().RunUid)
 			case m.GetAction() != nil:
-				core.HandleAction(ctx, m.GetAction())
+				core.HandleAction(base, m.GetAction())
 			case m.GetRpc() != nil:
 				rpc := m.GetRpc()
-				go func() { _ = safeSend(core.HandleRPC(ctx, rpc)) }()
+				go func() { _ = safeSend(core.HandleRPC(base, rpc)) }()
 			case m.GetUploadSession() != nil:
 				core.OnUploadSession(m.GetUploadSession())
 			case m.GetUploadVerdict() != nil:

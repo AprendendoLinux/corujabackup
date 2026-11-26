@@ -66,6 +66,7 @@ type Server struct {
 	Store         *store.Store
 	ServerVersion string
 	Limiter       *ratelimit.Limiter // freia tentativas de matrícula por IP
+	Dialer        *Dialer            // conexões abertas pelo Server com os agentes
 
 	mu     sync.Mutex
 	online map[int64]*conn
@@ -225,6 +226,7 @@ func (s *Server) Serve(ctx context.Context, lis net.Listener, cert tls.Certifica
 	gs := grpc.NewServer(
 		grpc.Creds(credentials.NewTLS(&tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS13})),
 		grpc.MaxRecvMsgSize(1<<20),
+		grpc.ConnectionTimeout(20*time.Second), // o handshake TLS de uma conexão discada não pode ficar pendurado
 		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{MinTime: 10 * time.Second, PermitWithoutStream: true}),
 	)
 	pb.RegisterAgentServiceServer(gs, s)
@@ -239,6 +241,18 @@ func (s *Server) Serve(ctx context.Context, lis net.Listener, cert tls.Certifica
 		}
 	}()
 	return gs.Serve(lis)
+}
+
+// markConnected avisa o discador que a conexão deste contexto virou uma sessão autenticada.
+func (s *Server) markConnected(ctx context.Context) {
+	if s.Dialer == nil {
+		return
+	}
+	if p, ok := peer.FromContext(ctx); ok {
+		if da, ok := p.Addr.(*DialedAddr); ok {
+			s.Dialer.connected(da.Target)
+		}
+	}
 }
 
 func peerIP(ctx context.Context) string {
@@ -340,6 +354,7 @@ func (s *Server) Connect(stream pb.AgentService_ConnectServer) error {
 	if h == nil {
 		return status.Error(codes.InvalidArgument, "a primeira mensagem deve ser Hello")
 	}
+	s.markConnected(ctx)
 	_ = s.Store.TouchAgent(ctx, a.ID, clip(h.Hostname, 255), clip(h.Os, 40), clip(h.Arch, 20), clip(h.AgentVersion, 40), h.DockerAvailable, ip)
 
 	if n, err := s.Store.FailStaleRuns(ctx, a.ID, h.ActiveRuns); err == nil && n > 0 {

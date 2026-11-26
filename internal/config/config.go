@@ -9,35 +9,33 @@ import (
 )
 
 type Config struct {
-	Listen      string // interface web e API REST, padrão ":8080" (fica atrás do proxy reverso, se houver)
-	AgentListen string // canal gRPC/TLS dos agentes, padrão ":8443"
-	DataDir     string // certificado TLS e dados locais, padrão "/data"
-	TrustProxy  bool   // confiar em X-Forwarded-For/Proto (só atrás de proxy reverso confiável)
-	TLSCert     string // HTTPS direto na interface (opcional): caminho do certificado PEM
-	TLSKey      string // e da chave privada PEM
-	DBTLS       string // TLS com o MySQL: vazio/false = sem TLS; true = com validação; skip-verify; preferred
-	DBHost      string
-	DBPort      string
-	DBName      string
-	DBUser      string
-	DBPassword  string
+	Listen     string // interface web e API REST, padrão ":8080" (fica atrás do proxy reverso, se houver)
+	DataDir    string // certificado TLS e dados locais, padrão "/data"
+	TrustProxy bool   // confiar em X-Forwarded-For/Proto (só atrás de proxy reverso confiável)
+	TLSCert    string // HTTPS direto na interface (opcional): caminho do certificado PEM
+	TLSKey     string // e da chave privada PEM
+	DBTLS      string // TLS com o MySQL: vazio/false = sem TLS; true = com validação; skip-verify; preferred
+	DBHost     string
+	DBPort     string
+	DBName     string
+	DBUser     string
+	DBPassword string
 }
 
 // Load lê o ambiente. Só CORUJA_DB_PASSWORD é obrigatória.
 func Load(getenv func(string) string) (Config, error) {
 	c := Config{
-		Listen:      or(getenv("CORUJA_LISTEN"), ":8080"),
-		AgentListen: or(getenv("CORUJA_AGENT_LISTEN"), ":8443"),
-		DataDir:     or(getenv("CORUJA_DATA_DIR"), "/data"),
-		TrustProxy:  strings.EqualFold(getenv("CORUJA_TRUST_PROXY"), "true"),
-		TLSCert:     strings.TrimSpace(getenv("CORUJA_TLS_CERT")),
-		TLSKey:      strings.TrimSpace(getenv("CORUJA_TLS_KEY")),
-		DBTLS:       strings.ToLower(strings.TrimSpace(getenv("CORUJA_DB_TLS"))),
-		DBHost:      or(getenv("CORUJA_DB_HOST"), "db"),
-		DBPort:      or(getenv("CORUJA_DB_PORT"), "3306"),
-		DBName:      or(getenv("CORUJA_DB_NAME"), "corujabackup"),
-		DBUser:      or(getenv("CORUJA_DB_USER"), "corujabackup"),
-		DBPassword:  getenv("CORUJA_DB_PASSWORD"),
+		Listen:     or(getenv("CORUJA_LISTEN"), ":8080"),
+		DataDir:    or(getenv("CORUJA_DATA_DIR"), "/data"),
+		TrustProxy: strings.EqualFold(getenv("CORUJA_TRUST_PROXY"), "true"),
+		TLSCert:    strings.TrimSpace(getenv("CORUJA_TLS_CERT")),
+		TLSKey:     strings.TrimSpace(getenv("CORUJA_TLS_KEY")),
+		DBTLS:      strings.ToLower(strings.TrimSpace(getenv("CORUJA_DB_TLS"))),
+		DBHost:     or(getenv("CORUJA_DB_HOST"), "db"),
+		DBPort:     or(getenv("CORUJA_DB_PORT"), "3306"),
+		DBName:     or(getenv("CORUJA_DB_NAME"), "corujabackup"),
+		DBUser:     or(getenv("CORUJA_DB_USER"), "corujabackup"),
+		DBPassword: getenv("CORUJA_DB_PASSWORD"),
 	}
 	if strings.TrimSpace(c.DBPassword) == "" {
 		return c, fmt.Errorf("a variável CORUJA_DB_PASSWORD é obrigatória")

@@ -99,9 +99,10 @@ func main() {
 	hub.Box = box
 	notifier := notify.New(st, box)
 	hub.Notify = notifier
-	_, agentPort, _ := net.SplitHostPort(cfg.AgentListen)
+	dialer := agentsrv.NewDialer(st.DialTargets) // o Server conecta em cada agente cadastrado (host:porta)
+	hub.Dialer = dialer
 	api := &httpapi.Server{DB: d, Store: st, Pinger: d, Agents: hub, Clouds: clouds, Box: box, Notifier: notifier, Started: time.Now(), Web: webui.Handler(),
-		Fingerprint: fp, AgentPort: agentPort, TrustProxy: cfg.TrustProxy}
+		Fingerprint: fp, TrustProxy: cfg.TrustProxy}
 	if n, err := st.CountUsers(ctx); err == nil && n == 0 {
 		code, _ := auth.RandomToken(9)
 		api.SetupCode = code
@@ -110,7 +111,12 @@ func main() {
 	srv := &http.Server{Addr: cfg.Listen, Handler: api.Routes(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 64 << 10}
 
 	errc := make(chan error, 2)
-	go func() { errc <- hub.Listen(ctx, cfg.AgentListen, cert) }()
+	go dialer.Run(ctx)
+	go func() {
+		if err := hub.Serve(ctx, dialer, cert); err != nil && ctx.Err() == nil && !errors.Is(err, net.ErrClosed) {
+			errc <- err
+		}
+	}()
 	go func() {
 		log.Info("interface web/API", "endereço", cfg.Listen, "https", cfg.TLSCert != "")
 		var err error
@@ -143,7 +149,7 @@ func main() {
 			}
 		}
 	}()
-	log.Info("canal dos agentes (gRPC/TLS)", "endereço", cfg.AgentListen)
+	log.Info("canal dos agentes (gRPC/TLS): o Server conecta nos agentes cadastrados")
 
 	select {
 	case err := <-errc:

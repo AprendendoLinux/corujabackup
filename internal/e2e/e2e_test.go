@@ -69,22 +69,24 @@ func newRig(t *testing.T, ep cloudmgr.Endpoints) *rig {
 	srv := agentsrv.New(st, "teste")
 	srv.Cloud = mgr
 	srv.Box = box
-	lis, _ := net.Listen("tcp", "127.0.0.1:0")
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	go srv.Serve(ctx, lis, cert)
+	// conexão invertida: o Server disca o endereço cadastrado do agente
+	dialer := agentsrv.NewDialer(st.DialTargets)
+	dialer.Every = 200 * time.Millisecond
+	srv.Dialer = dialer
+	go dialer.Run(ctx)
+	go srv.Serve(ctx, dialer, cert)
 
+	probe, _ := net.Listen("tcp", "127.0.0.1:0")
+	agentAddr := probe.Addr().String()
+	probe.Close()
 	fp := tlsutil.Fingerprint(cert)
 	tok, _ := enroll.New(fp)
 	pt, _ := enroll.Parse(tok)
-	if err := st.CreateEnrollToken(ctx, pt.Hash(), "srv-e2e", 0, time.Now().Add(time.Hour)); err != nil {
+	if err := st.CreateEnrollTokenAt(ctx, pt.Hash(), "srv-e2e", agentAddr, 0, time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	cr, err := agentcore.Enroll(ctx, slog.New(slog.NewTextHandler(io.Discard, nil)), lis.Addr().String(), tok)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a, _ := st.AgentByID(ctx, cr.AgentID)
 
 	host, bk := t.TempDir(), t.TempDir()
 	for name, content := range map[string]string{"srv/app/index.html": "olá mundo", "srv/app/dados.bin": strings.Repeat("0123456789", 50000), "etc/app.conf": "conf"} {
@@ -97,8 +99,24 @@ func newRig(t *testing.T, ep cloudmgr.Endpoints) *rig {
 	core := agentcore.New(agentcore.Config{HostRoot: host, BackupDir: bk, DestDir: destDir}, local, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	core.SetUploadOptions(uploader.Options{Retries: 2, Sleep: func(context.Context, time.Duration) {}})
 	go core.Run(ctx)
-	go agentcore.Run(ctx, slog.New(slog.NewTextHandler(io.Discard, nil)), cr, core)
+	statePath := filepath.Join(t.TempDir(), "agent.json")
+	go agentcore.Listen(ctx, slog.New(slog.NewTextHandler(io.Discard, nil)), agentcore.ListenConfig{Addr: agentAddr, Token: tok, StatePath: statePath}, nil, core)
 
+	var a *store.Agent
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline) && a == nil; time.Sleep(100 * time.Millisecond) {
+		ags, _ := st.ListAgents(ctx)
+		for i := range ags {
+			if ags[i].Name == "srv-e2e" {
+				a = &ags[i]
+			}
+		}
+	}
+	if a == nil {
+		t.Fatal("o agente não foi matriculado pela conexão invertida")
+	}
+	if a.Address != agentAddr {
+		t.Fatalf("o endereço do token deveria passar para o agente: %q", a.Address)
+	}
 	r := &rig{t: t, st: st, srv: srv, mgr: mgr, core: core, agent: a, hostDir: host, bkDir: bk, destDir: destDir, cancel: cancel}
 	r.waitOnline()
 	return r

@@ -20,14 +20,15 @@ type Agent struct {
 	CreatedAt       time.Time  `json:"created_at"`
 	LastSeenAt      *time.Time `json:"last_seen_at"`
 	RevokedAt       *time.Time `json:"revoked_at"`
+	Address         string     `json:"address"` // host:porta onde o Server conecta no agente
 }
 
-const agentCols = "id, name, hostname, os, arch, agent_version, docker_available, ip, credential_hash, created_at, last_seen_at, revoked_at"
+const agentCols = "id, name, hostname, os, arch, agent_version, docker_available, ip, credential_hash, created_at, last_seen_at, revoked_at, address"
 
 func scanAgent(r interface{ Scan(...any) error }) (*Agent, error) {
 	var a Agent
 	var ls, rv sql.NullTime
-	if err := r.Scan(&a.ID, &a.Name, &a.Hostname, &a.OS, &a.Arch, &a.AgentVersion, &a.DockerAvailable, &a.IP, &a.CredentialHash, &a.CreatedAt, &ls, &rv); err != nil {
+	if err := r.Scan(&a.ID, &a.Name, &a.Hostname, &a.OS, &a.Arch, &a.AgentVersion, &a.DockerAvailable, &a.IP, &a.CredentialHash, &a.CreatedAt, &ls, &rv, &a.Address); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -46,6 +47,11 @@ func scanAgent(r interface{ Scan(...any) error }) (*Agent, error) {
 
 // CreateEnrollToken registra (só o hash de) um token de matrícula de uso único.
 func (s *Store) CreateEnrollToken(ctx context.Context, tokenHash, name string, createdBy int64, expires time.Time) error {
+	return s.CreateEnrollTokenAt(ctx, tokenHash, name, "", createdBy, expires)
+}
+
+// CreateEnrollTokenAt registra o token junto com o endereço (host:porta) onde o Server vai conectar no novo agente.
+func (s *Store) CreateEnrollTokenAt(ctx context.Context, tokenHash, name, address string, createdBy int64, expires time.Time) error {
 	var by any
 	if createdBy > 0 {
 		by = createdBy
@@ -57,7 +63,7 @@ func (s *Store) CreateEnrollToken(ctx context.Context, tokenHash, name string, c
 	if n > 0 {
 		return ErrDuplicate
 	}
-	_, err := s.DB.ExecContext(ctx, "INSERT INTO enrollment_tokens (token_hash, name, created_by, expires_at) VALUES (?,?,?,?)", tokenHash, name, by, expires.UTC())
+	_, err := s.DB.ExecContext(ctx, "INSERT INTO enrollment_tokens (token_hash, name, address, created_by, expires_at) VALUES (?,?,?,?,?)", tokenHash, name, address, by, expires.UTC())
 	return err
 }
 
@@ -66,10 +72,11 @@ type PendingToken struct {
 	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"created_at"`
 	ExpiresAt time.Time `json:"expires_at"`
+	Address   string    `json:"address"`
 }
 
 func (s *Store) ListPendingTokens(ctx context.Context) ([]PendingToken, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT id, name, created_at, expires_at FROM enrollment_tokens WHERE used_at IS NULL AND expires_at > UTC_TIMESTAMP() ORDER BY id DESC")
+	rows, err := s.DB.QueryContext(ctx, "SELECT id, name, created_at, expires_at, address FROM enrollment_tokens WHERE used_at IS NULL AND expires_at > UTC_TIMESTAMP() ORDER BY id DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +84,7 @@ func (s *Store) ListPendingTokens(ctx context.Context) ([]PendingToken, error) {
 	out := []PendingToken{}
 	for rows.Next() {
 		var t PendingToken
-		if err := rows.Scan(&t.ID, &t.Name, &t.CreatedAt, &t.ExpiresAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.CreatedAt, &t.ExpiresAt, &t.Address); err != nil {
 			return nil, err
 		}
 		out = append(out, t)
@@ -99,16 +106,16 @@ func (s *Store) Enroll(ctx context.Context, tokenHash, hostname, os_, arch, vers
 	}
 	defer tx.Rollback()
 	var tokID int64
-	var name string
-	err = tx.QueryRowContext(ctx, "SELECT id, name FROM enrollment_tokens WHERE token_hash=? AND used_at IS NULL AND expires_at > UTC_TIMESTAMP() FOR UPDATE", tokenHash).Scan(&tokID, &name)
+	var name, address string
+	err = tx.QueryRowContext(ctx, "SELECT id, name, address FROM enrollment_tokens WHERE token_hash=? AND used_at IS NULL AND expires_at > UTC_TIMESTAMP() FOR UPDATE", tokenHash).Scan(&tokID, &name, &address)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	res, err := tx.ExecContext(ctx, "INSERT INTO agents (name, hostname, os, arch, agent_version, ip, credential_hash, last_seen_at) VALUES (?,?,?,?,?,?,?, UTC_TIMESTAMP())",
-		name, hostname, os_, arch, version, ip, credHash)
+	res, err := tx.ExecContext(ctx, "INSERT INTO agents (name, hostname, os, arch, agent_version, ip, credential_hash, last_seen_at, address) VALUES (?,?,?,?,?,?,?, UTC_TIMESTAMP(), ?)",
+		name, hostname, os_, arch, version, ip, credHash, address)
 	if err != nil {
 		if isDup(err) {
 			return nil, ErrDuplicate
@@ -174,4 +181,44 @@ func (s *Store) RevokeAgent(ctx context.Context, id int64) error {
 func (s *Store) DeleteAgent(ctx context.Context, id int64) error {
 	_, err := s.DB.ExecContext(ctx, "DELETE FROM agents WHERE id=?", id)
 	return err
+}
+
+// SetAgentAddress muda o endereço (host:porta) onde o Server conecta no agente.
+func (s *Store) SetAgentAddress(ctx context.Context, id int64, address string) error {
+	res, err := s.DB.ExecContext(ctx, "UPDATE agents SET address=? WHERE id=?", address, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		if _, err := s.AgentByID(ctx, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DialTarget é um endereço que o Server deve manter conectado: um agente ativo ou um token ainda não usado.
+type DialTarget struct {
+	Address string
+	AgentID int64 // 0 = token pendente
+	Name    string
+}
+
+// DialTargets lista os endereços que o Server deve conectar (agentes não revogados e tokens pendentes que têm endereço).
+func (s *Store) DialTargets(ctx context.Context) ([]DialTarget, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT address, id, name FROM agents WHERE revoked_at IS NULL AND address <> ''
+		UNION ALL SELECT address, 0, name FROM enrollment_tokens WHERE used_at IS NULL AND expires_at > UTC_TIMESTAMP() AND address <> ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DialTarget
+	for rows.Next() {
+		var t DialTarget
+		if err := rows.Scan(&t.Address, &t.AgentID, &t.Name); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
 }

@@ -40,6 +40,7 @@ type fakeHub struct {
 	actions []*pb.AgentAction
 	callOut []byte
 	callErr error
+	wakes   int
 }
 
 func (f *fakeHub) Online() map[int64]time.Time     { return map[int64]time.Time{} }
@@ -53,6 +54,10 @@ func (f *fakeHub) RunNow(_, jobID int64, uid string) error {
 	return nil
 }
 func (f *fakeHub) CancelRun(int64, string) error { return nil }
+func (f *fakeHub) Links() map[string]agentsrv.LinkState {
+	return map[string]agentsrv.LinkState{"10.0.0.9:8443": {Address: "10.0.0.9:8443", State: "error", Error: "conexão recusada"}}
+}
+func (f *fakeHub) Wake() { f.wakes++ }
 func (f *fakeHub) Action(_ int64, a *pb.AgentAction) error {
 	if f.offline {
 		return agentsrv.ErrOffline
@@ -121,7 +126,7 @@ func newEnv(t *testing.T) *env {
 	d := testutil.DB(t)
 	e := &env{t: t, hub: &fakeHub{}, now: time.Now().UTC().Truncate(time.Second)}
 	box, _ := secrets.Open(t.TempDir())
-	e.api = &Server{DB: d, Store: store.New(d), Box: box, Pinger: d, Agents: e.hub, Started: time.Now(), Fingerprint: strings.Repeat("ab", 32), AgentPort: "8443",
+	e.api = &Server{DB: d, Store: store.New(d), Box: box, Pinger: d, Agents: e.hub, Started: time.Now(), Fingerprint: strings.Repeat("ab", 32),
 		LoginLimiter: ratelimit.New(5, 15*time.Minute), now: func() time.Time { return e.now }}
 	e.srv = httptest.NewServer(e.api.Routes())
 	t.Cleanup(e.srv.Close)
@@ -239,7 +244,7 @@ func TestSessaoLogoutEPermissoes(t *testing.T) {
 	if code, _ := o.do("GET", "/api/users", nil); code != 403 {
 		t.Fatalf("operador não administra usuários: %d", code)
 	}
-	if code, _ := o.do("POST", "/api/agents/tokens", map[string]any{"name": "srv-1"}); code != 201 {
+	if code, _ := o.do("POST", "/api/agents/tokens", map[string]any{"name": "srv-1", "address": "10.0.0.5:8443"}); code != 201 {
 		t.Fatalf("operador deveria criar token: %d", code)
 	}
 	adm.mustOK("POST", "/api/logout", nil)
@@ -345,10 +350,19 @@ func TestUltimoAdminProtegidoESenha(t *testing.T) {
 func TestTokensDeMatriculaEAgentes(t *testing.T) {
 	e := newEnv(t)
 	c := setupAdmin(e)
-	if code, _ := c.do("POST", "/api/agents/tokens", map[string]any{"name": "a"}); code != 400 {
+	if code, _ := c.do("POST", "/api/agents/tokens", map[string]any{"name": "a", "address": "10.0.0.9:8443"}); code != 400 {
 		t.Fatalf("nome curto: %d", code)
 	}
-	tk := c.mustOK("POST", "/api/agents/tokens", map[string]any{"name": "umami-server2", "ttl_hours": 9999})
+	// o endereço onde o Server conecta no agente é obrigatório e validado
+	for _, bad := range []string{"", "semporta", "http://x:8443", "x:0", "x:70000", "x y:1", `x";rm -rf /:1`, "$(id):8443", "x:abc"} {
+		if code, _ := c.do("POST", "/api/agents/tokens", map[string]any{"name": "umami-server2", "address": bad}); code != 400 {
+			t.Errorf("endereço %q deveria ser recusado: %d", bad, code)
+		}
+	}
+	tk := c.mustOK("POST", "/api/agents/tokens", map[string]any{"name": "umami-server2", "ttl_hours": 9999, "address": " 10.0.0.9:8443 "})
+	if tk["address"] != "10.0.0.9:8443" || e.hub.wakes != 1 {
+		t.Fatalf("endereço normalizado e conexão imediata: %v %d", tk["address"], e.hub.wakes)
+	}
 	if !strings.HasPrefix(tk["token"].(string), "cb1."+strings.Repeat("ab", 16)+".") {
 		t.Fatalf("token deveria carregar a impressão digital: %v", tk["token"])
 	}
@@ -356,15 +370,28 @@ func TestTokensDeMatriculaEAgentes(t *testing.T) {
 	if len(list["pending_tokens"].([]any)) != 1 || strings.Contains(jsonString(list), "cb1.") {
 		t.Fatalf("o token em si nunca deve ser listado: %v", list)
 	}
+	if p := list["pending_tokens"].([]any)[0].(map[string]any); p["address"] != "10.0.0.9:8443" || p["link"].(map[string]any)["error"] != "conexão recusada" {
+		t.Fatalf("o token pendente deve mostrar o endereço e a situação da conexão: %v", p)
+	}
 	// agente criado direto no banco para testar renomear/revogar/excluir
 	a, err := e.api.Store.Enroll(context.Background(), enrollHashOf(t, c, e), "host", "linux", "amd64", "0.0.1", "10.0.0.1", auth.SHA256Hex("cred"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if code, _ := c.do("POST", "/api/agents/tokens", map[string]any{"name": "umami-server2"}); code != 409 {
+	if a.Address != "10.0.0.9:8443" {
+		t.Fatalf("o agente herda o endereço do token: %q", a.Address)
+	}
+	if code, _ := c.do("POST", "/api/agents/tokens", map[string]any{"name": "umami-server2", "address": "10.0.0.8:8443"}); code != 409 {
 		t.Fatalf("nome de agente existente: %d", code)
 	}
 	c.mustOK("PATCH", "/api/agents/"+itoa(int(a.ID)), map[string]string{"name": "umami-s2"})
+	if code, _ := c.do("PATCH", "/api/agents/"+itoa(int(a.ID)), map[string]string{"address": "sem-porta"}); code != 400 {
+		t.Fatalf("endereço inválido: %d", code)
+	}
+	c.mustOK("PATCH", "/api/agents/"+itoa(int(a.ID)), map[string]string{"address": "[2001:db8::1]:9443"})
+	if g, _ := e.api.Store.AgentByID(context.Background(), a.ID); g.Address != "[2001:db8::1]:9443" || g.Name != "umami-s2" {
+		t.Fatalf("endereço: %+v", g)
+	}
 	c.mustOK("POST", "/api/agents/"+itoa(int(a.ID))+"/revoke", nil)
 	if len(e.hub.revoked) != 1 || e.hub.revoked[0] != a.ID {
 		t.Fatalf("revogar deveria derrubar o canal: %v", e.hub.revoked)
@@ -833,23 +860,7 @@ func TestSeletorDePastasEEnderecoDosAgentes(t *testing.T) {
 		t.Fatalf("'..' deveria ser recusado: %d", code)
 	}
 
-	// endereço dos agentes
-	if r = adm.mustOK("GET", "/api/system", nil); r["agent_address"] != "" {
-		t.Fatalf("padrão deveria ser vazio: %v", r)
-	}
-	for _, bad := range []string{"semporta", "http://x:8443", "x:0", "x:70000", "x y:1", `x";rm -rf /:1`, "$(id):8443", "x:abc"} {
-		if code, _ := adm.do("PUT", "/api/system/agent-address", map[string]string{"address": bad}); code != 400 {
-			t.Errorf("%q deveria ser recusado: %d", bad, code)
-		}
-	}
-	for _, good := range []string{"backup.exemplo.com:8443", "203.0.113.10:8444", "[2001:db8::1]:8443", ""} {
-		adm.mustOK("PUT", "/api/system/agent-address", map[string]string{"address": " " + good + " "})
-		if r = adm.mustOK("GET", "/api/system", nil); r["agent_address"] != good {
-			t.Errorf("gravou %v, esperado %q", r["agent_address"], good)
-		}
-	}
-
-	// permissões: só leitura não navega; operador navega, mas não muda o endereço
+	// permissões: só leitura não navega; operador navega
 	for name, role := range map[string]string{"leitor3": "viewer", "oper3": "operator"} {
 		adm.mustOK("POST", "/api/users", map[string]string{"username": name, "password": pw, "role": role})
 		u := e.client()
@@ -863,9 +874,6 @@ func TestSeletorDePastasEEnderecoDosAgentes(t *testing.T) {
 		}
 		if code, _ := u.do("GET", "/api/clouds/1/folders", nil); code != want {
 			t.Errorf("%s listando destino: %d", role, code)
-		}
-		if code, _ := u.do("PUT", "/api/system/agent-address", map[string]string{"address": "x:1"}); code != 403 {
-			t.Errorf("%s não pode mudar o endereço: %d", role, code)
 		}
 	}
 	if code, _ := e.client().do("GET", browse+"?area=host", nil); code != 401 {

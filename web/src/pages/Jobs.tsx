@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { Agent, CloudAccount, CLOUD_LABEL, ContainerInfo, CRON_PRESETS, DbView, ENGINE_LABEL, ENGINE_PORT, Job, User, api, ApiError, describeCron, fmtDate, STATUS } from '../api'
 import { Badge, Button, Card, ErrorBox, Field, Input, Modal } from '../ui'
+import { FolderField, PathList, TreePicker } from '../Picker'
 
 export default function Jobs({ me }: { me: User }) {
   const [jobs, setJobs] = useState<Job[]>([])
@@ -79,7 +80,7 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
   const isPreset = (c: string) => CRON_PRESETS.some((p) => p.cron === c)
   const [f, setF] = useState({
     name: job?.name ?? '', agent_id: job?.agent_id ?? agents[0]?.id ?? 0,
-    paths: (job?.paths ?? ['/etc']).join('\n'), excludes: (job?.excludes ?? []).join('\n'),
+    paths: job?.paths ?? [], excludes: job?.excludes ?? [],
     cron: job?.cron ?? '10 0 * * *', timezone: job?.timezone ?? 'America/Sao_Paulo',
     dest_subdir: job?.dest_subdir ?? '', keep: job?.keep ?? 7, enabled: job?.enabled ?? true,
     kind: job?.kind ?? 'files',
@@ -93,12 +94,19 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
   const [custom, setCustom] = useState(!isPreset(f.cron))
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
-  const lines = (s: string) => s.split('\n').map((x) => x.trim()).filter(Boolean)
+  const [tree, setTree] = useState<'paths' | 'excludes' | null>(null)
+  // uma exclusão que é um caminho exato aparece marcada na árvore; padrões (*.tmp, */cache/*) ficam só na lista
+  const isExactPath = (p: string) => p.startsWith('/') && !/[*?]/.test(p)
+  const agentName = agents.find((a) => a.id === Number(f.agent_id))?.name ?? 'agente'
+  const dest = clouds.find((c) => c.id === f.cloud_account_id)
+  const destIsCloud = !!dest && ['gdrive', 'onedrive', 'dropbox'].includes(dest.type)
   const zones: string[] = (Intl as any).supportedValuesOf ? (Intl as any).supportedValuesOf('timeZone') : ['America/Sao_Paulo', 'UTC']
 
   async function submit(e: FormEvent) {
-    e.preventDefault(); setErr(''); setBusy(true)
-    const body: Record<string, unknown> = { name: f.name, agent_id: Number(f.agent_id), kind: f.kind, paths: lines(f.paths), excludes: lines(f.excludes), cron: f.cron, timezone: f.timezone, dest_subdir: f.dest_subdir, keep: Number(f.keep), enabled: f.enabled }
+    e.preventDefault(); setErr('')
+    if (f.kind === 'files' && f.paths.length === 0) { setErr('Selecione pelo menos uma pasta ou arquivo para salvar.'); return }
+    setBusy(true)
+    const body: Record<string, unknown> = { name: f.name, agent_id: Number(f.agent_id), kind: f.kind, paths: f.paths, excludes: f.excludes, cron: f.cron, timezone: f.timezone, dest_subdir: f.dest_subdir, keep: Number(f.keep), enabled: f.enabled }
     if (f.cloud_account_id) Object.assign(body, { cloud_account_id: Number(f.cloud_account_id), cloud_folder: f.cloud_folder, cloud_keep: Number(f.cloud_keep), cloud_keep_days: Number(f.cloud_keep_days) })
     else Object.assign(body, { clear_cloud: true })
     if (f.kind === 'database') body.db = dbPayload(db)
@@ -123,12 +131,22 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
         </select>
       </Field>
       {f.kind === 'files' ? (<>
-        <Field label="Pastas e arquivos a salvar" hint="Um caminho por linha, absoluto (ex.: /etc, /srv, /home). Dentro de contêiner, os caminhos são os do servidor, não os do contêiner.">
-          <textarea className={`${sel} font-mono text-xs`} rows={4} value={f.paths} onChange={(e) => setF({ ...f, paths: e.target.value })} required />
-        </Field>
-        <Field label="Exclusões (opcional)" hint="Um padrão por linha. * vale para qualquer coisa. Sem / vale para o nome em qualquer pasta (*.tmp); com / vale para o caminho (*/data/cache/*).">
-          <textarea className={`${sel} font-mono text-xs`} rows={3} value={f.excludes} onChange={(e) => setF({ ...f, excludes: e.target.value })} />
-        </Field>
+        <PathList label="Pastas e arquivos a salvar" items={f.paths} empty="Nada selecionado ainda." pickLabel="Selecionar pastas e arquivos…"
+          typeLabel="digitar um caminho" placeholder="/srv/dados" onPick={() => setTree('paths')} onChange={(paths) => setF((v) => ({ ...v, paths }))}
+          hint="Os caminhos são os do servidor do agente. O agente precisa estar online para navegar." />
+        <PathList label="Exclusões (opcional)" items={f.excludes} empty="Nada fica de fora." pickLabel="Selecionar o que fica de fora…"
+          pickDisabled={f.paths.length === 0 ? 'Primeiro selecione o que salvar' : undefined} typeLabel="adicionar um padrão (ex.: *.tmp)" placeholder="*.tmp"
+          onPick={() => setTree('excludes')} onChange={(excludes) => setF((v) => ({ ...v, excludes }))}
+          hint="Num padrão, * vale para qualquer coisa. Sem / vale para o nome em qualquer pasta (*.tmp); com / vale para o caminho (*/data/cache/*)." />
+        {tree === 'paths' && (
+          <TreePicker title={`O que salvar em ${agentName}`} intro="Marque as pastas e os arquivos. Marcar uma pasta inclui tudo o que há dentro dela." agentId={Number(f.agent_id)}
+            roots={['/']} initial={f.paths} confirmLabel="Usar a seleção" onClose={() => setTree(null)} onConfirm={(paths) => { setF((v) => ({ ...v, paths })); setTree(null) }} />
+        )}
+        {tree === 'excludes' && (
+          <TreePicker title="O que fica de fora" intro="Dentro do que será salvo, marque o que NÃO deve entrar no backup." agentId={Number(f.agent_id)}
+            roots={f.paths} lockRoots initial={f.excludes.filter(isExactPath)} confirmLabel="Excluir os marcados" onClose={() => setTree(null)}
+            onConfirm={(picked) => { setF((v) => ({ ...v, excludes: [...v.excludes.filter((p) => !isExactPath(p)), ...picked] })); setTree(null) }} />
+        )}
       </>) : <DbSection db={db} setDb={setDb} agentId={Number(f.agent_id)} job={job} />}
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Quando">
@@ -148,9 +166,10 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
         </Field>
       )}
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Pasta de destino no agente" hint="Dentro da pasta de backups do agente. Vazio = nome do job.">
-          <Input value={f.dest_subdir} placeholder="(automático)" onChange={(e) => setF({ ...f, dest_subdir: e.target.value })} />
-        </Field>
+        <FolderField label="Pasta de destino no agente" hint="Dentro da pasta de backups do agente. Automática = nome do job." value={f.dest_subdir} autoText="(automática)"
+          onChange={(dest_subdir) => setF((v) => ({ ...v, dest_subdir }))}
+          picker={{ title: `Pasta de destino em ${agentName}`, intro: 'Pastas dentro da pasta de backups do agente.', rootLabel: 'Backups do agente', strictNames: true,
+            load: async (path) => (await api<{ entries: { name: string }[] }>('GET', `/api/agents/${f.agent_id}/browse?area=backups&path=${encodeURIComponent(path)}`)).entries.map((e) => e.name) }} />
         <Field label="Cópias locais a manter" hint={f.cloud_account_id ? '0 = apagar a cópia local depois que o destino confirmar o envio.' : 'A retenção só roda depois que o novo arquivo for verificado.'}>
           <Input type="number" min={f.cloud_account_id ? 0 : 1} max={365} value={f.keep} onChange={(e) => setF({ ...f, keep: Number(e.target.value) })} required />
         </Field>
@@ -158,15 +177,19 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
       <fieldset className="space-y-3 rounded-lg border border-border p-3">
         <legend className="px-1 text-sm font-medium">Enviar para um destino (opcional)</legend>
         <Field label="Destino" hint={clouds.length === 0 ? 'Nenhum destino criado. Crie um na página Destinos.' : undefined}>
-          <select className={sel} value={f.cloud_account_id} onChange={(e) => setF({ ...f, cloud_account_id: Number(e.target.value), keep: Number(e.target.value) && f.keep === 7 ? 0 : f.keep })}>
+          <select className={sel} value={f.cloud_account_id} onChange={(e) => setF({ ...f, cloud_account_id: Number(e.target.value), cloud_folder: '', keep: Number(e.target.value) && f.keep === 7 ? 0 : f.keep })}>
             <option value={0}>Só cópia local</option>
             {clouds.map((c) => <option key={c.id} value={c.id}>{c.name} ({CLOUD_LABEL[c.type]})</option>)}
           </select>
         </Field>
         {f.cloud_account_id !== 0 && (<>
-          <Field label="Pasta no destino" hint="Vazio = Coruja Backup/<servidor>/<job>. É criada automaticamente.">
-            <Input value={f.cloud_folder} placeholder="(automática)" onChange={(e) => setF({ ...f, cloud_folder: e.target.value })} />
-          </Field>
+          <FolderField key={f.cloud_account_id} label="Pasta no destino" hint="Automática = Coruja Backup/<servidor>/<job>. Pastas novas são criadas no primeiro backup." value={f.cloud_folder} autoText="(automática)"
+            onChange={(cloud_folder) => setF((v) => ({ ...v, cloud_folder }))}
+            picker={{ title: `Pasta em ${dest?.name ?? 'destino'}`, rootLabel: dest?.name ?? 'Destino',
+              intro: dest?.type === 'gdrive' ? 'Por segurança, o Google Drive só mostra ao Coruja Backup as pastas criadas por ele.'
+                : dest?.type === 'dropbox' ? 'No Dropbox, o Coruja Backup só enxerga a própria pasta, em Aplicativos.'
+                : destIsCloud ? 'Pastas da sua conta.' : `Pastas do destino, consultadas pelo agente ${agentName}.`,
+              load: async (path) => (await api<{ folders: string[] }>('GET', `/api/clouds/${f.cloud_account_id}/folders?agent_id=${f.agent_id}&path=${encodeURIComponent(path)}`)).folders }} />
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Cópias a manter no destino" hint="0 = não limitar por quantidade."><Input type="number" min={0} max={3650} value={f.cloud_keep} onChange={(e) => setF({ ...f, cloud_keep: Number(e.target.value) })} /></Field>
             <Field label="Dias a manter no destino" hint="0 = não limitar por dias. Pelo menos um dos dois é obrigatório."><Input type="number" min={0} max={3650} value={f.cloud_keep_days} onChange={(e) => setF({ ...f, cloud_keep_days: Number(e.target.value) })} /></Field>

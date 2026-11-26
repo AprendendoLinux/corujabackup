@@ -2,7 +2,7 @@ import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { Agent, PendingToken, User, api, ApiError, fmtDate } from '../api'
 import { Badge, Button, Card, CopyBox, ErrorBox, Field, Input, Modal } from '../ui'
 
-type Sys = { agent_port: string; version: string }
+type Sys = { agent_port: string; agent_address: string; version: string }
 
 export default function Agents({ me }: { me: User }) {
   const [agents, setAgents] = useState<Agent[]>([])
@@ -24,6 +24,9 @@ export default function Agents({ me }: { me: User }) {
   async function act(fn: () => Promise<unknown>) {
     try { await fn(); load() } catch (x) { setErr((x as ApiError).message) }
   }
+  const defaultAddress = `${window.location.hostname}:${sys?.agent_port ?? '8443'}`
+  const address = sys?.agent_address || defaultAddress
+
   const rename = (a: Agent) => {
     const n = prompt('Novo nome do agente:', a.name)
     if (n && n !== a.name) act(() => api('PATCH', `/api/agents/${a.id}`, { name: n }))
@@ -41,6 +44,8 @@ export default function Agents({ me }: { me: User }) {
         {canEdit && <Button onClick={() => { setCreated(null); setModal(true) }}>+ Novo agente</Button>}
       </div>
       <ErrorBox message={err} />
+
+      {sys && <AgentAddress current={sys.agent_address} fallback={defaultAddress} canEdit={me.role === 'admin'} onSaved={(agent_address) => setSys({ ...sys, agent_address })} />}
 
       <Card className="overflow-x-auto p-0">
         <table className="w-full text-sm">
@@ -85,10 +90,43 @@ export default function Agents({ me }: { me: User }) {
 
       {modal && (
         <Modal title={created ? 'Agente pronto para instalar' : 'Novo agente'} onClose={() => setModal(false)}>
-          {created ? <Created c={created} port={sys?.agent_port ?? '8443'} /> : <NewToken onCreated={(c) => { setCreated(c); load() }} />}
+          {created ? <Created c={created} addr={address} /> : <NewToken onCreated={(c) => { setCreated(c); load() }} />}
         </Modal>
       )}
     </div>
+  )
+}
+
+function AgentAddress({ current, fallback, canEdit, onSaved }: { current: string; fallback: string; canEdit: boolean; onSaved: (v: string) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState('')
+  const [err, setErr] = useState('')
+  async function save(e: FormEvent) {
+    e.preventDefault(); setErr('')
+    try { const r = await api<{ agent_address: string }>('PUT', '/api/system/agent-address', { address: value }); onSaved(r.agent_address); setEditing(false) }
+    catch (x) { setErr((x as ApiError).message) }
+  }
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+        <div>
+          <b>Endereço para os agentes:</b> <code className="font-mono">{current || fallback}</code>
+          <div className="text-muted">{current ? 'Definido por você.' : 'Automático (endereço desta página + porta interna do canal). Se você publica o canal em outra porta ou outro nome, altere.'} É o que vai nos comandos de instalação.</div>
+        </div>
+        {canEdit && !editing && <Button variant="ghost" onClick={() => { setValue(current || fallback); setErr(''); setEditing(true) }}>Alterar</Button>}
+      </div>
+      {editing && (
+        <form onSubmit={save} className="mt-3 space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <div className="min-w-60 flex-1"><Input autoFocus aria-label="Endereço para os agentes" className="font-mono" value={value} placeholder="backup.exemplo.com:8443" onChange={(e) => setValue(e.target.value)} /></div>
+            <Button>Salvar</Button>
+            <Button type="button" variant="ghost" onClick={() => setEditing(false)}>Cancelar</Button>
+          </div>
+          <p className="text-xs text-muted">Formato endereço:porta. Deixe vazio para voltar ao automático. Isto só muda o texto dos comandos: a porta continua sendo publicada no Docker do Server.</p>
+          <ErrorBox message={err} />
+        </form>
+      )}
+    </Card>
   )
 }
 
@@ -114,9 +152,7 @@ function NewToken({ onCreated }: { onCreated: (c: { token: string; name: string;
   )
 }
 
-function Created({ c, port }: { c: { token: string; name: string; expires_at: string }; port: string }) {
-  const host = window.location.hostname
-  const addr = `${host}:${port}`
+function Created({ c, addr }: { c: { token: string; name: string; expires_at: string }; addr: string }) {
   const compose = `services:
   agent:
     image: ghcr.io/aprendendolinux/corujabackup-agent:latest

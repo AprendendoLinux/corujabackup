@@ -74,7 +74,10 @@ jobs:
             done
           done
           cd dist && sha256sum coruja-* > SHA256SUMS
-      - name: Anexar à release
+      - name: Anexar à release (cria a release se ainda não existir)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --title "Coruja Backup ${GITHUB_REF_NAME#v}" --notes "Veja o CHANGELOG.md do repositório."
+          gh release upload "$GITHUB_REF_NAME" dist/* --clobber

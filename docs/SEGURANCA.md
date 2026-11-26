@@ -39,3 +39,7 @@ Para relatar uma vulnerabilidade, veja [SECURITY.md](../SECURITY.md).
 ## Exceção do Dropbox
 
 No Google Drive e no OneDrive o agente recebe só o endereço de uma sessão de envio. O Dropbox não oferece isso para arquivos grandes, então o Server emite para o agente um **token de curta duração (cerca de 4 horas)** com o único escopo `files.content.write`, restrito à pasta do aplicativo. Esse escopo permite gravar e também **apagar** arquivos dessa pasta: um agente comprometido poderia remover backups da conta Dropbox durante a validade do token. Atenuantes: o Dropbox mantém os arquivos apagados recuperáveis por um período (conforme o plano da conta), e o token não lê o conteúdo nem alcança o restante do Dropbox. Se isso não for aceitável, use outro destino para esse job.
+
+## Destinos de rede
+
+Em SFTP, FTP, SMB e pasta local o **agente recebe as credenciais do destino** (exceção à regra de que credenciais ficam só no Server): sem isso ele não conseguiria gravar numa rede que o Server não alcança. Use uma conta exclusiva para backups, com acesso apenas à pasta de destino. Um agente comprometido pode ler, alterar e apagar o que essa conta alcança; se o armazenamento oferecer snapshots ou imutabilidade, habilite. Veja [DESTINOS.md](DESTINOS.md).

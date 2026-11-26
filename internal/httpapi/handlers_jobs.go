@@ -541,6 +541,10 @@ func (s *Server) getRun(w http.ResponseWriter, r *http.Request, _ *ctxUser) {
 	info := map[string]any{}
 	if j, err := s.Store.GetJob(r.Context(), run.JobID); err == nil {
 		info = map[string]any{"kind": j.Kind, "has_cloud": j.CloudAccountID != nil, "keep": j.Keep}
+		if j.CloudAccountID != nil && s.Clouds != nil {
+			d, derr := s.Clouds.DestConfig(r.Context(), *j.CloudAccountID)
+			info["net_destination"] = derr == nil && d != nil
+		}
 		if j.Kind == "database" {
 			if cfg, err := j.OpenDB(s.Box); err == nil && cfg != nil {
 				info["engine"] = cfg.Engine

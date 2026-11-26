@@ -10,6 +10,7 @@ nos servidores de destino e se conectam a ele informando só **IP:porta + token*
 | Área | Recursos |
 | :--- | :--- |
 | **Backups** | Pastas/arquivos (`.tar.gz` com exclusões) e **bancos de dados** (MySQL, MariaDB, PostgreSQL, MongoDB). Agenda cron com fuso; o **agente agenda sozinho** e roda mesmo com o Server fora do ar. |
+| **Destinos de rede** | **SFTP**, **FTP/FTPS**, **SMB/CIFS** e **pasta local** (NFS/iSCSI montados no host): o agente envia, confere relendo o arquivo e aplica a retenção. |
 | **Confiança** | Cada arquivo é conferido (SHA-256, gzip, estrutura) e há **teste de restauração real** de bancos num servidor descartável. A retenção só roda depois de verificar. Horários perdidos viram alerta. |
 | **Nuvem** | **Google Drive**, **OneDrive** e **Dropbox**, conectados com um clique (login por popup): o agente envia **direto** (envio retomável), conferência por hash do agente **e** do Server, retenção por quantidade/dias, exclusão definitiva (sem lixeira). |
 | **Restauração** | Baixar da nuvem, reenviar, extrair no agente (extração segura) e guia manual por tipo de backup. |
@@ -50,6 +51,7 @@ O guia completo (HTTPS, proxy reverso, firewall, agentes, nuvem) está em [docs/
 - [Instalação](docs/INSTALACAO.md) — Server, agentes, HTTPS/proxy, primeiros passos e referência de variáveis.
 - [Operação](docs/OPERACAO.md) — backup do próprio Server, atualização, recuperação de acesso, monitoramento, solução de problemas.
 - [Segurança](docs/SEGURANCA.md) — modelo de ameaças, o que protege, checklist de endurecimento.
+- [Destinos de rede](docs/DESTINOS.md) — SFTP, FTP/FTPS, SMB e pasta local (NFS/iSCSI).
 - [Temas](docs/TEMAS.md) — pacotes `.zip` de identidade visual (interface, e-mail e PDF).
 - [Arquitetura](docs/ARQUITETURA.md) e [Roadmap](docs/ROADMAP.md) — decisões técnicas e fases.
 - [FAQ](docs/FAQ.md) · [Contribuindo](CONTRIBUTING.md) · [Política de segurança](SECURITY.md)

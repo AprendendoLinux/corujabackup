@@ -76,7 +76,7 @@ export default function App() {
               <NavLink to="painel" cur={route}>Painel</NavLink>
               <NavLink to="agentes" cur={route}>Agentes</NavLink>
               <NavLink to="jobs" cur={route}>Jobs</NavLink>
-              <NavLink to="nuvem" cur={route}>Nuvem</NavLink>
+              <NavLink to="nuvem" cur={route}>Destinos</NavLink>
               <NavLink to="historico" cur={route}>Histórico</NavLink>
               {me.user.role === 'admin' && <NavLink to="usuarios" cur={route}>Usuários</NavLink>}
               {me.user.role === 'admin' && <NavLink to="auditoria" cur={route}>Auditoria</NavLink>}

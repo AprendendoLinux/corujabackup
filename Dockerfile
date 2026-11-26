@@ -54,7 +54,7 @@ LABEL org.opencontainers.image.title="Coruja Backup Agent" \
       org.opencontainers.image.source="https://github.com/AprendendoLinux/corujabackup" \
       org.opencontainers.image.version="${VERSION}" org.opencontainers.image.licenses="MIT"
 # Clientes de banco para o modo "rede" (no modo contêiner o dump roda com as ferramentas do próprio contêiner).
-RUN apk add --no-cache ca-certificates tzdata mariadb-client postgresql17-client mongodb-tools && mkdir -p /var/lib/coruja-agent
+RUN apk add --no-cache ca-certificates tzdata mariadb-client postgresql17-client mongodb-tools && mkdir -p /var/lib/coruja-agent /destinos
 COPY --from=gobuild /out/coruja-agent /usr/local/bin/coruja-agent
 VOLUME /var/lib/coruja-agent
 # Roda como root: a Fase 2 precisa ler pastas do host (montadas somente leitura).

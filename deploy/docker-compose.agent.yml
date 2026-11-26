@@ -17,6 +17,8 @@ services:
       - agent-data:/var/lib/coruja-agent   # credencial do agente, agenda local e fila de resultados
       - /:/host:ro                         # tudo o que o agente pode salvar, SOMENTE LEITURA (restrinja às pastas necessárias, se preferir)
       - /srv/coruja-backups:/backups       # onde os arquivos de backup são gravados
+      # Destinos "pasta local" (NFS, iSCSI, disco externo): monte no host e exponha SOMENTE o que for destino em /destinos/...
+      #   - /mnt/nas:/destinos/nas
       # Opcional (desligado por padrão): executar dumps DENTRO dos contêineres de banco e fazer o teste de restauração em
       # contêineres descartáveis. Dá ao agente controle total do Docker do servidor: habilite só se precisar.
       #   - /var/run/docker.sock:/var/run/docker.sock

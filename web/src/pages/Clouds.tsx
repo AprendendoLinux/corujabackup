@@ -6,12 +6,12 @@ export default function Clouds({ me }: { me: User }) {
   const [accounts, setAccounts] = useState<CloudAccount[]>([])
   const [err, setErr] = useState('')
   const [info, setInfo] = useState('')
-  const [hasDefault, setHasDefault] = useState(false)
+  const [defs, setDefs] = useState<{ gdrive?: boolean; gdrive_web?: boolean; broker?: string }>({})
   const [wizard, setWizard] = useState<{ id?: number; device?: DeviceInfo; name?: string } | null>(null)
   const isAdmin = me.role === 'admin'
 
   const load = useCallback(() => {
-    api<{ accounts: CloudAccount[]; defaults?: { gdrive?: boolean } }>('GET', '/api/clouds').then((r) => { setAccounts(r.accounts); setHasDefault(!!r.defaults?.gdrive); setErr('') }).catch((x) => setErr((x as ApiError).message))
+    api<{ accounts: CloudAccount[]; defaults?: { gdrive?: boolean; gdrive_web?: boolean; broker?: string } }>('GET', '/api/clouds').then((r) => { setAccounts(r.accounts); setDefs(r.defaults ?? {}); setErr('') }).catch((x) => setErr((x as ApiError).message))
   }, [])
   useEffect(() => { load() }, [load])
 
@@ -75,38 +75,73 @@ export default function Clouds({ me }: { me: User }) {
       {wizard && <Modal title={wizard.device ? 'Autorizar o acesso' : 'Conectar nuvem'} onClose={() => { setWizard(null); load() }}>
         {wizard.device && wizard.id
           ? <Authorize id={wizard.id} name={wizard.name ?? ''} device={wizard.device} onDone={() => { setWizard(null); setInfo('Conta conectada com sucesso.'); load() }} />
-          : <NewAccount hasDefault={hasDefault} onCreated={(id, device, name) => { setWizard({ id, device, name }); load() }} />}
+          : <NewAccount defs={defs} onCreated={(id, device, name) => { setWizard({ id, device, name }); load() }} onConnected={() => { setWizard(null); setInfo('Conta conectada com sucesso.'); load() }} />}
       </Modal>}
     </div>
   )
 }
 
-function NewAccount({ onCreated, hasDefault }: { onCreated: (id: number, device: DeviceInfo, name: string) => void; hasDefault: boolean }) {
+function NewAccount({ onCreated, onConnected, defs }: { onCreated: (id: number, device: DeviceInfo, name: string) => void; onConnected: () => void; defs: { gdrive?: boolean; gdrive_web?: boolean; broker?: string } }) {
   const [f, setF] = useState({ type: 'onedrive', name: '', client_id: '', client_secret: '', tenant: '' })
-  const [own, setOwn] = useState(false)
+  const [mode, setMode] = useState<'auto' | 'code' | 'own'>('auto')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
+  const gd = f.type === 'gdrive'
+  const web = gd && !!defs.gdrive_web && mode === 'auto' // botão único: popup do Google
+  const std = gd && !web && !!defs.gdrive && mode !== 'own' // aplicativo padrão com código de dispositivo
+  async function viaPopup() {
+    // abre o popup já no clique (senão o navegador bloqueia) e só depois descobre o endereço
+    const pop = window.open('', 'coruja-oauth', 'width=520,height=700')
+    if (!pop) { setErr('O navegador bloqueou a janela. Libere pop-ups para este endereço ou use o código.'); return }
+    try {
+      const r = await api<{ url: string; state: string }>('POST', '/api/clouds/oauth/begin', { name: f.name, type: f.type, origin: window.location.origin })
+      pop.location.href = r.url
+      await new Promise<void>((resolve, reject) => {
+        let settled = false
+        const end = (fn: () => void) => { if (settled) return; settled = true; window.removeEventListener('message', onMsg); clearInterval(timer); fn() }
+        const onMsg = (ev: MessageEvent) => {
+          if (ev.origin !== defs.broker || ev.data?.type !== 'coruja-oauth' || ev.data.state !== r.state) return
+          if (ev.data.error) return end(() => reject(new Error(ev.data.error === 'access_denied' ? 'Você não autorizou o acesso.' : `O Google recusou: ${ev.data.error}`)))
+          api('POST', '/api/clouds/oauth/finish', { state: r.state, code: ev.data.code }).then(() => end(resolve), (x) => end(() => reject(x)))
+        }
+        window.addEventListener('message', onMsg)
+        const timer = window.setInterval(() => { if (pop.closed) setTimeout(() => end(() => reject(new Error('A janela foi fechada antes de terminar.'))), 1500) }, 500)
+      })
+      try { pop.close() } catch { /* já fechou */ }
+      onConnected()
+    } catch (x) { try { pop.close() } catch { /* ok */ } throw x }
+  }
   async function submit(e: FormEvent) {
     e.preventDefault(); setErr(''); setBusy(true)
-    try { const r = await api<{ id: number; device: DeviceInfo }>('POST', '/api/clouds', std ? { ...f, client_id: '', client_secret: '' } : f); onCreated(r.id, r.device, f.name) }
-    catch (x) { setErr((x as ApiError).message) } finally { setBusy(false) }
+    try {
+      if (web) { await viaPopup(); return }
+      const r = await api<{ id: number; device: DeviceInfo }>('POST', '/api/clouds', std ? { ...f, client_id: '', client_secret: '' } : f)
+      onCreated(r.id, r.device, f.name)
+    } catch (x) { setErr((x as ApiError).message) } finally { setBusy(false) }
   }
   const sel = 'w-full rounded-lg border border-border bg-surface px-3 py-2'
   const od = f.type === 'onedrive'
-  const std = f.type === 'gdrive' && hasDefault && !own // usa o aplicativo padrão do Coruja: nada a preencher
   return (
     <form onSubmit={submit} className="space-y-4 text-sm">
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Provedor"><select className={sel} value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })}><option value="onedrive">OneDrive (Microsoft)</option><option value="gdrive">Google Drive</option></select></Field>
         <Field label="Nome da conta" hint="Como aparece nos jobs. Ex.: OneDrive da empresa"><Input autoFocus value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required /></Field>
       </div>
+      {web && (
+        <div className="rounded-lg border border-border bg-bg p-3 text-muted">
+          Uma janela do Google vai abrir para você entrar e autorizar. O Coruja só enxerga os arquivos que ele mesmo criar.{' '}
+          <button type="button" className="text-primary hover:underline" onClick={() => setMode('code')}>Prefiro usar um código</button>
+          {' · '}
+          <button type="button" className="text-primary hover:underline" onClick={() => setMode('own')}>Usar o meu próprio aplicativo (avançado)</button>
+        </div>
+      )}
       {std && (
         <div className="rounded-lg border border-border bg-bg p-3 text-muted">
           Vamos mostrar um <b>código</b> e um link do Google. Abra o link, digite o código e autorize a sua conta: não é preciso registrar aplicativo nem colar credenciais. O Coruja só enxerga os arquivos que ele mesmo criar.{' '}
-          <button type="button" className="text-primary hover:underline" onClick={() => setOwn(true)}>Usar o meu próprio aplicativo (avançado)</button>
+          <button type="button" className="text-primary hover:underline" onClick={() => setMode('own')}>Usar o meu próprio aplicativo (avançado)</button>
         </div>
       )}
-      {f.type === 'gdrive' && hasDefault && own && <button type="button" className="text-sm text-primary hover:underline" onClick={() => setOwn(false)}>← Voltar ao aplicativo padrão</button>}
+      {gd && (defs.gdrive || defs.gdrive_web) && mode !== 'auto' && <button type="button" className="text-sm text-primary hover:underline" onClick={() => setMode('auto')}>← Voltar ao login com o Google</button>}
       {!std && <Field label="Client ID (ID do aplicativo)"><Input className="font-mono" value={f.client_id} onChange={(e) => setF({ ...f, client_id: e.target.value })} required /></Field>}
       {std ? null : od ? (
         <div className="grid gap-3 sm:grid-cols-2">
@@ -136,7 +171,7 @@ function NewAccount({ onCreated, hasDefault }: { onCreated: (id: number, device:
         )}
       </details>}
       <ErrorBox message={err} />
-      <Button disabled={busy}>Continuar</Button>
+      <Button disabled={busy}>{web ? (busy ? 'Aguardando o Google…' : 'Entrar com o Google') : 'Continuar'}</Button>
     </form>
   )
 }

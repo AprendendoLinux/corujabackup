@@ -38,6 +38,7 @@ jobs:
           build-args: VERSION=${{ steps.v.outputs.version }}
           secrets: |
             google_client_secret=${{ secrets.GOOGLE_CLIENT_SECRET }}
+            google_web_client_secret=${{ secrets.GOOGLE_WEB_CLIENT_SECRET }}
           tags: |
             ghcr.io/${{ steps.v.outputs.owner }}/corujabackup-server:${{ steps.v.outputs.version }}
             ghcr.io/${{ steps.v.outputs.owner }}/corujabackup-server:latest
@@ -67,6 +68,7 @@ jobs:
       - name: Compilar
         env:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}  # aplicativo OAuth padrão do Google (opcional)
+          GOOGLE_WEB_CLIENT_SECRET: ${{ secrets.GOOGLE_WEB_CLIENT_SECRET }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p dist
@@ -74,6 +76,7 @@ jobs:
             for bin in server agent; do
               LDF="-s -w -X github.com/AprendendoLinux/corujabackup/internal/version.Version=${VERSION}"
               if [ "$bin" = server ] && [ -n "$GOOGLE_CLIENT_SECRET" ]; then LDF="$LDF -X github.com/AprendendoLinux/corujabackup/internal/cloud.DefaultGoogleClientSecret=${GOOGLE_CLIENT_SECRET}"; fi
+              if [ "$bin" = server ] && [ -n "$GOOGLE_WEB_CLIENT_SECRET" ]; then LDF="$LDF -X github.com/AprendendoLinux/corujabackup/internal/cloud.DefaultGoogleWebClientSecret=${GOOGLE_WEB_CLIENT_SECRET}"; fi
               CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
                 -ldflags "$LDF" \
                 -o "dist/coruja-${bin}-linux-${arch}" "./cmd/${bin}"

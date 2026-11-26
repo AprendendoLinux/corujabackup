@@ -18,6 +18,7 @@ import (
 
 	"github.com/AprendendoLinux/corujabackup/internal/agentsrv"
 	"github.com/AprendendoLinux/corujabackup/internal/auth"
+	"github.com/AprendendoLinux/corujabackup/internal/cloud"
 	"github.com/AprendendoLinux/corujabackup/internal/cloudmgr"
 	"github.com/AprendendoLinux/corujabackup/internal/config"
 	"github.com/AprendendoLinux/corujabackup/internal/db"
@@ -43,6 +44,9 @@ func main() {
 	if *showVersion {
 		fmt.Printf("%s Server %s\n", version.Name, version.Version)
 		return
+	}
+	if v := os.Getenv("CORUJA_OAUTH_BROKER"); v != "" { // página de retorno do login por popup (padrão: a do projeto)
+		cloud.OAuthBrokerURL = v
 	}
 	cfg, err := config.Load(config.Getenv)
 	if *healthcheck {

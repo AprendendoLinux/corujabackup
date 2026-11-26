@@ -561,6 +561,15 @@ func (f *fakeClouds) Test(context.Context, int64) (string, cloud.Quota, error) {
 	return "fulano@x.com", cloud.Quota{Total: 100, Used: 10}, nil
 }
 func (f *fakeClouds) Invalidate(int64) {}
+func (f *fakeClouds) BeginWeb(_ context.Context, name, typ, origin string) (string, string, error) {
+	return "https://login.test/?o=" + origin, "nonce." + name, nil
+}
+func (f *fakeClouds) FinishWeb(_ context.Context, state, code string) (int64, error) {
+	if code != "ok" {
+		return 0, errors.New("código inválido")
+	}
+	return 42, nil
+}
 func (f *fakeClouds) Open(context.Context, int64, string, string) (io.ReadCloser, int64, error) {
 	return io.NopCloser(strings.NewReader("conteudo-do-backup")), 18, nil
 }

@@ -5,11 +5,16 @@ package cloudmgr
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +29,7 @@ type Endpoints struct {
 	MSDevice, MSToken string
 	Graph             string
 	GDevice, GToken   string
+	GAuth             string
 	GAPI, GUpload     string
 }
 
@@ -35,6 +41,8 @@ type AccountConfig struct {
 	HardDelete   bool   `json:"hard_delete"`
 	// UseDefault: usa o aplicativo OAuth padrão compilado (as credenciais não são gravadas na conta).
 	UseDefault bool `json:"use_default,omitempty"`
+	// Web: o aplicativo padrão é o "da Web" (login por popup), não o de TVs/dispositivos.
+	Web bool `json:"web,omitempty"`
 }
 
 type Manager struct {
@@ -47,16 +55,27 @@ type Manager struct {
 	mu       sync.Mutex
 	cache    map[int64]cloud.Provider
 	lastPoll map[int64]time.Time
+	pending  map[string]pendingWeb // logins por popup em andamento (nonce -> dados)
+}
+
+type pendingWeb struct {
+	Name, Typ, Origin, Verifier string
+	Expires                     time.Time
 }
 
 func New(st *store.Store, box *secrets.Box) *Manager {
-	return &Manager{Store: st, Box: box, Now: time.Now, cache: map[int64]cloud.Provider{}, lastPoll: map[int64]time.Time{}}
+	return &Manager{Store: st, Box: box, Now: time.Now, cache: map[int64]cloud.Provider{}, lastPoll: map[int64]time.Time{}, pending: map[string]pendingWeb{}}
 }
 
 var ErrNotConnected = errors.New("a conta de nuvem não está conectada")
 
 func (m *Manager) oauth(typ string, cfg AccountConfig) (*cloud.OAuth, error) {
-	if cfg.UseDefault {
+	if cfg.UseDefault && cfg.Web {
+		if !cloud.HasWebApp(typ) {
+			return nil, errors.New("este Server não tem o aplicativo de login por popup: reconecte a conta")
+		}
+		cfg.ClientID, cfg.ClientSecret = cloud.DefaultGoogleWebClientID, cloud.DefaultGoogleWebClientSecret
+	} else if cfg.UseDefault {
 		if !cloud.HasDefaultApp(typ) {
 			return nil, errors.New("este Server não tem aplicativo padrão para esse provedor: reconecte informando as credenciais")
 		}
@@ -73,6 +92,9 @@ func (m *Manager) oauth(typ string, cfg AccountConfig) (*cloud.OAuth, error) {
 		o = cloud.GDriveOAuth(cfg.ClientID, cfg.ClientSecret)
 		if m.EP.GDevice != "" {
 			o.DeviceURL, o.TokenURL = m.EP.GDevice, m.EP.GToken
+		}
+		if m.EP.GAuth != "" {
+			o.AuthURL = m.EP.GAuth
 		}
 	default:
 		return nil, fmt.Errorf("tipo de nuvem desconhecido: %q", typ)
@@ -446,4 +468,105 @@ func (m *Manager) Open(ctx context.Context, accountID int64, folder, name string
 // OpenConfigForTest expõe a configuração decifrada (somente para testes).
 func (m *Manager) OpenConfigForTest(a *store.CloudAccount) (AccountConfig, error) {
 	return m.openConfig(a)
+}
+
+var originRE = regexp.MustCompile(`^https?://[A-Za-z0-9.\-]+(:[0-9]{1,5})?$|^https?://\[[0-9a-fA-F:]+\](:[0-9]{1,5})?$`)
+
+func b64(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
+
+// BeginWeb prepara o login por popup: devolve o endereço do provedor (que o navegador abre) e o "state" a conferir na volta.
+// origin é a origem da interface do Coruja (a janela que abriu o popup): só ela recebe o código.
+func (m *Manager) BeginWeb(ctx context.Context, name, typ, origin string) (loginURL, state string, err error) {
+	if !cloud.HasWebApp(typ) {
+		return "", "", errors.New("login por popup indisponível neste Server")
+	}
+	if !originRE.MatchString(origin) {
+		return "", "", errors.New("origem da interface inválida")
+	}
+	if accs, e := m.Store.ListClouds(ctx); e == nil {
+		for _, a := range accs {
+			if a.Name == name {
+				return "", "", store.ErrDuplicate
+			}
+		}
+	}
+	nonce, ver := make([]byte, 18), make([]byte, 32)
+	if _, err = rand.Read(nonce); err != nil {
+		return "", "", err
+	}
+	if _, err = rand.Read(ver); err != nil {
+		return "", "", err
+	}
+	state = b64(nonce) + "." + b64([]byte(origin))
+	cfg := AccountConfig{UseDefault: true, Web: true}
+	o, err := m.oauth(typ, cfg)
+	if err != nil {
+		return "", "", err
+	}
+	ch := sha256.Sum256([]byte(b64(ver)))
+	m.mu.Lock()
+	now := m.Now()
+	for k, v := range m.pending { // limpa vencidos e limita o total
+		if now.After(v.Expires) {
+			delete(m.pending, k)
+		}
+	}
+	if len(m.pending) > 50 {
+		m.mu.Unlock()
+		return "", "", errors.New("muitos logins em andamento: tente de novo em instantes")
+	}
+	m.pending[b64(nonce)] = pendingWeb{Name: name, Typ: typ, Origin: origin, Verifier: b64(ver), Expires: now.Add(10 * time.Minute)}
+	m.mu.Unlock()
+	return o.AuthCodeURL(cloud.BrokerRedirect(typ), state, b64(ch[:])), state, nil
+}
+
+// FinishWeb conclui o login por popup: confere o state (uso único), troca o código por tokens e cria a conta já conectada.
+func (m *Manager) FinishWeb(ctx context.Context, state, code string) (int64, error) {
+	i := strings.IndexByte(state, '.')
+	if i < 1 || code == "" || len(code) > 2048 {
+		return 0, errors.New("resposta de login inválida")
+	}
+	nonce := state[:i]
+	m.mu.Lock()
+	p, ok := m.pending[nonce]
+	delete(m.pending, nonce)
+	m.mu.Unlock()
+	if !ok || m.Now().After(p.Expires) {
+		return 0, errors.New("o login expirou ou já foi usado: comece de novo")
+	}
+	if o, e := base64.RawURLEncoding.DecodeString(state[i+1:]); e != nil || string(o) != p.Origin {
+		return 0, errors.New("resposta de login inválida")
+	}
+	cfg := AccountConfig{UseDefault: true, Web: true, HardDelete: p.Typ == cloud.TypeOneDrive}
+	o, err := m.oauth(p.Typ, cfg)
+	if err != nil {
+		return 0, err
+	}
+	tok, err := o.ExchangeCode(ctx, code, p.Verifier, cloud.BrokerRedirect(p.Typ), m.Now())
+	if err != nil {
+		return 0, err
+	}
+	cj, _ := json.Marshal(cfg)
+	sc, err := m.Box.Seal(string(cj))
+	if err != nil {
+		return 0, err
+	}
+	id, err := m.Store.CreateCloud(ctx, p.Name, p.Typ, sc, "")
+	if err != nil {
+		return 0, err
+	}
+	tj, _ := json.Marshal(tok)
+	st, err := m.Box.Seal(string(tj))
+	if err != nil {
+		return 0, err
+	}
+	if err := m.Store.SetCloudTokens(ctx, id, st, ""); err != nil {
+		return 0, err
+	}
+	m.Invalidate(id)
+	if _, _, terr := m.Test(ctx, id); terr != nil {
+		_ = m.Store.SetCloudStatus(ctx, id, "error", terr.Error())
+		return id, terr
+	}
+	return id, nil
 }

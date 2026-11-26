@@ -6,9 +6,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -550,4 +554,92 @@ func TestGoogleDriveComAplicativoPadrao(t *testing.T) {
 	if _, err := r.mgr.Provider(context.Background(), cid); err == nil {
 		t.Fatal("sem o aplicativo padrão a conta deveria falhar de forma explícita")
 	}
+}
+
+// Login por popup: o Server gera o endereço do provedor (PKCE, state ligado à origem), recebe o código entregue pela página
+// de retorno e cria a conta já conectada, usando o aplicativo "da Web" compilado e sem gravar credenciais.
+func TestGoogleDriveLoginPorPopup(t *testing.T) {
+	oID, oSec, oBroker := cloud.DefaultGoogleWebClientID, cloud.DefaultGoogleWebClientSecret, cloud.OAuthBrokerURL
+	defer func() {
+		cloud.DefaultGoogleWebClientID, cloud.DefaultGoogleWebClientSecret, cloud.OAuthBrokerURL = oID, oSec, oBroker
+	}()
+	cloud.DefaultGoogleWebClientID, cloud.DefaultGoogleWebClientSecret, cloud.OAuthBrokerURL = "gid", "seg-web", "https://broker.exemplo.test"
+
+	fake := cloudtest.NewDrive("gid")
+	defer fake.Close()
+	r := newRig(t, cloudmgr.Endpoints{GDevice: fake.URL + "/device/code", GToken: fake.URL + "/token", GAPI: fake.APIURL(), GUpload: fake.UploadURL()})
+	ctx := context.Background()
+
+	for _, bad := range []string{"javascript:alert(1)", "http://evil.test/caminho", "ftp://x", "http://a b", ""} {
+		if _, _, err := r.mgr.BeginWeb(ctx, "gd-web", cloud.TypeGDrive, bad); err == nil {
+			t.Fatalf("origem %q deveria ser recusada", bad)
+		}
+	}
+	const origin = "http://187.110.161.52:8081"
+	loginURL, state, err := r.mgr.BeginWeb(ctx, "gd-web", cloud.TypeGDrive, origin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, _ := url.Parse(loginURL)
+	q := u.Query()
+	if u.Host != "accounts.google.com" || q.Get("client_id") != "gid" || q.Get("redirect_uri") != "https://broker.exemplo.test/oauth/google/callback" ||
+		q.Get("code_challenge_method") != "S256" || q.Get("access_type") != "offline" || q.Get("state") != state || strings.Contains(loginURL, "seg-web") {
+		t.Fatalf("endereço de login: %s", loginURL)
+	}
+	if o, _ := base64.RawURLEncoding.DecodeString(state[strings.IndexByte(state, '.')+1:]); string(o) != origin {
+		t.Fatalf("o state deve carregar a origem: %q", o)
+	}
+
+	// state adulterado (outra origem) e código errado não criam nada; o state é de uso único
+	forged := state[:strings.IndexByte(state, '.')+1] + base64.RawURLEncoding.EncodeToString([]byte("http://evil.test"))
+	if _, err := r.mgr.FinishWeb(ctx, forged, "codigo-ok"); err == nil {
+		t.Fatal("origem diferente da registrada deveria falhar")
+	}
+	if _, err := r.mgr.FinishWeb(ctx, state, "codigo-ok"); err == nil {
+		t.Fatal("o state já foi consumido pela tentativa anterior")
+	}
+	_, state, _ = r.mgr.BeginWeb(ctx, "gd-web", cloud.TypeGDrive, origin)
+	if _, err := r.mgr.FinishWeb(ctx, state, "codigo-errado"); err == nil {
+		t.Fatal("código recusado pelo provedor deveria falhar")
+	}
+	if accs, _ := r.st.ListClouds(ctx); len(accs) != 0 {
+		t.Fatalf("nenhuma conta deveria existir ainda: %d", len(accs))
+	}
+
+	loginURL, state, _ = r.mgr.BeginWeb(ctx, "gd-web", cloud.TypeGDrive, origin)
+	q = mustParse(t, loginURL).Query()
+	id, err := r.mgr.FinishWeb(ctx, state, "codigo-ok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte(fake.LastVerifier))
+	if base64.RawURLEncoding.EncodeToString(sum[:]) != q.Get("code_challenge") || fake.LastSecret != "seg-web" || fake.LastRedirect != "https://broker.exemplo.test/oauth/google/callback" {
+		t.Fatalf("troca do código: verificador=%q segredo=%q redirect=%q", fake.LastVerifier, fake.LastSecret, fake.LastRedirect)
+	}
+	acc, _ := r.st.GetCloud(ctx, id)
+	cfg, _ := r.mgr.OpenConfigForTest(acc)
+	if acc.Status != "connected" || !cfg.UseDefault || !cfg.Web || cfg.ClientID != "" || cfg.ClientSecret != "" {
+		t.Fatalf("conta: status=%s cfg=%+v", acc.Status, cfg)
+	}
+	if _, err := r.mgr.FinishWeb(ctx, state, "codigo-ok"); err == nil {
+		t.Fatal("reutilizar o state deveria falhar")
+	}
+	// nome repetido é recusado antes de abrir o popup
+	if _, _, err := r.mgr.BeginWeb(ctx, "gd-web", cloud.TypeGDrive, origin); !errors.Is(err, store.ErrDuplicate) {
+		t.Fatalf("nome repetido: %v", err)
+	}
+	// e a conta funciona de ponta a ponta
+	jid := r.newJob("gd-web-job", id, 2, 3)
+	if run := r.runNow(jid); run.Status != "ok" || run.CloudStatus != "ok" {
+		t.Fatalf("execução: %+v\n%s", run, r.logs(run))
+	}
+}
+
+func mustParse(t *testing.T, s string) *url.URL {
+	t.Helper()
+	u, err := url.Parse(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return u
 }

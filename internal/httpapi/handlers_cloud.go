@@ -30,7 +30,7 @@ func (s *Server) listClouds(w http.ResponseWriter, r *http.Request, _ *ctxUser) 
 		n, _ := s.Store.JobsUsingCloud(r.Context(), a.ID)
 		out = append(out, cloudView{a, n})
 	}
-	writeJSON(w, 200, map[string]any{"accounts": out, "defaults": map[string]bool{"gdrive": cloud.HasDefaultApp(cloud.TypeGDrive)}})
+	writeJSON(w, 200, map[string]any{"accounts": out, "defaults": map[string]any{"gdrive": cloud.HasDefaultApp(cloud.TypeGDrive), "gdrive_web": cloud.HasWebApp(cloud.TypeGDrive), "broker": strings.TrimRight(cloud.OAuthBrokerURL, "/")}})
 }
 
 func deviceView(d *cloud.Device) map[string]any {
@@ -162,3 +162,56 @@ func (s *Server) deleteCloud(w http.ResponseWriter, r *http.Request, cu *ctxUser
 }
 
 func itoa64(i int64) string { return strconv.FormatInt(i, 10) }
+
+// beginCloudWeb inicia o login por popup: devolve o endereço do provedor para o navegador abrir.
+func (s *Server) beginCloudWeb(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
+	if s.Clouds == nil {
+		writeErr(w, 503, "nuvem indisponível")
+		return
+	}
+	var in struct {
+		Name   string `json:"name"`
+		Type   string `json:"type"`
+		Origin string `json:"origin"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	in.Name = strings.TrimSpace(in.Name)
+	if !cloudNameRE.MatchString(in.Name) {
+		writeErr(w, 400, "nome inválido: use 2 a 100 caracteres (letras, números, espaço, ponto, hífen ou sublinhado)")
+		return
+	}
+	u, state, err := s.Clouds.BeginWeb(r.Context(), in.Name, in.Type, in.Origin)
+	if errors.Is(err, store.ErrDuplicate) {
+		writeErr(w, 409, "já existe uma conta de nuvem com esse nome")
+		return
+	}
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"url": u, "state": state})
+}
+
+// finishCloudWeb recebe o código entregue pela janela do popup e conclui a conexão.
+func (s *Server) finishCloudWeb(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
+	if s.Clouds == nil {
+		writeErr(w, 503, "nuvem indisponível")
+		return
+	}
+	var in struct {
+		State string `json:"state"`
+		Code  string `json:"code"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	id, err := s.Clouds.FinishWeb(r.Context(), in.State, in.Code)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	s.Store.Audit(r.Context(), cu.User.ID, cu.User.Username, "cloud.connected", itoa64(id), s.clientIP(r))
+	writeJSON(w, 201, map[string]any{"id": id})
+}

@@ -23,9 +23,10 @@ COPY internal ./internal
 COPY --from=web /src/internal/webui/dist ./internal/webui/dist
 ENV CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH}
 # Aplicativo OAuth padrão do Google: o segredo vem de um build secret opcional (nunca fica em camada da imagem nem no repositório).
-RUN --mount=type=secret,id=google_client_secret \
+RUN --mount=type=secret,id=google_client_secret --mount=type=secret,id=google_web_client_secret \
     LDF="-s -w -X github.com/AprendendoLinux/corujabackup/internal/version.Version=${VERSION}"; \
     if [ -s /run/secrets/google_client_secret ]; then LDF="$LDF -X github.com/AprendendoLinux/corujabackup/internal/cloud.DefaultGoogleClientSecret=$(cat /run/secrets/google_client_secret)"; fi; \
+    if [ -s /run/secrets/google_web_client_secret ]; then LDF="$LDF -X github.com/AprendendoLinux/corujabackup/internal/cloud.DefaultGoogleWebClientSecret=$(cat /run/secrets/google_web_client_secret)"; fi; \
     go build -trimpath -ldflags "$LDF" -o /out/coruja-server ./cmd/server \
  && go build -trimpath -ldflags "-s -w -X github.com/AprendendoLinux/corujabackup/internal/version.Version=${VERSION}" -o /out/coruja-agent ./cmd/agent
 

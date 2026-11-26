@@ -17,6 +17,8 @@ a{color:#3b2a6b}h1{font-size:28px;line-height:1.2;margin:0 0 8px}h2{font-size:19
 <li><b>Dropbox:</b> pasta do aplicativo (App folder), com leitura e escrita de arquivos e identificação da conta.</li></ul>
 <h2>Onde ficam os tokens e os arquivos</h2>
 <p>Os tokens de acesso e de renovação ficam <b>cifrados (AES-256-GCM) no servidor Coruja de quem o instalou</b>, nunca em servidores dos autores. Os backups vão do agente direto para a conta de nuvem do próprio usuário.</p>
+<h2>A página de retorno do login</h2>
+<p>Quando você conecta uma conta, o Google devolve você a <code>coruja.henrique.tec.br/oauth/google/callback</code>. Essa página só repassa, no seu navegador, um código de uso único à janela do Coruja que abriu o login (e somente a ela). <b>Os tokens de acesso nunca passam por este servidor</b>, que não registra nem guarda esse código.</p>
 <h2>Uso dos dados do Google</h2>
 <p>O uso e a transferência de informações recebidas das APIs do Google seguem a <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer">Política de Dados do Usuário dos Serviços de API do Google</a>, incluindo os requisitos de Uso Limitado. Os dados são usados apenas para realizar e conferir os backups que o usuário configurou; não são vendidos, compartilhados com terceiros nem usados para publicidade.</p>
 <h2>Revogar o acesso</h2>

@@ -33,6 +33,7 @@ type OAuth struct {
 	ClientID     string
 	ClientSecret string
 	DeviceURL    string
+	AuthURL      string // fluxo com retorno (popup)
 	TokenURL     string
 	Scope        string
 	HTTP         *http.Client
@@ -199,4 +200,32 @@ func (ts *TokenSource) Access(ctx context.Context) (string, error) {
 		}
 	}
 	return nt.Access, nil
+}
+
+// AuthCodeURL monta o endereço de login do fluxo "código de autorização" com PKCE (S256).
+func (o *OAuth) AuthCodeURL(redirect, state, challenge string) string {
+	q := url.Values{"client_id": {o.ClientID}, "redirect_uri": {redirect}, "response_type": {"code"}, "scope": {o.Scope},
+		"state": {state}, "code_challenge": {challenge}, "code_challenge_method": {"S256"},
+		"access_type": {"offline"}, "prompt": {"consent"}, "include_granted_scopes": {"false"}}
+	return o.AuthURL + "?" + q.Encode()
+}
+
+// ExchangeCode troca o código recebido na volta do login pelos tokens (com o verificador do PKCE).
+func (o *OAuth) ExchangeCode(ctx context.Context, code, verifier, redirect string, now time.Time) (*Token, error) {
+	form := url.Values{"client_id": {o.ClientID}, "code": {code}, "code_verifier": {verifier}, "redirect_uri": {redirect}, "grant_type": {"authorization_code"}}
+	if o.ClientSecret != "" {
+		form.Set("client_secret", o.ClientSecret)
+	}
+	m, status, err := o.post(ctx, o.TokenURL, form)
+	if err != nil {
+		return nil, err
+	}
+	if status != 200 || str(m, "access_token") == "" {
+		return nil, fmt.Errorf("o provedor recusou o código de autorização: %s", errText(m, status))
+	}
+	t := tokenFrom(m, "", now)
+	if t.Refresh == "" {
+		return nil, errors.New("o provedor não devolveu a renovação de acesso (refresh token): revogue o acesso do Coruja na sua conta e tente de novo")
+	}
+	return t, nil
 }

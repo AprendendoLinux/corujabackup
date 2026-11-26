@@ -35,7 +35,7 @@ type GDrive struct {
 
 func GDriveOAuth(clientID, clientSecret string) *OAuth {
 	return &OAuth{ClientID: clientID, ClientSecret: clientSecret, Scope: gdriveScope,
-		DeviceURL: "https://oauth2.googleapis.com/device/code", TokenURL: "https://oauth2.googleapis.com/token"}
+		DeviceURL: "https://oauth2.googleapis.com/device/code", AuthURL: "https://accounts.google.com/o/oauth2/v2/auth", TokenURL: "https://oauth2.googleapis.com/token"}
 }
 
 func (g *GDrive) Type() string { return TypeGDrive }

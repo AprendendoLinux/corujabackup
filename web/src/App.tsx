@@ -30,7 +30,7 @@ export default function App() {
   const [theme, setTheme] = useState('coruja')
   const [phase, setPhase] = useState<Phase>('loading')
   const [me, setMe] = useState<Me | null>(null)
-  const [version, setVersion] = useState('0.0.11')
+  const [version, setVersion] = useState('0.0.12')
   const route = useRoute()
   useFavicon(brand)
 

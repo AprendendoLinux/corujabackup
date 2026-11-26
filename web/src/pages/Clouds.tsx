@@ -34,19 +34,19 @@ function ProviderIcon({ id, size = 40 }: { id: string; size?: number }) {
 
 function ProviderGrid({ onPick }: { onPick: (id: string) => void }) {
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <p className="text-sm text-muted">Escolha onde guardar os backups.</p>
       {PROVIDERS.map((g) => (
         <section key={g.group} aria-label={g.group}>
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">{g.group}</h3>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4">
             {g.items.map((p) => {
               const on = p.state === 'ok'
               return (
                 <button key={p.id} type="button" disabled={!on} aria-disabled={!on} onClick={() => on && onPick(p.id)}
                   title={on ? p.label : 'Em breve'}
-                  className={`group relative flex flex-col items-center gap-2 rounded-xl border px-3 py-4 text-center transition ${on ? 'border-border bg-surface hover:-translate-y-0.5 hover:border-primary hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary' : 'cursor-not-allowed border-border/70 bg-bg'}`}>
-                  <span className={on || p.state === 'soon' ? '' : 'opacity-60 grayscale'}><ProviderIcon id={p.id} size={44} /></span>
+                  className={`group relative flex flex-col items-center gap-1.5 rounded-xl border px-2.5 pb-3 pt-4 text-center transition ${on ? 'border-border bg-surface hover:-translate-y-0.5 hover:border-primary hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary' : 'cursor-not-allowed border-border/70 bg-bg'}`}>
+                  <span className={on || p.state === 'soon' ? '' : 'opacity-60 grayscale'}><ProviderIcon id={p.id} size={40} /></span>
                   <span className={`text-sm font-semibold ${on ? '' : 'text-muted'}`}>{p.label}</span>
                   <span className="text-xs leading-snug text-muted">{p.hint}</span>
                   {!on && <span className="absolute right-2 top-2 rounded-full bg-border/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">Em breve</span>}
@@ -189,7 +189,7 @@ export default function Clouds({ me }: { me: User }) {
       </div>
 
       {testing && <Modal title={`Testar "${testing.name}"`} onClose={() => setTesting(null)}><TestDestination account={testing} /></Modal>}
-      {wizard && <Modal title={wizard.device ? 'Autorizar o acesso' : wizard.type ? `Conectar ${PROV_BY_ID[wizard.type]?.label ?? 'destino'}` : 'Novo destino'} onClose={() => { setWizard(null); load() }}>
+      {wizard && <Modal wide={!wizard.type && !wizard.device} title={wizard.device ? 'Autorizar o acesso' : wizard.type ? `Conectar ${PROV_BY_ID[wizard.type]?.label ?? 'destino'}` : 'Novo destino'} onClose={() => { setWizard(null); load() }}>
         {wizard.device && wizard.id
           ? <Authorize id={wizard.id} name={wizard.name ?? ''} device={wizard.device} onDone={() => { setWizard(null); setInfo('Conta conectada com sucesso.'); load() }} />
           : !wizard.type ? <ProviderGrid onPick={(type) => setWizard({ type })} />

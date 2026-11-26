@@ -10,7 +10,8 @@
 - [x] **Fase 7 – Endurecimento e publicação (0.0.8):** TLS, auditoria, limites, documentação, imagens no GitHub Packages.
 - [x] **Fase 8 – Pacotes de temas (0.0.9):** temas importáveis (`.zip`) aplicados à interface, ao e-mail e ao PDF; `docs/TEMAS.md`; pacotes de exemplo.
 - [x] **Fase 9, parte 1 – Nuvens com um clique (0.0.10):** login por popup no Google Drive, OneDrive e Dropbox (conector novo), tela de escolha de destino com ícones; os três validados com contas reais.
-- [ ] **Fase 9, parte 2 – Mais destinos:** vários destinos por job; compatíveis com S3; SharePoint; SFTP e SMB; pasta local/volume do host (NFS e iSCSI montados no host).
+- [x] **Fase 9, parte 2 – Destinos de rede (0.0.12):** SFTP, FTP/FTPS, SMB e pasta local/volume do host (NFS e iSCSI).
+- [ ] **Fase 9, parte 3:** vários destinos por job; compatíveis com S3; SharePoint.
 - [ ] **Fase 10 – Full/Incremental e MikroTik (versão seguinte):** motor `tar.gz` em blocos com índice e catálogo; agenda full + incrementais; retenção por cadeia; jobs de MikroTik (SSH: `.rsc` e `.backup`).
 - [ ] **Fase 11 – Restauração inteligente (versão posterior):** árvore de arquivos, linha do tempo de versões, restauração de arquivos selecionados e de bancos pela interface.
 - [ ] **Fase 12 – Piloto:** instalação em ambiente real, só com autorização e em paralelo ao backup existente; validação com contas reais de nuvem e Telegram.

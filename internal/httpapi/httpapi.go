@@ -108,6 +108,9 @@ func (s *Server) Routes() http.Handler {
 	// autenticadas
 	mux.HandleFunc("GET /api/me", s.authed(roleAny, s.me))
 	mux.HandleFunc("POST /api/me/password", s.authed(roleAny, s.changePassword))
+	mux.HandleFunc("POST /api/me/avatar", s.authed(roleAny, s.uploadAvatar))
+	mux.HandleFunc("DELETE /api/me/avatar", s.authed(roleAny, s.deleteAvatar))
+	mux.HandleFunc("GET /api/users/{id}/avatar", s.authed(roleAny, s.avatar))
 	mux.HandleFunc("POST /api/me/2fa/begin", s.authed(roleAny, s.twoFABegin))
 	mux.HandleFunc("POST /api/me/2fa/enable", s.authed(roleAny, s.twoFAEnable))
 	mux.HandleFunc("POST /api/me/2fa/disable", s.authed(roleAny, s.twoFADisable))

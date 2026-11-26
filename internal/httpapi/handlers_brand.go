@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 
+	"github.com/AprendendoLinux/corujabackup/internal/report"
 	"github.com/AprendendoLinux/corujabackup/internal/themepkg"
 	"github.com/AprendendoLinux/corujabackup/internal/version"
 )
@@ -20,7 +22,9 @@ const (
 )
 
 var (
-	builtinThemes = map[string]bool{"coruja": true, "noturno": true, "floresta": true}
+	// Temas embutidos (cada um com modo claro e escuro). "noturno" é o antigo tema escuro da Coruja: vira coruja + modo escuro.
+	builtinThemes = map[string]bool{"coruja": true, "floresta": true}
+	themeModes    = map[string]bool{"auto": true, "light": true, "dark": true}
 	themeIDRE     = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,29}$`)
 	colorRE       = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 	themeKeys     = []string{"bg", "surface", "text", "muted", "border", "primary", "primary_contrast", "accent", "ok", "danger"}
@@ -38,10 +42,21 @@ type themeMeta struct {
 }
 
 type customTheme struct {
-	ID    string            `json:"id"`
-	Label string            `json:"label"`
-	Vars  map[string]string `json:"vars"`
-	Pkg   *themeMeta        `json:"pkg,omitempty"`
+	ID       string            `json:"id"`
+	Label    string            `json:"label"`
+	Vars     map[string]string `json:"vars"`
+	VarsDark map[string]string `json:"vars_dark,omitempty"`
+	Pkg      *themeMeta        `json:"pkg,omitempty"`
+}
+
+// withDark garante o modo escuro (temas importados antes dele existir ganham um gerado a partir das cores claras).
+func withDark(list []customTheme) []customTheme {
+	for i := range list {
+		if len(list[i].VarsDark) == 0 && len(list[i].Vars) > 0 {
+			list[i].VarsDark = themepkg.DeriveDark(list[i].Vars)
+		}
+	}
+	return list
 }
 
 func assetKey(id, kind string) string { return "brand.asset." + id + "." + kind }
@@ -130,7 +145,11 @@ func (s *Server) importTheme(w http.ResponseWriter, r *http.Request, cu *ctxUser
 		return
 	}
 	meta.LogoUI, meta.LogoDoc = pk.LogoUIType, pk.LogoDocType
-	t := customTheme{ID: pk.ID, Label: pk.Name, Vars: pk.Colors, Pkg: meta}
+	dark := pk.ColorsDark
+	if dark == nil {
+		dark = themepkg.DeriveDark(pk.Colors)
+	}
+	t := customTheme{ID: pk.ID, Label: pk.Name, Vars: pk.Colors, VarsDark: dark, Pkg: meta}
 	if idx >= 0 {
 		list[idx] = t
 	} else {
@@ -145,12 +164,12 @@ func (s *Server) importTheme(w http.ResponseWriter, r *http.Request, cu *ctxUser
 	writeJSON(w, 200, map[string]any{"ok": true, "theme": t, "replaced": idx >= 0})
 }
 
-func (s *Server) loadBrand(r *http.Request) (name, theme string, themes []customTheme, logoType, logoHash string) {
-	name, theme, themes = version.Name, "coruja", []customTheme{}
+func (s *Server) loadBrand(r *http.Request) (name, theme, mode string, themes []customTheme, logoType, logoHash string) {
+	name, theme, mode, themes = version.Name, "coruja", "auto", []customTheme{}
 	if s.Store == nil {
 		return
 	}
-	m, err := s.Store.GetSettings(r.Context(), "brand.name", "brand.theme", "brand.themes", "brand.logo_type", "brand.logo")
+	m, err := s.Store.GetSettings(r.Context(), "brand.name", "brand.theme", "brand.mode", "brand.themes", "brand.logo_type", "brand.logo")
 	if err != nil {
 		return
 	}
@@ -160,9 +179,19 @@ func (s *Server) loadBrand(r *http.Request) (name, theme string, themes []custom
 	if v := m["brand.theme"]; v != "" {
 		theme = v
 	}
+	if themeModes[m["brand.mode"]] {
+		mode = m["brand.mode"]
+	}
+	if theme == "noturno" {
+		theme = "coruja"
+		if m["brand.mode"] == "" {
+			mode = "dark"
+		}
+	}
 	if v := m["brand.themes"]; v != "" {
 		_ = json.Unmarshal([]byte(v), &themes)
 	}
+	themes = withDark(themes)
 	if lg := m["brand.logo"]; lg != "" {
 		h := sha256.Sum256([]byte(lg))
 		logoType, logoHash = m["brand.logo_type"], hex.EncodeToString(h[:6])
@@ -170,10 +199,50 @@ func (s *Server) loadBrand(r *http.Request) (name, theme string, themes []custom
 	return
 }
 
+// credit são os créditos do rodapé (interface, e-mails e PDF). Name vazio = sem créditos; URL vazia = sem link.
+type credit struct {
+	Label string `json:"label"`
+	Name  string `json:"name"`
+	URL   string `json:"url"`
+}
+
+func defaultCredit() credit {
+	return credit{Label: report.DefaultCreditLabel, Name: report.DefaultCreditName, URL: report.DefaultCreditURL}
+}
+
+func (s *Server) loadCredit(r *http.Request) credit {
+	c := defaultCredit()
+	if s.Store == nil {
+		return c
+	}
+	if m, err := s.Store.GetSettings(r.Context(), "brand.credit"); err == nil && m["brand.credit"] != "" {
+		_ = json.Unmarshal([]byte(m["brand.credit"]), &c)
+	}
+	return c
+}
+
+// cleanCredit valida os créditos; devolve a mensagem de erro ou "".
+func cleanCredit(c *credit) string {
+	c.Label, c.Name, c.URL = strings.TrimSpace(c.Label), strings.TrimSpace(c.Name), strings.TrimSpace(c.URL)
+	if len([]rune(c.Label)) > 40 || len([]rune(c.Name)) > 80 || strings.ContainsAny(c.Label+c.Name+c.URL, "\x00\r\n<>") {
+		return "créditos inválidos: rótulo até 40 caracteres e nome até 80, sem < e >"
+	}
+	if c.URL != "" {
+		u, err := url.Parse(c.URL)
+		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || len(c.URL) > 200 || strings.ContainsAny(c.URL, "\"' ") {
+			return "o link dos créditos deve começar com https:// ou http://"
+		}
+	}
+	if c.Name == "" {
+		c.URL = ""
+	}
+	return ""
+}
+
 // branding é público (a tela de login precisa do nome, tema e logo antes de autenticar).
 func (s *Server) branding(w http.ResponseWriter, r *http.Request) {
-	name, theme, themes, lt, lh := s.loadBrand(r)
-	out := map[string]any{"name": name, "theme": theme, "themes": themes, "has_logo": lt != ""}
+	name, theme, mode, themes, lt, lh := s.loadBrand(r)
+	out := map[string]any{"name": name, "theme": theme, "mode": mode, "themes": themes, "has_logo": lt != "", "credit": s.loadCredit(r)}
 	if lt != "" {
 		out["logo_version"] = lh
 	}
@@ -204,6 +273,8 @@ func (s *Server) saveBranding(w http.ResponseWriter, r *http.Request, cu *ctxUse
 		Name   string        `json:"name"`
 		Theme  string        `json:"theme"`
 		Themes []customTheme `json:"themes"`
+		Credit *credit       `json:"credit"`
+		Mode   string        `json:"mode"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -213,40 +284,52 @@ func (s *Server) saveBranding(w http.ResponseWriter, r *http.Request, cu *ctxUse
 		writeErr(w, 400, "o nome deve ter de 1 a 60 caracteres")
 		return
 	}
+	cred := s.loadCredit(r)
+	if in.Credit != nil {
+		cred = *in.Credit
+	}
+	if msg := cleanCredit(&cred); msg != "" {
+		writeErr(w, 400, msg)
+		return
+	}
+	cj, _ := json.Marshal(cred)
 	if len(in.Themes) > maxThemes {
 		writeErr(w, 400, "no máximo 10 temas personalizados")
 		return
 	}
-	seen := map[string]bool{}
-	custom := map[string]bool{}
+	// Temas só entram por pacote (.zip): aqui o cliente apenas mantém ou exclui os já instalados. Cores, nomes e metadados
+	// vêm sempre do que está guardado, nunca do cliente.
+	storedList := s.storedThemes(r)
+	byID := map[string]customTheme{}
 	stored := map[string]*themeMeta{}
-	for _, t := range s.storedThemes(r) {
+	for _, t := range storedList {
+		byID[t.ID] = t
 		stored[t.ID] = t.Pkg
 	}
-	for i := range in.Themes {
-		t := &in.Themes[i]
-		t.Pkg = stored[t.ID] // metadados e logos de pacote só mudam por importação
-		t.Label = strings.TrimSpace(t.Label)
-		if !themeIDRE.MatchString(t.ID) || builtinThemes[t.ID] || seen[t.ID] {
-			writeErr(w, 400, "identificador de tema inválido ou repetido: "+t.ID)
+	custom := map[string]bool{}
+	kept := make([]customTheme, 0, len(in.Themes))
+	for _, t := range in.Themes {
+		st, ok := byID[t.ID]
+		if !ok {
+			writeErr(w, 400, "tema inexistente: "+t.ID+" (temas novos entram importando um pacote .zip)")
 			return
 		}
-		seen[t.ID] = true
+		if custom[t.ID] {
+			continue
+		}
 		custom[t.ID] = true
-		if t.Label == "" || len([]rune(t.Label)) > 40 {
-			writeErr(w, 400, "o nome do tema deve ter de 1 a 40 caracteres")
-			return
-		}
-		clean := map[string]string{}
-		for _, k := range themeKeys {
-			v := t.Vars[k]
-			if !colorRE.MatchString(v) {
-				writeErr(w, 400, "cor inválida em "+t.Label+" ("+k+"): use o formato #RRGGBB")
-				return
-			}
-			clean[k] = strings.ToLower(v)
-		}
-		t.Vars = clean
+		kept = append(kept, st)
+	}
+	in.Themes = kept
+	if in.Mode == "" {
+		_, _, in.Mode, _, _, _ = s.loadBrand(r)
+	}
+	if !themeModes[in.Mode] {
+		writeErr(w, 400, "modo inválido (auto, light ou dark)")
+		return
+	}
+	if in.Theme == "noturno" {
+		in.Theme, in.Mode = "coruja", "dark"
 	}
 	if in.Theme == "" {
 		in.Theme = "coruja"
@@ -261,7 +344,7 @@ func (s *Server) saveBranding(w http.ResponseWriter, r *http.Request, cu *ctxUse
 		}
 	}
 	tj, _ := json.Marshal(in.Themes)
-	for k, v := range map[string]string{"brand.name": in.Name, "brand.theme": in.Theme, "brand.themes": string(tj)} {
+	for k, v := range map[string]string{"brand.name": in.Name, "brand.theme": in.Theme, "brand.themes": string(tj), "brand.credit": string(cj), "brand.mode": in.Mode} {
 		if err := s.Store.SetSetting(r.Context(), k, v); err != nil {
 			writeErr(w, 500, "erro interno")
 			return

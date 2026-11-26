@@ -31,7 +31,11 @@ func (d Daily) Text() string {
 		}
 		fmt.Fprintf(&sb, " - %s (%s): %s%s\n", j.Name, j.Agent, st, size)
 	}
-	fmt.Fprintf(&sb, "\n%s - Versão %s - Desenvolvido por Henrique Fagundes (https://henrique.tec.br)\n", d.Name, d.Version)
+	credit := d.Brand.Credit()
+	if credit != "" && d.Brand.CreditURL != "" {
+		credit += " (" + d.Brand.CreditURL + ")"
+	}
+	fmt.Fprintf(&sb, "\n%s - Versão %s%s\n", d.Name, d.Version, credit)
 	return sb.String()
 }
 
@@ -126,7 +130,7 @@ func (e RunEvent) Text() string {
 	if r.Error != "" {
 		s += "\n" + r.Error + "\n"
 	}
-	return s + fmt.Sprintf("\n%s - Versão %s - Desenvolvido por Henrique Fagundes\n", e.Name, e.Version)
+	return s + fmt.Sprintf("\n%s - Versão %s%s\n", e.Name, e.Version, e.Brand.Credit())
 }
 
 func (e AgentEvent) Telegram() string {

@@ -10,6 +10,7 @@ require (
 	github.com/pkg/sftp v1.13.13
 	github.com/robfig/cron/v3 v3.0.1
 	golang.org/x/crypto v0.59.0
+	golang.org/x/image v0.48.0
 	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
 )

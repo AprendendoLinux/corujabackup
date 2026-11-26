@@ -50,9 +50,11 @@ type Manifest struct {
 	Author      string            `json:"author,omitempty"`
 	Description string            `json:"description,omitempty"`
 	Colors      map[string]string `json:"colors"`
-	Document    map[string]string `json:"document,omitempty"`
-	Logo        Logo              `json:"logo,omitempty"`
-	Preview     string            `json:"preview,omitempty"`
+	// ColorsDark é o modo escuro (as mesmas 10 cores). Opcional: sem ele, o modo escuro é gerado a partir de "colors".
+	ColorsDark map[string]string `json:"colors_dark,omitempty"`
+	Document   map[string]string `json:"document,omitempty"`
+	Logo       Logo              `json:"logo,omitempty"`
+	Preview    string            `json:"preview,omitempty"`
 }
 
 // Package é um pacote já validado, com os arquivos carregados.
@@ -174,7 +176,7 @@ func Read(data []byte) (*Package, error) {
 		return nil, errors.New("theme.json: \"id\" deve ter 2 a 30 caracteres: letras minúsculas, números e hífen")
 	}
 	switch m.ID {
-	case "coruja", "noturno", "floresta":
+	case "coruja", "noturno", "floresta", "floresta-escuro":
 		return nil, errors.New("theme.json: esse \"id\" é de um tema embutido")
 	}
 	m.Name = strings.TrimSpace(m.Name)
@@ -192,6 +194,14 @@ func Read(data []byte) (*Package, error) {
 	}
 	if err := validColors(m.Document, DocKeys, false, "document"); err != nil {
 		return nil, err
+	}
+	if m.ColorsDark != nil {
+		if err := validColors(m.ColorsDark, UIKeys, true, "colors_dark"); err != nil {
+			return nil, err
+		}
+		for k, v := range m.ColorsDark {
+			m.ColorsDark[k] = strings.ToLower(v)
+		}
 	}
 	for k, v := range m.Colors {
 		m.Colors[k] = strings.ToLower(v)

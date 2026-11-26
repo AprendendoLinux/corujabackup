@@ -26,13 +26,19 @@ var builtinColors = map[string]map[string]string{
 func LoadBrand(ctx context.Context, st *store.Store) report.Brand {
 	b := report.DefaultBrand()
 	b.Version = version.Version
-	m, err := st.GetSettings(ctx, "brand.name", "brand.theme", "brand.themes", "brand.logo", "brand.logo_type", "app.base_url")
+	m, err := st.GetSettings(ctx, "brand.name", "brand.theme", "brand.themes", "brand.logo", "brand.logo_type", "app.base_url", "brand.credit")
 	themeLogo := ""
 	if err != nil {
 		return b
 	}
 	if v := m["brand.name"]; v != "" {
 		b.Name = v
+	}
+	if v := m["brand.credit"]; v != "" {
+		var c struct{ Label, Name, URL string }
+		if json.Unmarshal([]byte(v), &c) == nil {
+			b.CreditLabel, b.CreditName, b.CreditURL = c.Label, c.Name, c.URL
+		}
 	}
 	vars := builtinColors["coruja"]
 	theme := m["brand.theme"]

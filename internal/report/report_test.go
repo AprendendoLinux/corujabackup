@@ -136,3 +136,19 @@ func TestFormatacao(t *testing.T) {
 		t.Fatal(fmtDur(&a, &b))
 	}
 }
+
+func TestCreditosConfiguraveisNosRelatorios(t *testing.T) {
+	b := DefaultBrand()
+	b.CreditLabel, b.CreditName, b.CreditURL = "Feito por", "TI <Acme>", "https://acme.example"
+	ev := RunEvent{Brand: b, Run: sample().Runs[2]}
+	if h := ev.HTML(); !strings.Contains(h, `Feito por <a href="https://acme.example"`) || !strings.Contains(h, "TI &lt;Acme&gt;") || strings.Contains(h, "Henrique") {
+		t.Fatal("e-mail sem os créditos configurados")
+	}
+	if txt := ev.Text(); !strings.Contains(txt, "Feito por TI <Acme>") || strings.Contains(txt, "Henrique") {
+		t.Fatalf("%s", txt)
+	}
+	b.CreditName = ""
+	if h := (RunEvent{Brand: b, Run: sample().Runs[2]}).HTML(); strings.Contains(h, "Feito por") || strings.Contains(h, "acme.example") {
+		t.Fatal("créditos desligados ainda aparecem")
+	}
+}

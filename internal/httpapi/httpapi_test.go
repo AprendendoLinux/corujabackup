@@ -913,12 +913,12 @@ func TestIdentidadeVisualTemasELogo(t *testing.T) {
 		code, _ := adm.do("PUT", "/api/branding", map[string]any{"name": "Backup Acme", "theme": theme, "themes": themes})
 		return code
 	}
+	// temas só entram por pacote: qualquer tema que o cliente tente criar é recusado
 	for name, c := range map[string]int{
-		"cor inválida":         save([]any{tema("acme", func(m map[string]string) { m["primary"] = "azul" })}, "coruja"),
+		"tema criado na tela":  save([]any{tema("acme", nil)}, "coruja"),
 		"id de tema embutido":  save([]any{tema("coruja", nil)}, "coruja"),
-		"id repetido":          save([]any{tema("acme", nil), tema("acme", nil)}, "coruja"),
 		"id inválido":          save([]any{tema("A cme!", nil)}, "coruja"),
-		"tema padrão inexiste": save([]any{tema("acme", nil)}, "outro"),
+		"tema padrão inexiste": save([]any{}, "outro"),
 	} {
 		if c != 400 {
 			t.Errorf("%s: esperava 400, veio %d", name, c)
@@ -927,11 +927,11 @@ func TestIdentidadeVisualTemasELogo(t *testing.T) {
 	if code, _ := adm.do("PUT", "/api/branding", map[string]any{"name": "", "theme": "coruja", "themes": []any{}}); code != 400 {
 		t.Fatalf("nome vazio: %d", code)
 	}
-	if save([]any{tema("acme", nil)}, "acme") != 200 {
+	if save([]any{}, "floresta") != 200 {
 		t.Fatal("configuração válida recusada")
 	}
 	_, m := pub.do("GET", "/api/branding", nil)
-	if m["name"] != "Backup Acme" || m["theme"] != "acme" || len(m["themes"].([]any)) != 1 {
+	if m["name"] != "Backup Acme" || m["theme"] != "floresta" || len(m["themes"].([]any)) != 0 {
 		t.Fatalf("branding: %v", m)
 	}
 	// somente administrador altera

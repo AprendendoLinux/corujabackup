@@ -3,7 +3,7 @@
 Um **pacote de tema** é um arquivo `.zip` que muda, de uma vez, a aparência da **interface web**, dos **e-mails** e dos **relatórios em PDF**:
 cores, logo e metadados. Ele é importado em **Aparência › Importar pacote (.zip)** (somente administradores).
 
-Pacotes prontos estão na pasta [`themes/`](../themes): `exemplo` (neutro, ponto de partida), `melloait` e `umami`.
+Pacotes prontos estão na pasta [`themes/`](../themes): `exemplo` (neutro, ponto de partida), `melloait`, `umami` e `clube-naval`.
 
 ## Estrutura do pacote
 
@@ -98,4 +98,4 @@ O pacote é tratado como dado não confiável: tamanho e quantidade limitados, n
 
 ## Marcas de terceiros
 
-Os pacotes `melloait` e `umami` incluem logotipos e cores de empresas, como exemplos de identidade visual. A licença MIT do projeto **não** se aplica a esses logotipos, que continuam sendo marcas de seus titulares; remova o pacote se não tiver o direito de usá-lo.
+Os pacotes `melloait`, `umami` e `clube-naval` incluem logotipos e cores de empresas, como exemplos de identidade visual. A licença MIT do projeto **não** se aplica a esses logotipos, que continuam sendo marcas de seus titulares; remova o pacote se não tiver o direito de usá-lo.

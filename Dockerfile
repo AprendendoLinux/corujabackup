@@ -2,23 +2,26 @@
 # Coruja Backup · build único com dois alvos:  --target server  |  --target agent
 
 # --- interface web (React) -> internal/webui/dist ----------------------------------------------------------------
-FROM node:22-alpine AS web
+FROM --platform=$BUILDPLATFORM node:22-alpine AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json* ./
 RUN npm install --no-audit --no-fund
 COPY web/ ./
 RUN mkdir -p /src/internal/webui && npm run build
 
+# Os estágios web e gobuild rodam na plataforma nativa do runner (sem emulação); só o binário é cruzado.
 # --- binários Go -----------------------------------------------------------------------------------------------------
-FROM golang:1.26-alpine AS gobuild
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS gobuild
 ARG VERSION=0.0.8
+ARG TARGETOS
+ARG TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum* ./
 RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
 COPY --from=web /src/internal/webui/dist ./internal/webui/dist
-ENV CGO_ENABLED=0
+ENV CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH}
 RUN go build -trimpath -ldflags "-s -w -X github.com/AprendendoLinux/corujabackup/internal/version.Version=${VERSION}" -o /out/coruja-server ./cmd/server \
  && go build -trimpath -ldflags "-s -w -X github.com/AprendendoLinux/corujabackup/internal/version.Version=${VERSION}" -o /out/coruja-agent ./cmd/agent
 

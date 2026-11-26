@@ -16,7 +16,7 @@ function ancestors(path: string): string[] {
   return out
 }
 
-function size(n = 0) {
+export function size(n = 0) {
   if (n < 1024) return `${n} B`
   const u = ['KiB', 'MiB', 'GiB', 'TiB']
   let v = n / 1024, i = 0
@@ -134,15 +134,32 @@ export function TreePicker({ title, intro, agentId, roots, initial, lockRoots, c
   )
 }
 
+/** O que um navegador de pastas recebe de cada pasta: as subpastas e, no disco do agente, o espaço disponível. */
+export type FolderList = { folders: string[]; free?: number; total?: number; blocked?: string }
+
+export function SpaceBar({ free, total }: { free: number; total: number }) {
+  const used = total > 0 ? Math.min(100, Math.max(0, Math.round(((total - free) / total) * 100))) : 0
+  const low = total > 0 && free / total < 0.1
+  return (
+    <div className="space-y-1">
+      <div className="h-1.5 overflow-hidden rounded-full bg-border" role="img" aria-label={`${used}% do disco em uso`}>
+        <div className={`h-full ${low ? 'bg-danger' : 'bg-primary'}`} style={{ width: `${used}%` }} />
+      </div>
+      <span className={`block text-xs ${low ? 'text-danger' : 'text-muted'}`}><b>{size(free)} livres</b> de {size(total)} ({used}% em uso){low ? ' · pouco espaço' : ''}</span>
+    </div>
+  )
+}
+
 const folderNameOK = (n: string, strict: boolean) => (strict ? /^[A-Za-z0-9._-]+$/.test(n) : !/[\\/:*?"<>|]/.test(n)) && n !== '.' && n !== '..' && n.length <= 200
 
 /** Navegador para escolher UMA pasta. load("") lista a raiz; os caminhos são relativos a ela. */
 export function FolderPicker({ title, intro, rootLabel, initial, strictNames, load, onPick, onClose }: {
   title: string; intro: string; rootLabel: string; initial: string; strictNames?: boolean
-  load: (path: string) => Promise<string[]>; onPick: (path: string) => void; onClose: () => void
+  load: (path: string) => Promise<string[] | FolderList>; onPick: (path: string) => void; onClose: () => void
 }) {
   const [path, setPath] = useState(initial)
   const [folders, setFolders] = useState<string[] | null>(null)
+  const [info, setInfo] = useState<FolderList | null>(null)
   const [err, setErr] = useState('')
   const [name, setName] = useState('')
   const [created, setCreated] = useState<string[]>([]) // pastas novas: ainda não existem no destino
@@ -151,9 +168,11 @@ export function FolderPicker({ title, intro, rootLabel, initial, strictNames, lo
 
   useEffect(() => {
     let live = true
-    setFolders(null); setErr('')
-    if (created.includes(path)) { setFolders([]); return }
-    loader.current(path).then((f) => live && setFolders(f)).catch((x) => { if (live) { setErr((x as ApiError).message); setFolders([]) } })
+    setFolders(null); setErr(''); setInfo(null)
+    // uma pasta recém-criada também é consultada: o agente responde com o espaço do disco onde ela ficará
+    loader.current(path)
+      .then((r) => { if (!live) return; if (Array.isArray(r)) setFolders(r); else { setInfo(r); setFolders(r.folders) } })
+      .catch((x) => { if (live) { if (!created.includes(path)) setErr((x as ApiError).message); setFolders([]) } })
     return () => { live = false }
   }, [path, created])
 
@@ -189,6 +208,8 @@ export function FolderPicker({ title, intro, rootLabel, initial, strictNames, lo
           ))}
           {folders?.length === 0 && !err && <li className="px-2 py-1.5 text-muted">{isNew ? 'Pasta nova: será criada no primeiro backup.' : 'Nenhuma subpasta aqui.'}</li>}
         </ul>
+        {info?.total ? <SpaceBar free={info.free ?? 0} total={info.total} /> : null}
+        {info?.blocked && path && <p className="text-xs text-danger">{info.blocked}</p>}
         <ErrorBox message={err} />
         <div className="flex gap-2">
           <Input aria-label="Nome da nova pasta" placeholder="Nome de uma nova pasta" value={name} onChange={(e) => setName(e.target.value)}
@@ -199,7 +220,7 @@ export function FolderPicker({ title, intro, rootLabel, initial, strictNames, lo
           <span className="min-w-0 truncate text-muted">{path ? <>Selecionada: <b className="text-text">{path}</b></> : 'Entre numa pasta ou crie uma nova.'}</span>
           <div className="flex gap-2">
             <Button type="button" variant="ghost" onClick={onClose}>Cancelar</Button>
-            <Button type="button" onClick={() => onPick(path)} disabled={!path}>Usar esta pasta</Button>
+            <Button type="button" onClick={() => onPick(path)} disabled={!path || !!info?.blocked || !!err || folders === null}>Usar esta pasta</Button>
           </div>
         </div>
       </div>
@@ -208,9 +229,9 @@ export function FolderPicker({ title, intro, rootLabel, initial, strictNames, lo
 }
 
 /** Campo de pasta: mostra a escolha (ou o padrão automático) e abre o navegador. Não se digita o caminho. */
-export function FolderField({ label, hint, value, autoText, disabledReason, onChange, picker }: {
-  label: string; hint: string; value: string; autoText: string; disabledReason?: string
-  onChange: (v: string) => void; picker: { title: string; intro: string; rootLabel: string; strictNames?: boolean; load: (path: string) => Promise<string[]> }
+export function FolderField({ label, hint, value, autoText, disabledReason, resetLabel = 'Voltar para automática', prefix = '', onChange, picker }: {
+  label: string; hint: string; value: string; autoText: string; disabledReason?: string; resetLabel?: string; prefix?: string
+  onChange: (v: string) => void; picker: { title: string; intro: string; rootLabel: string; strictNames?: boolean; load: (path: string) => Promise<string[] | FolderList> }
 }) {
   const [open, setOpen] = useState(false)
   return (
@@ -220,10 +241,10 @@ export function FolderField({ label, hint, value, autoText, disabledReason, onCh
         <button type="button" aria-label={`${label}: escolher`} disabled={!!disabledReason} onClick={() => setOpen(true)}
           className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-left hover:bg-bg disabled:cursor-not-allowed disabled:opacity-60">
           <FolderIcon />
-          <span className={`truncate ${value ? '' : 'text-muted'}`} title={value}>{value || autoText}</span>
+          <span className={`truncate ${value ? '' : 'text-muted'}`} title={value && prefix + value}>{value ? prefix + value : autoText}</span>
           <span className="ml-auto shrink-0 text-xs text-primary">Escolher…</span>
         </button>
-        {value && <Button type="button" variant="ghost" aria-label={`${label}: voltar para automática`} title="Voltar para automática" onClick={() => onChange('')}>✕</Button>}
+        {value && <Button type="button" variant="ghost" aria-label={`${label}: voltar para automática`} title={resetLabel} onClick={() => onChange('')}>✕</Button>}
       </div>
       <span className="mt-1 block text-xs text-muted">{disabledReason ?? hint}</span>
       {open && <FolderPicker {...picker} initial={value} onClose={() => setOpen(false)} onPick={(v) => { onChange(v); setOpen(false) }} />}

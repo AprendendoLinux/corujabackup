@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { Agent, CloudAccount, CLOUD_LABEL, ContainerInfo, CRON_PRESETS, DbView, ENGINE_LABEL, ENGINE_PORT, Job, User, api, ApiError, describeCron, fmtDate, STATUS } from '../api'
 import { Badge, Button, Card, ErrorBox, Field, Input, Modal } from '../ui'
 import { FolderField, PathList, TreePicker } from '../Picker'
+import { LocalDirField, agentHasDiskPicker } from '../LocalDir'
 
 export default function Jobs({ me }: { me: User }) {
   const [jobs, setJobs] = useState<Job[]>([])
@@ -94,10 +95,12 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
   const [custom, setCustom] = useState(!isPreset(f.cron))
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
+  const [noWriteAgent, setNoWriteAgent] = useState(0) // agente sem a montagem gravável: usa a pasta padrão
   const [tree, setTree] = useState<'paths' | 'excludes' | null>(null)
   // uma exclusão que é um caminho exato aparece marcada na árvore; padrões (*.tmp, */cache/*) ficam só na lista
   const isExactPath = (p: string) => p.startsWith('/') && !/[*?]/.test(p)
   const agentName = agents.find((a) => a.id === Number(f.agent_id))?.name ?? 'agente'
+  const agentVersion = agents.find((a) => a.id === Number(f.agent_id))?.agent_version ?? ''
   const dest = clouds.find((c) => c.id === f.cloud_account_id)
   const destIsCloud = !!dest && ['gdrive', 'onedrive', 'dropbox'].includes(dest.type)
   const zones: string[] = (Intl as any).supportedValuesOf ? (Intl as any).supportedValuesOf('timeZone') : ['America/Sao_Paulo', 'UTC']
@@ -105,6 +108,9 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
   async function submit(e: FormEvent) {
     e.preventDefault(); setErr('')
     if (f.kind === 'files' && f.paths.length === 0) { setErr('Selecione pelo menos uma pasta ou arquivo para salvar.'); return }
+    // job novo (ou que trocou de agente): a pasta local é escolhida no painel; jobs antigos podem continuar na pasta padrão
+    const mustChoose = !job || job.agent_id !== Number(f.agent_id)
+    if (mustChoose && agentHasDiskPicker(agentVersion) && noWriteAgent !== Number(f.agent_id) && !f.dest_subdir.startsWith('/')) { setErr('Escolha a pasta do backup local no servidor.'); return }
     setBusy(true)
     const body: Record<string, unknown> = { name: f.name, agent_id: Number(f.agent_id), kind: f.kind, paths: f.paths, excludes: f.excludes, cron: f.cron, timezone: f.timezone, dest_subdir: f.dest_subdir, keep: Number(f.keep), enabled: f.enabled }
     if (f.cloud_account_id) Object.assign(body, { cloud_account_id: Number(f.cloud_account_id), cloud_folder: f.cloud_folder, cloud_keep: Number(f.cloud_keep), cloud_keep_days: Number(f.cloud_keep_days) })
@@ -119,7 +125,7 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Nome do job"><Input autoFocus value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required /></Field>
         <Field label="Agente (servidor)">
-          <select className={sel} value={f.agent_id} onChange={(e) => setF({ ...f, agent_id: Number(e.target.value) })}>
+          <select className={sel} value={f.agent_id} onChange={(e) => setF({ ...f, agent_id: Number(e.target.value), dest_subdir: job && job.agent_id === Number(e.target.value) ? job.dest_subdir : '' })}>
             {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
         </Field>
@@ -165,11 +171,9 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
           <Input className="font-mono" value={f.cron} onChange={(e) => setF({ ...f, cron: e.target.value })} required />
         </Field>
       )}
+      <LocalDirField key={f.agent_id} agentId={Number(f.agent_id)} agentName={agentName} agentVersion={agentVersion} value={f.dest_subdir}
+        onChange={(dest_subdir) => setF((v) => ({ ...v, dest_subdir }))} onUnavailable={() => setNoWriteAgent(Number(f.agent_id))} />
       <div className="grid gap-3 sm:grid-cols-2">
-        <FolderField label="Pasta de destino no agente" hint="Dentro da pasta de backups do agente. Automática = nome do job." value={f.dest_subdir} autoText="(automática)"
-          onChange={(dest_subdir) => setF((v) => ({ ...v, dest_subdir }))}
-          picker={{ title: `Pasta de destino em ${agentName}`, intro: 'Pastas dentro da pasta de backups do agente.', rootLabel: 'Backups do agente', strictNames: true,
-            load: async (path) => (await api<{ entries: { name: string }[] }>('GET', `/api/agents/${f.agent_id}/browse?area=backups&path=${encodeURIComponent(path)}`)).entries.map((e) => e.name) }} />
         <Field label="Cópias locais a manter" hint={f.cloud_account_id ? '0 = apagar a cópia local depois que o destino confirmar o envio.' : 'A retenção só roda depois que o novo arquivo for verificado.'}>
           <Input type="number" min={f.cloud_account_id ? 0 : 1} max={365} value={f.keep} onChange={(e) => setF({ ...f, keep: Number(e.target.value) })} required />
         </Field>

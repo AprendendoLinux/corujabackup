@@ -60,3 +60,12 @@
   por TCP (o servidor temporário de inicialização só escuta no socket), restaura cada banco e compara nº de tabelas/coleções.
 - **Limites conhecidos:** PostgreSQL em modo rede exige cliente igual ou mais novo que o servidor (o agente traz o 17; use o modo
   contêiner para versões mais novas). MongoDB em modo rede não lista bancos (não há `mongosh` no agente): informe-os no job.
+
+## Interface completa (Fase 5)
+- **Log ao vivo:** o agente manda `PROGRESS` com as linhas novas a cada 2 s (o `INSERT IGNORE` por `(run, seq)` torna o relatório final
+  idempotente); o Server expõe `GET /api/runs/{id}/stream` (SSE) consultando o banco 1x/s por conexão e encerra após o fim.
+- **Ações pós-execução** (`AgentAction` -> `ActionLog`): reenvio à nuvem e extração rodam no agente em segundo plano; o Server numera
+  as linhas de log delas a partir de 10000 (não colidem com as do backup) e só aceita ações do agente dono da execução.
+- **Download:** `Provider.Open`; no OneDrive o redirecionamento do `/content` é seguido sem o token.
+- **Branding:** configurações em `settings` (nome, tema padrão, temas JSON, logo em base64); `GET /api/branding` e `/logo` são
+  públicos (a tela de login precisa deles); alterar exige administrador.

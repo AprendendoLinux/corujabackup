@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -16,6 +17,7 @@ import (
 	"github.com/AprendendoLinux/corujabackup/internal/auth"
 	"github.com/AprendendoLinux/corujabackup/internal/cloud"
 	"github.com/AprendendoLinux/corujabackup/internal/cloudmgr"
+	"github.com/AprendendoLinux/corujabackup/internal/pb"
 	"github.com/AprendendoLinux/corujabackup/internal/ratelimit"
 	"github.com/AprendendoLinux/corujabackup/internal/secrets"
 	"github.com/AprendendoLinux/corujabackup/internal/store"
@@ -32,6 +34,7 @@ type fakeHub struct {
 	runs    []string
 	offline bool
 	calls   []string
+	actions []*pb.AgentAction
 	callOut []byte
 	callErr error
 }
@@ -47,6 +50,13 @@ func (f *fakeHub) RunNow(_, jobID int64, uid string) error {
 	return nil
 }
 func (f *fakeHub) CancelRun(int64, string) error { return nil }
+func (f *fakeHub) Action(_ int64, a *pb.AgentAction) error {
+	if f.offline {
+		return agentsrv.ErrOffline
+	}
+	f.actions = append(f.actions, a)
+	return nil
+}
 func (f *fakeHub) Call(_ context.Context, _ int64, kind string, payload []byte, _ time.Duration) ([]byte, error) {
 	f.calls = append(f.calls, kind+":"+string(payload))
 	if f.callErr != nil {
@@ -550,6 +560,9 @@ func (f *fakeClouds) Test(context.Context, int64) (string, cloud.Quota, error) {
 	return "fulano@x.com", cloud.Quota{Total: 100, Used: 10}, nil
 }
 func (f *fakeClouds) Invalidate(int64) {}
+func (f *fakeClouds) Open(context.Context, int64, string, string) (io.ReadCloser, int64, error) {
+	return io.NopCloser(strings.NewReader("conteudo-do-backup")), 18, nil
+}
 
 func addCloud(t *testing.T, e *env, name, status string) int64 {
 	t.Helper()
@@ -742,5 +755,232 @@ func TestConsultasAoAgenteContainersETesteDeBanco(t *testing.T) {
 	v.mustOK("POST", "/api/login", map[string]string{"username": "leitor2", "password": pw})
 	if code, _ := v.do("GET", "/api/agents/"+itoa(int(a.ID))+"/containers", nil); code != 403 {
 		t.Fatalf("somente leitura não consulta contêineres: %d", code)
+	}
+}
+
+// ---------------------------------------------------------------- identidade visual, transmissão ao vivo e restauração
+
+func (c *client) raw(method, path string, body []byte, ctype string) (int, []byte, http.Header) {
+	c.e.t.Helper()
+	req, _ := http.NewRequest(method, c.e.srv.URL+path, bytes.NewReader(body))
+	req.Header.Set("X-Coruja-CSRF", "1")
+	if ctype != "" {
+		req.Header.Set("Content-Type", ctype)
+	}
+	resp, err := c.c.Do(req)
+	if err != nil {
+		c.e.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, b, resp.Header
+}
+
+func TestIdentidadeVisualTemasELogo(t *testing.T) {
+	e := newEnv(t)
+	adm := setupAdmin(e)
+	pub := e.client()
+	if _, m := pub.do("GET", "/api/branding", nil); m["name"] != "Coruja Backup" || m["has_logo"] != false {
+		t.Fatalf("padrão: %v", m)
+	}
+	cores := map[string]string{"bg": "#101010", "surface": "#1a1a1a", "text": "#eeeeee", "muted": "#999999", "border": "#333333", "primary": "#0ea5e9", "primary_contrast": "#001018", "accent": "#f59e0b", "ok": "#22c55e", "danger": "#ef4444"}
+	tema := func(id string, mod func(m map[string]string)) map[string]any {
+		v := map[string]string{}
+		for k, c := range cores {
+			v[k] = c
+		}
+		if mod != nil {
+			mod(v)
+		}
+		return map[string]any{"id": id, "label": "Meu tema", "vars": v}
+	}
+	save := func(themes []any, theme string) int {
+		code, _ := adm.do("PUT", "/api/branding", map[string]any{"name": "Backup Acme", "theme": theme, "themes": themes})
+		return code
+	}
+	for name, c := range map[string]int{
+		"cor inválida":         save([]any{tema("acme", func(m map[string]string) { m["primary"] = "azul" })}, "coruja"),
+		"id de tema embutido":  save([]any{tema("coruja", nil)}, "coruja"),
+		"id repetido":          save([]any{tema("acme", nil), tema("acme", nil)}, "coruja"),
+		"id inválido":          save([]any{tema("A cme!", nil)}, "coruja"),
+		"tema padrão inexiste": save([]any{tema("acme", nil)}, "outro"),
+	} {
+		if c != 400 {
+			t.Errorf("%s: esperava 400, veio %d", name, c)
+		}
+	}
+	if code, _ := adm.do("PUT", "/api/branding", map[string]any{"name": "", "theme": "coruja", "themes": []any{}}); code != 400 {
+		t.Fatalf("nome vazio: %d", code)
+	}
+	if save([]any{tema("acme", nil)}, "acme") != 200 {
+		t.Fatal("configuração válida recusada")
+	}
+	_, m := pub.do("GET", "/api/branding", nil)
+	if m["name"] != "Backup Acme" || m["theme"] != "acme" || len(m["themes"].([]any)) != 1 {
+		t.Fatalf("branding: %v", m)
+	}
+	// somente administrador altera
+	adm.mustOK("POST", "/api/users", map[string]string{"username": "operador2", "password": pw, "role": "operator"})
+	op := e.client()
+	op.mustOK("POST", "/api/login", map[string]string{"username": "operador2", "password": pw})
+	if code, _ := op.do("PUT", "/api/branding", map[string]any{"name": "x", "theme": "coruja", "themes": []any{}}); code != 403 {
+		t.Fatalf("operador não altera a identidade: %d", code)
+	}
+	png := append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{0}, 64)...)
+	if code, _, _ := op.raw("POST", "/api/branding/logo", png, "image/png"); code != 403 {
+		t.Fatalf("operador não envia logo: %d", code)
+	}
+	// logos inválidas/inseguras
+	for name, body := range map[string][]byte{
+		"html disfarçado": []byte("<html><script>alert(1)</script></html>"),
+		"svg com script":  []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`),
+		"svg com onload":  []byte(`<svg xmlns="http://www.w3.org/2000/svg" onload="x()"></svg>`),
+		"gigante":         append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{1}, 1<<20+10)...),
+		"vazio":           {},
+	} {
+		if code, _, _ := adm.raw("POST", "/api/branding/logo", body, "image/png"); code != 400 {
+			t.Errorf("%s: esperava 400, veio %d", name, code)
+		}
+	}
+	if code, _, _ := adm.raw("POST", "/api/branding/logo", png, "text/html"); code != 200 { // o tipo enviado é ignorado: vale o conteúdo
+		t.Fatalf("PNG válido recusado: %d", code)
+	}
+	if _, m := pub.do("GET", "/api/branding", nil); m["has_logo"] != true || m["logo_version"] == "" {
+		t.Fatalf("logo deveria constar: %v", m)
+	}
+	code, body, h := pub.raw("GET", "/api/branding/logo", nil, "")
+	if code != 200 || !bytes.Equal(body, png) || h.Get("Content-Type") != "image/png" || !strings.Contains(h.Get("Content-Security-Policy"), "sandbox") || h.Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("logo servida: %d %s %v", code, h.Get("Content-Type"), h)
+	}
+	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>`)
+	if code, _, _ := adm.raw("POST", "/api/branding/logo", svg, ""); code != 200 {
+		t.Fatalf("SVG limpo recusado: %d", code)
+	}
+	if _, _, h := pub.raw("GET", "/api/branding/logo", nil, ""); h.Get("Content-Type") != "image/svg+xml" {
+		t.Fatalf("tipo do SVG: %s", h.Get("Content-Type"))
+	}
+	adm.mustOK("DELETE", "/api/branding/logo", nil)
+	if code, _, _ := pub.raw("GET", "/api/branding/logo", nil, ""); code != 404 {
+		t.Fatalf("logo removida deveria dar 404: %d", code)
+	}
+}
+
+func TestTransmissaoAoVivoDoLog(t *testing.T) {
+	e := newEnv(t)
+	c := setupAdmin(e)
+	a := newAgent(t, e, "srv-sse")
+	jid := int(c.mustOK("POST", "/api/jobs", map[string]any{"name": "j-sse", "agent_id": a.ID, "paths": []string{"/etc"}})["id"].(float64))
+	ctx := context.Background()
+	now := time.Now().UTC()
+	st := e.api.Store
+	if err := st.ApplyReport(ctx, store.Report{UID: "u-sse", JobID: int64(jid), AgentID: a.ID, Started: true, StartedAt: now, Logs: []store.RunLog{{Seq: 1, At: now, Level: "info", Text: "primeira"}}}); err != nil {
+		t.Fatal(err)
+	}
+	run, _ := st.RunByUID(ctx, "u-sse")
+	// o backup termina enquanto a transmissão está aberta
+	go func() {
+		time.Sleep(1500 * time.Millisecond)
+		st.ApplyReport(ctx, store.Report{UID: "u-sse", JobID: int64(jid), AgentID: a.ID, Logs: []store.RunLog{{Seq: 2, At: now, Level: "warn", Text: "segunda"}}})
+		time.Sleep(700 * time.Millisecond)
+		st.ApplyReport(ctx, store.Report{UID: "u-sse", JobID: int64(jid), AgentID: a.ID, Final: true, Status: "ok", FinishedAt: now, Logs: []store.RunLog{{Seq: 1, At: now, Text: "primeira"}, {Seq: 2, At: now, Text: "segunda"}, {Seq: 3, At: now, Text: "fim"}}})
+	}()
+	req, _ := http.NewRequest("GET", e.srv.URL+"/api/runs/"+itoa(int(run.ID))+"/stream", nil)
+	resp, err := c.c.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+		t.Fatalf("%d %s", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	done := make(chan string, 1)
+	go func() { b, _ := io.ReadAll(resp.Body); done <- string(b) }()
+	select {
+	case body := <-done:
+		for _, want := range []string{"event: log", `"text":"primeira"`, `"text":"segunda"`, `"text":"fim"`, "event: run", `"status":"running"`, `"status":"ok"`, "event: end"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("transmissão sem %q:\n%s", want, body)
+			}
+		}
+		if strings.Count(body, `"text":"primeira"`) != 1 {
+			t.Errorf("cada linha deve ser entregue uma vez:\n%s", body)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("a transmissão não terminou depois do fim da execução")
+	}
+	if code, _ := e.client().do("GET", "/api/runs/1/stream", nil); code != 401 {
+		t.Fatalf("sem sessão: %d", code)
+	}
+}
+
+func TestRestauracaoDownloadReenvioEExtracao(t *testing.T) {
+	e := newEnv(t)
+	e.api.Clouds = &fakeClouds{}
+	adm := setupAdmin(e)
+	a := newAgent(t, e, "srv-rs")
+	cid := addCloud(t, e, "Nuvem R", "connected")
+	jid := int(adm.mustOK("POST", "/api/jobs", map[string]any{"name": "j-rs", "agent_id": a.ID, "paths": []string{"/etc"}, "cloud_account_id": cid, "cloud_keep": 3, "keep": 1})["id"].(float64))
+	ctx := context.Background()
+	now := time.Now().UTC()
+	st := e.api.Store
+	// execução 1: concluída e na nuvem; execução 2: o envio falhou
+	st.ApplyReport(ctx, store.Report{UID: "ok1", JobID: int64(jid), AgentID: a.ID, Final: true, Status: "ok", StartedAt: now, FinishedAt: now, OutputName: "j-rs-20261126-001000.tar.gz",
+		CloudStatus: "ok", CloudPath: "Coruja Backup/srv-rs/j-rs/j-rs-20261126-001000.tar.gz", CloudVerifiedBy: "quickxor", CloudHash: "x"})
+	st.ApplyReport(ctx, store.Report{UID: "falhou2", JobID: int64(jid), AgentID: a.ID, Final: true, Status: "failed", StartedAt: now, FinishedAt: now, OutputName: "j-rs-20261126-001100.tar.gz",
+		CloudStatus: "failed", Error: "o backup local foi concluído e conferido, mas o envio para a nuvem falhou: x"})
+	r1, _ := st.RunByUID(ctx, "ok1")
+	r2, _ := st.RunByUID(ctx, "falhou2")
+
+	// download da nuvem (repasse do fluxo) e auditoria
+	code, body, h := adm.raw("GET", "/api/runs/"+itoa(int(r1.ID))+"/download", nil, "")
+	if code != 200 || string(body) != "conteudo-do-backup" || !strings.Contains(h.Get("Content-Disposition"), "j-rs-20261126-001000.tar.gz") {
+		t.Fatalf("download: %d %q %v", code, body, h)
+	}
+	if code, _, _ := adm.raw("GET", "/api/runs/"+itoa(int(r2.ID))+"/download", nil, ""); code != 409 {
+		t.Fatalf("sem cópia na nuvem: %d", code)
+	}
+	// reenvio: só para quem não está na nuvem
+	if code, _ := adm.do("POST", "/api/runs/"+itoa(int(r1.ID))+"/reupload", nil); code != 409 {
+		t.Fatalf("já está na nuvem: %d", code)
+	}
+	adm.mustOK("POST", "/api/runs/"+itoa(int(r2.ID))+"/reupload", nil)
+	if len(e.hub.actions) != 1 || e.hub.actions[0].Kind != "reupload" || e.hub.actions[0].FileName != "j-rs-20261126-001100.tar.gz" || e.hub.actions[0].RunUid != "falhou2" {
+		t.Fatalf("ação enviada ao agente: %v", e.hub.actions)
+	}
+	// o agente informa o resultado: o log recebe linhas numeradas a partir de 10000 e a execução é corrigida
+	err := st.ApplyActionLog(ctx, a.ID, store.ActionResult{RunUID: "falhou2", Kind: "reupload", State: "ok", CloudStatus: "ok", CloudPath: "A/B/j-rs-20261126-001100.tar.gz", CloudHash: "h", CloudVerifiedBy: "md5",
+		Lines: []store.RunLog{{At: now, Level: "info", Text: "reenviando"}, {At: now, Level: "info", Text: "ok"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixed, _ := st.RunByUID(ctx, "falhou2")
+	logs, _ := st.RunLogs(ctx, fixed.ID)
+	if fixed.Status != "ok" || fixed.CloudStatus != "ok" || fixed.CloudVerifiedBy != "md5" || fixed.Error != "" || len(logs) != 2 || logs[0].Seq != 10000 || logs[1].Seq != 10001 {
+		t.Fatalf("reenvio aplicado: %+v %v", fixed, logs)
+	}
+	b := newAgent(t, e, "srv-outro")
+	if err := st.ApplyActionLog(ctx, b.ID, store.ActionResult{RunUID: "falhou2", Kind: "reupload", State: "ok"}); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("um agente só atua nas próprias execuções: %v", err)
+	}
+	// extração: valida o nome da pasta
+	for _, bad := range []string{"../x", "a/b", "-x", strings.Repeat("a", 70)} {
+		if code, _ := adm.do("POST", "/api/runs/"+itoa(int(r1.ID))+"/extract", map[string]any{"target": bad}); code != 400 {
+			t.Errorf("pasta %q: esperava 400, veio %d", bad, code)
+		}
+	}
+	m := adm.mustOK("POST", "/api/runs/"+itoa(int(r1.ID))+"/extract", map[string]any{"target": "restaurar-1"})
+	if m["target"] != "restaurar-1" || e.hub.actions[1].Kind != "extract" || e.hub.actions[1].Target != "restaurar-1" {
+		t.Fatalf("%v %v", m, e.hub.actions)
+	}
+	e.hub.offline = true
+	if code, _ := adm.do("POST", "/api/runs/"+itoa(int(r1.ID))+"/extract", map[string]any{}); code != 409 {
+		t.Fatalf("agente offline: %d", code)
+	}
+	// somente leitura não baixa nem restaura
+	adm.mustOK("POST", "/api/users", map[string]string{"username": "leitor3", "password": pw, "role": "viewer"})
+	v := e.client()
+	v.mustOK("POST", "/api/login", map[string]string{"username": "leitor3", "password": pw})
+	if code, _, _ := v.raw("GET", "/api/runs/"+itoa(int(r1.ID))+"/download", nil, ""); code != 403 {
+		t.Fatalf("viewer não baixa: %d", code)
 	}
 }

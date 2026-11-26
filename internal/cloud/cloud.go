@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -49,6 +50,8 @@ type Provider interface {
 	List(ctx context.Context, folder string) ([]RemoteFile, error)
 	// Delete remove definitivamente quando o provedor permite (sem passar pela lixeira, que consome cota).
 	Delete(ctx context.Context, folder string, f RemoteFile) error
+	// Open baixa o arquivo (para restauração/download). O chamador fecha o corpo.
+	Open(ctx context.Context, folder, name string) (io.ReadCloser, int64, error)
 }
 
 var (

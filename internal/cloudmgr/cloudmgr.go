@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"time"
@@ -416,4 +417,17 @@ func (m *Manager) VerifyAndRetain(ctx context.Context, j *store.Job, fileName st
 		v.Retention = append(v.Retention, "removido da nuvem: "+f.Name)
 	}
 	return v
+}
+
+// Open baixa um arquivo da conta de nuvem (restauração/download).
+func (m *Manager) Open(ctx context.Context, accountID int64, folder, name string) (io.ReadCloser, int64, error) {
+	f, err := cloud.CleanFolder(folder)
+	if err != nil {
+		return nil, 0, err
+	}
+	p, err := m.Provider(ctx, accountID)
+	if err != nil {
+		return nil, 0, err
+	}
+	return p.Open(ctx, f, name)
 }

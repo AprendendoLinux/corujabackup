@@ -151,6 +151,8 @@ func session(ctx context.Context, log *slog.Logger, st *Credentials, core *Core)
 				core.Enqueue(m.GetRunNow().JobId, m.GetRunNow().RunUid, "manual", time.Time{})
 			case m.GetCancelRun() != nil:
 				core.Cancel(m.GetCancelRun().RunUid)
+			case m.GetAction() != nil:
+				core.HandleAction(ctx, m.GetAction())
 			case m.GetRpc() != nil:
 				rpc := m.GetRpc()
 				go func() { _ = safeSend(core.HandleRPC(ctx, rpc)) }()

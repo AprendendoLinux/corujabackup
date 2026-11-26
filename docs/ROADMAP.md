@@ -5,7 +5,7 @@
 - [x] **Fase 2 – Agente e arquivos (0.0.3):** cadastro/status de clients, jobs de pastas (tar+gzip), agendamento com fuso, batimento, fila local.
 - [x] **Fase 3 – Conectores de nuvem (0.0.4):** interface `Provider`, OneDrive, Google Drive, verificação por hash, retenção segura.
 - [x] **Fase 4 – Bancos de dados (0.0.5):** MySQL/MariaDB, PostgreSQL, MongoDB; teste de restauração automatizado.
-- [ ] **Fase 5 – Interface completa:** servidores, jobs, histórico, logs ao vivo, temas, logo personalizada, restauração.
+- [x] **Fase 5 – Interface completa (0.0.6):** servidores, jobs, histórico, logs ao vivo, temas, logo personalizada, restauração.
 - [ ] **Fase 6 – Notificações e relatórios:** e-mail, Telegram, PDF A4, configurados pela interface.
 - [ ] **Fase 7 – Endurecimento e publicação:** TLS, auditoria, limites, documentação, imagens no GitHub Packages.
 - [ ] **Fase 8 – Piloto:** instalação em ambiente real, só com autorização e em paralelo ao backup existente.

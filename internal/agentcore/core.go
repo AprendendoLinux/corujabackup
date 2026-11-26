@@ -54,6 +54,7 @@ type Core struct {
 	running  map[string]context.CancelFunc // por run_uid
 	busyJobs map[int64]bool                // jobs enfileirados ou rodando
 	active   map[string]bool               // run_uid enfileirados ou rodando (vai no Hello)
+	actions  map[string]bool               // ações posteriores em andamento (tipo:run_uid)
 	send     func(*pb.AgentMessage) bool   // nil quando desconectado
 
 	docker  *dockerapi.Client
@@ -78,7 +79,7 @@ type UploadFn func(ctx context.Context, spec *pb.JobSpec, runUID string, res Res
 func New(cfg Config, st *State, log *slog.Logger) *Core {
 	c := &Core{cfg: cfg, st: st, log: log, now: time.Now, queue: make(chan runReq, 64),
 		jobs: map[int64]*pb.JobSpec{}, lastFire: st.LoadLastFire(), running: map[string]context.CancelFunc{}, busyJobs: map[int64]bool{},
-		active: map[string]bool{}, docker: dockerapi.New(os.Getenv("CORUJA_DOCKER_SOCKET")), waiters: map[string]chan *pb.ServerMessage{}, httpc: &httpClientHolder{}}
+		active: map[string]bool{}, actions: map[string]bool{}, docker: dockerapi.New(os.Getenv("CORUJA_DOCKER_SOCKET")), waiters: map[string]chan *pb.ServerMessage{}, httpc: &httpClientHolder{}}
 	c.upload = c.uploadToCloud
 	for _, j := range st.LoadJobs() {
 		c.jobs[j.JobId] = j
@@ -309,11 +310,37 @@ func (c *Core) execute(parent context.Context, r runReq) {
 		logs = append(logs, &pb.LogLine{Seq: int32(seq), UnixMs: ms(c.now()), Level: level, Text: txt})
 		c.log.Info(txt, "job", r.spec.Name, "nível", level)
 	}
+	flushed := 0
+	// envia as linhas novas do log a cada 2 s para a interface mostrar o andamento ao vivo
+	flushDone := make(chan struct{})
+	flushCtx, stopFlush := context.WithCancel(ctx)
+	defer stopFlush()
 	base := &pb.RunReport{RunUid: r.uid, JobId: r.spec.JobId, Trigger: r.trigger, ScheduledForMs: ms(r.scheduledFor), StartedMs: ms(started), JobVersion: r.spec.Version}
 	start := proto.Clone(base).(*pb.RunReport)
 	start.State = pb.RunReport_STARTED
 	c.trySend(&pb.AgentMessage{Body: &pb.AgentMessage_RunReport{RunReport: start}})
 
+	go func() {
+		defer close(flushDone)
+		t := time.NewTicker(2 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-t.C:
+				lmu.Lock()
+				fresh := logs[flushed:]
+				flushed = len(logs)
+				lmu.Unlock()
+				if len(fresh) > 0 {
+					pr := proto.Clone(base).(*pb.RunReport)
+					pr.State, pr.Logs = pb.RunReport_PROGRESS, append([]*pb.LogLine(nil), fresh...)
+					c.trySend(&pb.AgentMessage{Body: &pb.AgentMessage_RunReport{RunReport: pr}})
+				}
+			case <-flushCtx.Done():
+				return
+			}
+		}
+	}()
 	logf("info", "iniciando o job %q (%s)", r.spec.Name, r.trigger)
 	loc, err := time.LoadLocation(r.spec.Timezone)
 	if err != nil {
@@ -384,6 +411,8 @@ func (c *Core) execute(parent context.Context, r runReq) {
 		fin.Status = "ok"
 		logf("info", "concluído com sucesso em %s", c.now().Sub(started).Round(time.Second))
 	}
+	stopFlush()
+	<-flushDone
 	lmu.Lock()
 	fin.Logs = logs
 	lmu.Unlock()

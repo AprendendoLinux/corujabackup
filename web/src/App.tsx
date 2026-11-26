@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import Logo from './Logo'
+import Logo, { BrandCtx } from './Logo'
 import { THEMES, applyTheme, savedTheme } from './themes'
-import { Agent, User, api, ApiError, ROLE_LABEL } from './api'
+import { Agent, Branding, User, api, ApiError, ROLE_LABEL } from './api'
 import { Card } from './ui'
 import { Login, Setup } from './pages/Auth'
 import Agents from './pages/Agents'
@@ -11,8 +11,8 @@ import Runs from './pages/Runs'
 import Users from './pages/Users'
 import Audit from './pages/Audit'
 import Account from './pages/Account'
+import Appearance from './pages/Appearance'
 
-type Branding = { name: string; theme: string }
 type Me = { user: User; recovery_codes_left: number; version: string }
 type Phase = 'loading' | 'setup' | 'login' | 'app'
 
@@ -24,18 +24,28 @@ function useRoute() {
 }
 
 export default function App() {
-  const [brand, setBrand] = useState<Branding>({ name: 'Coruja Backup', theme: 'coruja' })
+  const [brand, setBrand] = useState<Branding>({ name: 'Coruja Backup', theme: 'coruja', themes: [], has_logo: false })
   const [theme, setTheme] = useState('coruja')
   const [phase, setPhase] = useState<Phase>('loading')
   const [me, setMe] = useState<Me | null>(null)
-  const [version, setVersion] = useState('0.0.5')
+  const [version, setVersion] = useState('0.0.6')
   const route = useRoute()
 
-  useEffect(() => {
-    fetch('/api/branding').then((r) => r.json()).then((b: Branding) => { setBrand(b); setTheme(applyTheme(savedTheme() ?? b.theme)) })
-      .catch(() => setTheme(applyTheme(savedTheme() ?? 'coruja')))
-    fetch('/api/version').then((r) => r.json()).then((v) => setVersion(v.version)).catch(() => {})
+  const loadBrand = useCallback(() => {
+    fetch('/api/branding').then((r) => r.json()).then((b: Branding) => {
+      b.themes = b.themes ?? []
+      setBrand(b); setTheme(applyTheme(savedTheme() ?? b.theme, b.themes))
+    }).catch(() => setTheme(applyTheme(savedTheme() ?? 'coruja')))
   }, [])
+  useEffect(() => {
+    loadBrand()
+    fetch('/api/version').then((r) => r.json()).then((v) => setVersion(v.version)).catch(() => {})
+  }, [loadBrand])
+  useEffect(() => {
+    document.title = brand.name
+    const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]')
+    if (link) link.href = brand.has_logo ? `/api/branding/logo?v=${brand.logo_version ?? ''}` : '/favicon.svg'
+  }, [brand])
 
   const refresh = useCallback(async () => {
     try {
@@ -53,6 +63,7 @@ export default function App() {
   async function logout() { try { await api('POST', '/api/logout') } catch { /* ignora */ } setMe(null); setPhase('login'); window.location.hash = '' }
 
   return (
+    <BrandCtx.Provider value={{ brand, reload: loadBrand }}>
     <div className="flex min-h-screen flex-col">
       <header className="border-b border-border bg-surface">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
@@ -66,11 +77,13 @@ export default function App() {
               <NavLink to="historico" cur={route}>Histórico</NavLink>
               {me.user.role === 'admin' && <NavLink to="usuarios" cur={route}>Usuários</NavLink>}
               {me.user.role === 'admin' && <NavLink to="auditoria" cur={route}>Auditoria</NavLink>}
+              {me.user.role === 'admin' && <NavLink to="aparencia" cur={route}>Aparência</NavLink>}
             </nav>
           )}
           <div className="ml-auto flex items-center gap-3 text-sm">
-            <select aria-label="Tema" className="rounded-md border border-border bg-surface px-2 py-1 text-text" value={theme} onChange={(e) => setTheme(applyTheme(e.target.value))}>
+            <select aria-label="Tema" className="rounded-md border border-border bg-surface px-2 py-1 text-text" value={theme} onChange={(e) => setTheme(applyTheme(e.target.value, brand.themes))}>
               {THEMES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+              {brand.themes.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
             </select>
             {phase === 'app' && me && (
               <>
@@ -93,6 +106,7 @@ export default function App() {
           : route.split('?')[0] === 'historico' ? <Runs me={me.user} jobFilter={Number(new URLSearchParams(route.split('?')[1] ?? '').get('job') ?? 0)} />
           : route === 'usuarios' && me.user.role === 'admin' ? <Users me={me.user} />
           : route === 'auditoria' && me.user.role === 'admin' ? <Audit />
+          : route === 'aparencia' && me.user.role === 'admin' ? <Appearance />
           : route === 'conta' ? <Account me={me.user} recoveryLeft={me.recovery_codes_left} reload={refresh} />
           : <Dashboard name={brand.name} />
         )}
@@ -103,6 +117,7 @@ export default function App() {
         <a className="text-primary underline" href="https://henrique.tec.br" target="_blank" rel="noopener noreferrer">Henrique Fagundes</a>
       </footer>
     </div>
+    </BrandCtx.Provider>
   )
 }
 

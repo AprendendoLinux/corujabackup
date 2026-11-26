@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/AprendendoLinux/corujabackup/internal/cloud"
 	"github.com/AprendendoLinux/corujabackup/internal/cloudmgr"
+	"github.com/AprendendoLinux/corujabackup/internal/pb"
 	"github.com/AprendendoLinux/corujabackup/internal/ratelimit"
 	"github.com/AprendendoLinux/corujabackup/internal/secrets"
 	"github.com/AprendendoLinux/corujabackup/internal/store"
@@ -31,6 +33,7 @@ type AgentHub interface {
 	RunNow(agentID, jobID int64, runUID string) error
 	CancelRun(agentID int64, runUID string) error
 	Call(ctx context.Context, agentID int64, kind string, payload []byte, timeout time.Duration) ([]byte, error)
+	Action(agentID int64, act *pb.AgentAction) error
 }
 
 // CloudAdmin é o que a API precisa do gerenciador de contas de nuvem (cloudmgr.Manager).
@@ -40,6 +43,7 @@ type CloudAdmin interface {
 	PollDevice(ctx context.Context, id int64) (string, *cloud.Device, error)
 	Test(ctx context.Context, id int64) (string, cloud.Quota, error)
 	Invalidate(id int64)
+	Open(ctx context.Context, accountID int64, folder, name string) (io.ReadCloser, int64, error)
 }
 
 type Server struct {
@@ -75,6 +79,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/health", s.health)
 	mux.HandleFunc("GET /api/version", s.version)
 	mux.HandleFunc("GET /api/branding", s.branding)
+	mux.HandleFunc("GET /api/branding/logo", s.logo)
+	mux.HandleFunc("PUT /api/branding", s.authed(roleAdmin, s.saveBranding))
+	mux.HandleFunc("POST /api/branding/logo", s.authed(roleAdmin, s.uploadLogo))
+	mux.HandleFunc("DELETE /api/branding/logo", s.authed(roleAdmin, s.deleteLogo))
 	mux.HandleFunc("GET /api/setup/status", s.setupStatus)
 	mux.HandleFunc("POST /api/setup", s.setup)
 	mux.HandleFunc("POST /api/login", s.login)
@@ -113,7 +121,11 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/jobs/{id}/run", s.authed(roleOperator, s.runJobNow))
 	mux.HandleFunc("GET /api/runs", s.authed(roleAny, s.listRuns))
 	mux.HandleFunc("GET /api/runs/{id}", s.authed(roleAny, s.getRun))
+	mux.HandleFunc("GET /api/runs/{id}/stream", s.authed(roleAny, s.streamRun))
 	mux.HandleFunc("POST /api/runs/{id}/cancel", s.authed(roleOperator, s.cancelRun))
+	mux.HandleFunc("GET /api/runs/{id}/download", s.authed(roleOperator, s.downloadRun))
+	mux.HandleFunc("POST /api/runs/{id}/reupload", s.authed(roleOperator, s.reuploadRun))
+	mux.HandleFunc("POST /api/runs/{id}/extract", s.authed(roleOperator, s.extractRun))
 	mux.HandleFunc("GET /api/stats", s.authed(roleAny, s.stats))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"error": "rota inexistente"})
@@ -180,24 +192,6 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) version(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"name": version.Name, "version": version.Version})
-}
-
-// branding devolve nome e tema escolhidos na interface (white-label). A logo personalizada entra na Fase 5.
-func (s *Server) branding(w http.ResponseWriter, r *http.Request) {
-	out := map[string]string{"name": version.Name, "theme": "coruja"}
-	if s.DB != nil {
-		rows, err := s.DB.QueryContext(r.Context(), "SELECT k, COALESCE(v,'') FROM settings WHERE k IN ('brand.name','brand.theme')")
-		if err == nil {
-			defer rows.Close()
-			for rows.Next() {
-				var k, v string
-				if rows.Scan(&k, &v) == nil && v != "" {
-					out[k[len("brand."):]] = v
-				}
-			}
-		}
-	}
-	writeJSON(w, 200, out)
 }
 
 func (s *Server) system(w http.ResponseWriter, r *http.Request, _ *ctxUser) {

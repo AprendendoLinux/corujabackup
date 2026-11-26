@@ -465,3 +465,115 @@ func TestOfflineEnfileiraEReenvia(t *testing.T) {
 		t.Fatalf("%+v", f)
 	}
 }
+
+// ---------------------------------------------------------------- Fase 5
+
+func TestLogsSaemAoVivoDuranteAExecucao(t *testing.T) {
+	r := newRig(t)
+	r.exec = make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go r.core.Run(ctx)
+	r.core.SyncJobs([]*pb.JobSpec{spec(1, "longo", "0 0 1 1 *")})
+	r.core.Enqueue(1, "u1", "manual", time.Time{})
+	deadline := time.Now().Add(6 * time.Second)
+	var live *pb.RunReport
+	for time.Now().Before(deadline) && live == nil {
+		r.mu.Lock()
+		for _, x := range r.sent {
+			if x.State == pb.RunReport_PROGRESS && len(x.Logs) > 0 {
+				live = x
+			}
+		}
+		r.mu.Unlock()
+		time.Sleep(100 * time.Millisecond)
+	}
+	if live == nil || !strings.Contains(live.Logs[0].Text, "iniciando o job") {
+		t.Fatalf("as linhas do log deveriam ser enviadas enquanto o backup ainda roda: %+v", live)
+	}
+	close(r.exec)
+	if f := r.finished(t, 1); len(f[0].Logs) < 2 {
+		t.Fatalf("o relatório final ainda leva o log completo: %v", f[0].Logs)
+	}
+}
+
+type tarEntry struct {
+	name, link, body string
+	typ              byte
+}
+
+func makeTarGz(t *testing.T, ents []tarEntry) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "x.tar.gz")
+	f, _ := os.Create(p)
+	gz := gzip.NewWriter(f)
+	tw := tar.NewWriter(gz)
+	for _, e := range ents {
+		h := &tar.Header{Name: e.name, Typeflag: e.typ, Mode: 0o644, Size: int64(len(e.body)), Linkname: e.link, ModTime: time.Unix(1_700_000_000, 0)}
+		if e.typ == tar.TypeDir {
+			h.Mode = 0o755
+		}
+		tw.WriteHeader(h)
+		tw.Write([]byte(e.body))
+	}
+	tw.Close()
+	gz.Close()
+	f.Close()
+	return p
+}
+
+func TestExtracaoSegura(t *testing.T) {
+	base := t.TempDir()
+	dest := filepath.Join(base, "restores", "r1")
+	outside := filepath.Join(base, "fora")
+	os.MkdirAll(outside, 0o755)
+	arc := makeTarGz(t, []tarEntry{
+		{name: "etc/", typ: tar.TypeDir},
+		{name: "etc/app.conf", body: "conf", typ: tar.TypeReg},
+		{name: "../../fuga.txt", body: "mal", typ: tar.TypeReg}, // sai do destino
+		{name: "/abs/nome.txt", body: "abs", typ: tar.TypeReg},  // absoluto => vira relativo
+		{name: "ln", link: outside, typ: tar.TypeSymlink},       // link para fora
+		{name: "ln/escapou.txt", body: "NAO", typ: tar.TypeReg}, // tentativa de escrever através do link
+		{name: "ok/dentro.txt", body: "ok", typ: tar.TypeReg},
+	})
+	var warns int
+	n, size, err := ExtractArchive(context.Background(), arc, dest, func(l, f string, a ...any) {
+		if l == "warn" {
+			warns++
+		}
+	})
+	if err != nil || n == 0 || size == 0 {
+		t.Fatalf("%d %d %v", n, size, err)
+	}
+	for _, want := range map[string]string{"etc/app.conf": "conf", "abs/nome.txt": "abs", "ok/dentro.txt": "ok", "fuga.txt": "mal"} {
+		_ = want
+	}
+	read := func(p string) string { b, _ := os.ReadFile(filepath.Join(dest, p)); return string(b) }
+	if read("etc/app.conf") != "conf" || read("abs/nome.txt") != "abs" || read("ok/dentro.txt") != "ok" {
+		t.Fatal("itens legítimos deveriam ser extraídos")
+	}
+	if _, err := os.Stat(filepath.Join(base, "fuga.txt")); err == nil {
+		t.Fatal("../ escapou do destino")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "escapou.txt")); err == nil {
+		t.Fatal("escreveu através de link simbólico para fora do destino")
+	}
+	if warns == 0 {
+		t.Fatal("tentativas de escape deveriam gerar avisos")
+	}
+}
+
+func TestAcaoReenvioExigeArquivoELocalValido(t *testing.T) {
+	r := newRig(t)
+	for _, name := range []string{"../../etc/passwd", "x.tar.gz", "job-20260101-000000.zip"} {
+		if _, _, err := r.core.backupPath(&pb.AgentAction{FileName: name, Subdir: "d"}); err == nil {
+			t.Errorf("aceitou %q", name)
+		}
+	}
+	if _, _, err := r.core.backupPath(&pb.AgentAction{FileName: "job-20260101-000000.tar.gz", Subdir: "../fora"}); err == nil {
+		t.Error("subpasta fora da área de backups aceita")
+	}
+	if _, _, err := r.core.backupPath(&pb.AgentAction{FileName: "job-20260101-000000.tar.gz", Subdir: "d"}); err == nil || !strings.Contains(err.Error(), "não existe mais") {
+		t.Errorf("arquivo ausente: %v", err)
+	}
+}

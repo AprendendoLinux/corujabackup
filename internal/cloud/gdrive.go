@@ -285,3 +285,31 @@ func (g *GDrive) Delete(ctx context.Context, folder string, f RemoteFile) error 
 	}
 	return nil
 }
+
+func (g *GDrive) Open(ctx context.Context, folder, name string) (io.ReadCloser, int64, error) {
+	rf, err := g.Stat(ctx, folder, name)
+	if err != nil {
+		return nil, 0, err
+	}
+	tok, err := g.TS.Access(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET", g.api()+"/files/"+url.PathEscape(rf.ID)+"?alt=media", nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	c := *g.http()
+	c.Timeout = 0
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	if resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
+		return nil, 0, &APIError{Status: resp.StatusCode, Body: string(b), Op: "baixar arquivo Google Drive"}
+	}
+	return resp.Body, resp.ContentLength, nil
+}

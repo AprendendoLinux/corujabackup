@@ -538,7 +538,16 @@ func (s *Server) getRun(w http.ResponseWriter, r *http.Request, _ *ctxUser) {
 		return
 	}
 	logs, _ := s.Store.RunLogs(r.Context(), id)
-	writeJSON(w, 200, map[string]any{"run": run, "logs": logs})
+	info := map[string]any{}
+	if j, err := s.Store.GetJob(r.Context(), run.JobID); err == nil {
+		info = map[string]any{"kind": j.Kind, "has_cloud": j.CloudAccountID != nil, "keep": j.Keep}
+		if j.Kind == "database" {
+			if cfg, err := j.OpenDB(s.Box); err == nil && cfg != nil {
+				info["engine"] = cfg.Engine
+			}
+		}
+	}
+	writeJSON(w, 200, map[string]any{"run": run, "logs": logs, "job": info})
 }
 
 func (s *Server) cancelRun(w http.ResponseWriter, r *http.Request, cu *ctxUser) {

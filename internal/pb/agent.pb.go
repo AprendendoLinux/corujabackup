@@ -216,6 +216,7 @@ type AgentMessage struct {
 	//	*AgentMessage_UploadRequest
 	//	*AgentMessage_UploadDone
 	//	*AgentMessage_RpcResult
+	//	*AgentMessage_ActionLog
 	Body          isAgentMessage_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -312,6 +313,15 @@ func (x *AgentMessage) GetRpcResult() *RpcResult {
 	return nil
 }
 
+func (x *AgentMessage) GetActionLog() *ActionLog {
+	if x != nil {
+		if x, ok := x.Body.(*AgentMessage_ActionLog); ok {
+			return x.ActionLog
+		}
+	}
+	return nil
+}
+
 type isAgentMessage_Body interface {
 	isAgentMessage_Body()
 }
@@ -340,6 +350,10 @@ type AgentMessage_RpcResult struct {
 	RpcResult *RpcResult `protobuf:"bytes,6,opt,name=rpc_result,json=rpcResult,proto3,oneof"`
 }
 
+type AgentMessage_ActionLog struct {
+	ActionLog *ActionLog `protobuf:"bytes,7,opt,name=action_log,json=actionLog,proto3,oneof"`
+}
+
 func (*AgentMessage_Hello) isAgentMessage_Body() {}
 
 func (*AgentMessage_Heartbeat) isAgentMessage_Body() {}
@@ -351,6 +365,8 @@ func (*AgentMessage_UploadRequest) isAgentMessage_Body() {}
 func (*AgentMessage_UploadDone) isAgentMessage_Body() {}
 
 func (*AgentMessage_RpcResult) isAgentMessage_Body() {}
+
+func (*AgentMessage_ActionLog) isAgentMessage_Body() {}
 
 type Hello struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
@@ -510,6 +526,7 @@ type ServerMessage struct {
 	//	*ServerMessage_UploadSession
 	//	*ServerMessage_UploadVerdict
 	//	*ServerMessage_Rpc
+	//	*ServerMessage_Action
 	Body          isServerMessage_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -642,6 +659,15 @@ func (x *ServerMessage) GetRpc() *Rpc {
 	return nil
 }
 
+func (x *ServerMessage) GetAction() *AgentAction {
+	if x != nil {
+		if x, ok := x.Body.(*ServerMessage_Action); ok {
+			return x.Action
+		}
+	}
+	return nil
+}
+
 type isServerMessage_Body interface {
 	isServerMessage_Body()
 }
@@ -686,6 +712,10 @@ type ServerMessage_Rpc struct {
 	Rpc *Rpc `protobuf:"bytes,10,opt,name=rpc,proto3,oneof"`
 }
 
+type ServerMessage_Action struct {
+	Action *AgentAction `protobuf:"bytes,11,opt,name=action,proto3,oneof"`
+}
+
 func (*ServerMessage_Welcome) isServerMessage_Body() {}
 
 func (*ServerMessage_Ack) isServerMessage_Body() {}
@@ -705,6 +735,8 @@ func (*ServerMessage_UploadSession) isServerMessage_Body() {}
 func (*ServerMessage_UploadVerdict) isServerMessage_Body() {}
 
 func (*ServerMessage_Rpc) isServerMessage_Body() {}
+
+func (*ServerMessage_Action) isServerMessage_Body() {}
 
 type Welcome struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
@@ -2133,6 +2165,214 @@ func (x *RpcResult) GetPayload() []byte {
 	return nil
 }
 
+type AgentAction struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Kind          string                 `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"` // "reupload" | "extract"
+	RunUid        string                 `protobuf:"bytes,3,opt,name=run_uid,json=runUid,proto3" json:"run_uid,omitempty"`
+	JobId         int64                  `protobuf:"varint,4,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	FileName      string                 `protobuf:"bytes,5,opt,name=file_name,json=fileName,proto3" json:"file_name,omitempty"` // arquivo de backup (no padrão do job) na pasta de destino do agente
+	Subdir        string                 `protobuf:"bytes,6,opt,name=subdir,proto3" json:"subdir,omitempty"`
+	Target        string                 `protobuf:"bytes,7,opt,name=target,proto3" json:"target,omitempty"` // extract: nome da pasta em <backups>/restores/
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AgentAction) Reset() {
+	*x = AgentAction{}
+	mi := &file_coruja_v1_agent_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentAction) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentAction) ProtoMessage() {}
+
+func (x *AgentAction) ProtoReflect() protoreflect.Message {
+	mi := &file_coruja_v1_agent_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgentAction.ProtoReflect.Descriptor instead.
+func (*AgentAction) Descriptor() ([]byte, []int) {
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *AgentAction) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *AgentAction) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *AgentAction) GetRunUid() string {
+	if x != nil {
+		return x.RunUid
+	}
+	return ""
+}
+
+func (x *AgentAction) GetJobId() int64 {
+	if x != nil {
+		return x.JobId
+	}
+	return 0
+}
+
+func (x *AgentAction) GetFileName() string {
+	if x != nil {
+		return x.FileName
+	}
+	return ""
+}
+
+func (x *AgentAction) GetSubdir() string {
+	if x != nil {
+		return x.Subdir
+	}
+	return ""
+}
+
+func (x *AgentAction) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
+}
+
+type ActionLog struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	RunUid          string                 `protobuf:"bytes,1,opt,name=run_uid,json=runUid,proto3" json:"run_uid,omitempty"`
+	Kind            string                 `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
+	State           string                 `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"` // running | ok | failed
+	Message         string                 `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
+	Logs            []*LogLine             `protobuf:"bytes,5,rep,name=logs,proto3" json:"logs,omitempty"` // sem seq: o Server numera a partir de 10000
+	CloudStatus     string                 `protobuf:"bytes,6,opt,name=cloud_status,json=cloudStatus,proto3" json:"cloud_status,omitempty"`
+	CloudPath       string                 `protobuf:"bytes,7,opt,name=cloud_path,json=cloudPath,proto3" json:"cloud_path,omitempty"`
+	CloudHash       string                 `protobuf:"bytes,8,opt,name=cloud_hash,json=cloudHash,proto3" json:"cloud_hash,omitempty"`
+	CloudVerifiedBy string                 `protobuf:"bytes,9,opt,name=cloud_verified_by,json=cloudVerifiedBy,proto3" json:"cloud_verified_by,omitempty"`
+	Path            string                 `protobuf:"bytes,10,opt,name=path,proto3" json:"path,omitempty"` // extract: onde ficou (caminho dentro do agente)
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ActionLog) Reset() {
+	*x = ActionLog{}
+	mi := &file_coruja_v1_agent_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ActionLog) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ActionLog) ProtoMessage() {}
+
+func (x *ActionLog) ProtoReflect() protoreflect.Message {
+	mi := &file_coruja_v1_agent_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ActionLog.ProtoReflect.Descriptor instead.
+func (*ActionLog) Descriptor() ([]byte, []int) {
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *ActionLog) GetRunUid() string {
+	if x != nil {
+		return x.RunUid
+	}
+	return ""
+}
+
+func (x *ActionLog) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *ActionLog) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *ActionLog) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *ActionLog) GetLogs() []*LogLine {
+	if x != nil {
+		return x.Logs
+	}
+	return nil
+}
+
+func (x *ActionLog) GetCloudStatus() string {
+	if x != nil {
+		return x.CloudStatus
+	}
+	return ""
+}
+
+func (x *ActionLog) GetCloudPath() string {
+	if x != nil {
+		return x.CloudPath
+	}
+	return ""
+}
+
+func (x *ActionLog) GetCloudHash() string {
+	if x != nil {
+		return x.CloudHash
+	}
+	return ""
+}
+
+func (x *ActionLog) GetCloudVerifiedBy() string {
+	if x != nil {
+		return x.CloudVerifiedBy
+	}
+	return ""
+}
+
+func (x *ActionLog) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
 var File_coruja_v1_agent_proto protoreflect.FileDescriptor
 
 const file_coruja_v1_agent_proto_rawDesc = "" +
@@ -2149,7 +2389,7 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"credential\x18\x02 \x01(\tR\n" +
 	"credential\x12%\n" +
-	"\x0eserver_version\x18\x03 \x01(\tR\rserverVersion\"\xe1\x02\n" +
+	"\x0eserver_version\x18\x03 \x01(\tR\rserverVersion\"\x98\x03\n" +
 	"\fAgentMessage\x12(\n" +
 	"\x05hello\x18\x01 \x01(\v2\x10.coruja.v1.HelloH\x00R\x05hello\x124\n" +
 	"\theartbeat\x18\x02 \x01(\v2\x14.coruja.v1.HeartbeatH\x00R\theartbeat\x125\n" +
@@ -2159,7 +2399,9 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\vupload_done\x18\x05 \x01(\v2\x15.coruja.v1.UploadDoneH\x00R\n" +
 	"uploadDone\x125\n" +
 	"\n" +
-	"rpc_result\x18\x06 \x01(\v2\x14.coruja.v1.RpcResultH\x00R\trpcResultB\x06\n" +
+	"rpc_result\x18\x06 \x01(\v2\x14.coruja.v1.RpcResultH\x00R\trpcResult\x125\n" +
+	"\n" +
+	"action_log\x18\a \x01(\v2\x14.coruja.v1.ActionLogH\x00R\tactionLogB\x06\n" +
 	"\x04body\"\xb8\x01\n" +
 	"\x05Hello\x12#\n" +
 	"\ragent_version\x18\x01 \x01(\tR\fagentVersion\x12\x1a\n" +
@@ -2172,7 +2414,7 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\tHeartbeat\x12\x17\n" +
 	"\aunix_ms\x18\x01 \x01(\x03R\x06unixMs\x12%\n" +
 	"\x0euptime_seconds\x18\x02 \x01(\x03R\ruptimeSeconds\x12\x14\n" +
-	"\x05load1\x18\x03 \x01(\x01R\x05load1\"\x95\x04\n" +
+	"\x05load1\x18\x03 \x01(\x01R\x05load1\"\xc7\x04\n" +
 	"\rServerMessage\x12.\n" +
 	"\awelcome\x18\x01 \x01(\v2\x12.coruja.v1.WelcomeH\x00R\awelcome\x12\"\n" +
 	"\x03ack\x18\x02 \x01(\v2\x0e.coruja.v1.AckH\x00R\x03ack\x12.\n" +
@@ -2186,7 +2428,8 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\x0eupload_session\x18\b \x01(\v2\x18.coruja.v1.UploadSessionH\x00R\ruploadSession\x12A\n" +
 	"\x0eupload_verdict\x18\t \x01(\v2\x18.coruja.v1.UploadVerdictH\x00R\ruploadVerdict\x12\"\n" +
 	"\x03rpc\x18\n" +
-	" \x01(\v2\x0e.coruja.v1.RpcH\x00R\x03rpcB\x06\n" +
+	" \x01(\v2\x0e.coruja.v1.RpcH\x00R\x03rpc\x120\n" +
+	"\x06action\x18\v \x01(\v2\x16.coruja.v1.AgentActionH\x00R\x06actionB\x06\n" +
 	"\x04body\"]\n" +
 	"\aWelcome\x12%\n" +
 	"\x0eserver_version\x18\x01 \x01(\tR\rserverVersion\x12+\n" +
@@ -2330,7 +2573,29 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x0e\n" +
 	"\x02ok\x18\x02 \x01(\bR\x02ok\x12\x14\n" +
 	"\x05error\x18\x03 \x01(\tR\x05error\x12\x18\n" +
-	"\apayload\x18\x04 \x01(\fR\apayload2\x8f\x01\n" +
+	"\apayload\x18\x04 \x01(\fR\apayload\"\xae\x01\n" +
+	"\vAgentAction\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x17\n" +
+	"\arun_uid\x18\x03 \x01(\tR\x06runUid\x12\x15\n" +
+	"\x06job_id\x18\x04 \x01(\x03R\x05jobId\x12\x1b\n" +
+	"\tfile_name\x18\x05 \x01(\tR\bfileName\x12\x16\n" +
+	"\x06subdir\x18\x06 \x01(\tR\x06subdir\x12\x16\n" +
+	"\x06target\x18\a \x01(\tR\x06target\"\xb1\x02\n" +
+	"\tActionLog\x12\x17\n" +
+	"\arun_uid\x18\x01 \x01(\tR\x06runUid\x12\x12\n" +
+	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x14\n" +
+	"\x05state\x18\x03 \x01(\tR\x05state\x12\x18\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\x12&\n" +
+	"\x04logs\x18\x05 \x03(\v2\x12.coruja.v1.LogLineR\x04logs\x12!\n" +
+	"\fcloud_status\x18\x06 \x01(\tR\vcloudStatus\x12\x1d\n" +
+	"\n" +
+	"cloud_path\x18\a \x01(\tR\tcloudPath\x12\x1d\n" +
+	"\n" +
+	"cloud_hash\x18\b \x01(\tR\tcloudHash\x12*\n" +
+	"\x11cloud_verified_by\x18\t \x01(\tR\x0fcloudVerifiedBy\x12\x12\n" +
+	"\x04path\x18\n" +
+	" \x01(\tR\x04path2\x8f\x01\n" +
 	"\fAgentService\x12=\n" +
 	"\x06Enroll\x12\x18.coruja.v1.EnrollRequest\x1a\x19.coruja.v1.EnrollResponse\x12@\n" +
 	"\aConnect\x12\x17.coruja.v1.AgentMessage\x1a\x18.coruja.v1.ServerMessage(\x010\x01B5Z3github.com/AprendendoLinux/corujabackup/internal/pbb\x06proto3"
@@ -2348,7 +2613,7 @@ func file_coruja_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_coruja_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_coruja_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_coruja_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_coruja_v1_agent_proto_goTypes = []any{
 	(RunReport_State)(0),   // 0: coruja.v1.RunReport.State
 	(*EnrollRequest)(nil),  // 1: coruja.v1.EnrollRequest
@@ -2374,6 +2639,8 @@ var file_coruja_v1_agent_proto_goTypes = []any{
 	(*DbSpec)(nil),         // 21: coruja.v1.DbSpec
 	(*Rpc)(nil),            // 22: coruja.v1.Rpc
 	(*RpcResult)(nil),      // 23: coruja.v1.RpcResult
+	(*AgentAction)(nil),    // 24: coruja.v1.AgentAction
+	(*ActionLog)(nil),      // 25: coruja.v1.ActionLog
 }
 var file_coruja_v1_agent_proto_depIdxs = []int32{
 	4,  // 0: coruja.v1.AgentMessage.hello:type_name -> coruja.v1.Hello
@@ -2382,29 +2649,32 @@ var file_coruja_v1_agent_proto_depIdxs = []int32{
 	17, // 3: coruja.v1.AgentMessage.upload_request:type_name -> coruja.v1.UploadRequest
 	19, // 4: coruja.v1.AgentMessage.upload_done:type_name -> coruja.v1.UploadDone
 	23, // 5: coruja.v1.AgentMessage.rpc_result:type_name -> coruja.v1.RpcResult
-	7,  // 6: coruja.v1.ServerMessage.welcome:type_name -> coruja.v1.Welcome
-	8,  // 7: coruja.v1.ServerMessage.ack:type_name -> coruja.v1.Ack
-	9,  // 8: coruja.v1.ServerMessage.revoked:type_name -> coruja.v1.Revoked
-	11, // 9: coruja.v1.ServerMessage.sync_jobs:type_name -> coruja.v1.SyncJobs
-	12, // 10: coruja.v1.ServerMessage.run_now:type_name -> coruja.v1.RunNow
-	13, // 11: coruja.v1.ServerMessage.cancel_run:type_name -> coruja.v1.CancelRun
-	14, // 12: coruja.v1.ServerMessage.report_ack:type_name -> coruja.v1.ReportAck
-	18, // 13: coruja.v1.ServerMessage.upload_session:type_name -> coruja.v1.UploadSession
-	20, // 14: coruja.v1.ServerMessage.upload_verdict:type_name -> coruja.v1.UploadVerdict
-	22, // 15: coruja.v1.ServerMessage.rpc:type_name -> coruja.v1.Rpc
-	21, // 16: coruja.v1.JobSpec.db:type_name -> coruja.v1.DbSpec
-	10, // 17: coruja.v1.SyncJobs.jobs:type_name -> coruja.v1.JobSpec
-	0,  // 18: coruja.v1.RunReport.state:type_name -> coruja.v1.RunReport.State
-	15, // 19: coruja.v1.RunReport.logs:type_name -> coruja.v1.LogLine
-	1,  // 20: coruja.v1.AgentService.Enroll:input_type -> coruja.v1.EnrollRequest
-	3,  // 21: coruja.v1.AgentService.Connect:input_type -> coruja.v1.AgentMessage
-	2,  // 22: coruja.v1.AgentService.Enroll:output_type -> coruja.v1.EnrollResponse
-	6,  // 23: coruja.v1.AgentService.Connect:output_type -> coruja.v1.ServerMessage
-	22, // [22:24] is the sub-list for method output_type
-	20, // [20:22] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	25, // 6: coruja.v1.AgentMessage.action_log:type_name -> coruja.v1.ActionLog
+	7,  // 7: coruja.v1.ServerMessage.welcome:type_name -> coruja.v1.Welcome
+	8,  // 8: coruja.v1.ServerMessage.ack:type_name -> coruja.v1.Ack
+	9,  // 9: coruja.v1.ServerMessage.revoked:type_name -> coruja.v1.Revoked
+	11, // 10: coruja.v1.ServerMessage.sync_jobs:type_name -> coruja.v1.SyncJobs
+	12, // 11: coruja.v1.ServerMessage.run_now:type_name -> coruja.v1.RunNow
+	13, // 12: coruja.v1.ServerMessage.cancel_run:type_name -> coruja.v1.CancelRun
+	14, // 13: coruja.v1.ServerMessage.report_ack:type_name -> coruja.v1.ReportAck
+	18, // 14: coruja.v1.ServerMessage.upload_session:type_name -> coruja.v1.UploadSession
+	20, // 15: coruja.v1.ServerMessage.upload_verdict:type_name -> coruja.v1.UploadVerdict
+	22, // 16: coruja.v1.ServerMessage.rpc:type_name -> coruja.v1.Rpc
+	24, // 17: coruja.v1.ServerMessage.action:type_name -> coruja.v1.AgentAction
+	21, // 18: coruja.v1.JobSpec.db:type_name -> coruja.v1.DbSpec
+	10, // 19: coruja.v1.SyncJobs.jobs:type_name -> coruja.v1.JobSpec
+	0,  // 20: coruja.v1.RunReport.state:type_name -> coruja.v1.RunReport.State
+	15, // 21: coruja.v1.RunReport.logs:type_name -> coruja.v1.LogLine
+	15, // 22: coruja.v1.ActionLog.logs:type_name -> coruja.v1.LogLine
+	1,  // 23: coruja.v1.AgentService.Enroll:input_type -> coruja.v1.EnrollRequest
+	3,  // 24: coruja.v1.AgentService.Connect:input_type -> coruja.v1.AgentMessage
+	2,  // 25: coruja.v1.AgentService.Enroll:output_type -> coruja.v1.EnrollResponse
+	6,  // 26: coruja.v1.AgentService.Connect:output_type -> coruja.v1.ServerMessage
+	25, // [25:27] is the sub-list for method output_type
+	23, // [23:25] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_coruja_v1_agent_proto_init() }
@@ -2419,6 +2689,7 @@ func file_coruja_v1_agent_proto_init() {
 		(*AgentMessage_UploadRequest)(nil),
 		(*AgentMessage_UploadDone)(nil),
 		(*AgentMessage_RpcResult)(nil),
+		(*AgentMessage_ActionLog)(nil),
 	}
 	file_coruja_v1_agent_proto_msgTypes[5].OneofWrappers = []any{
 		(*ServerMessage_Welcome)(nil),
@@ -2431,6 +2702,7 @@ func file_coruja_v1_agent_proto_init() {
 		(*ServerMessage_UploadSession)(nil),
 		(*ServerMessage_UploadVerdict)(nil),
 		(*ServerMessage_Rpc)(nil),
+		(*ServerMessage_Action)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -2438,7 +2710,7 @@ func file_coruja_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coruja_v1_agent_proto_rawDesc), len(file_coruja_v1_agent_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   23,
+			NumMessages:   25,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { Channel, EVENT_LABEL, Job, NotifLog, Rule, api, ApiError, fmtDate } from '../api'
-import { Badge, Button, Card, ErrorBox, Field, Input, Modal } from '../ui'
+import { Actions, Badge, Button, Card, ErrorBox, Field, IconButton, Input, Modal } from '../ui'
+import { confirmar } from '../Dialogs'
 
 type Tab = 'canais' | 'regras' | 'historico'
 
@@ -79,11 +80,14 @@ function Channels({ channels, act, reload, setErr, setInfo }: { channels: Channe
               </div>
               {c.enabled ? <Badge tone="ok">Ativo</Badge> : <Badge tone="off">Desativado</Badge>}
             </div>
-            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-              <button className="text-primary hover:underline disabled:opacity-50" disabled={testing === c.id} onClick={() => test(c)}>{testing === c.id ? 'Enviando…' : 'Enviar teste'}</button>
-              <button className="text-primary hover:underline" onClick={() => setEdit(c)}>Editar</button>
-              <button className="text-primary hover:underline" onClick={() => act(() => api('PATCH', `/api/notifications/channels/${c.id}`, { enabled: !c.enabled }))}>{c.enabled ? 'Desativar' : 'Ativar'}</button>
-              <button className="text-danger hover:underline" onClick={() => confirm(`Excluir o canal "${c.name}"? As regras que o usam deixam de enviar por ele.`) && act(() => api('DELETE', `/api/notifications/channels/${c.id}`))}>Excluir</button>
+            <div className="mt-3 flex items-center justify-between gap-2 text-sm">
+              <span className="text-muted">{testing === c.id ? 'Enviando o teste…' : ''}</span>
+              <Actions>
+                <IconButton icon="enviar" label="Enviar teste" disabled={testing === c.id} onClick={() => test(c)} />
+                <IconButton icon="editar" label="Editar" onClick={() => setEdit(c)} />
+                <IconButton icon="ligar" label={c.enabled ? 'Desativar' : 'Ativar'} onClick={() => act(() => api('PATCH', `/api/notifications/channels/${c.id}`, { enabled: !c.enabled }))} />
+                <IconButton icon="excluir" tone="danger" label="Excluir" onClick={async () => await confirmar({ title: `Excluir o canal "${c.name}"?`, message: 'As regras que o usam deixam de enviar por ele.', danger: true }) && act(() => api('DELETE', `/api/notifications/channels/${c.id}`))} />
+              </Actions>
             </div>
           </Card>
         ))}
@@ -177,10 +181,12 @@ function Rules({ rules, channels, jobs, act, reload }: { rules: Rule[]; channels
                 <td className="p-3 text-muted">{describe(r)}</td>
                 <td className="p-3 text-muted">{r.channel_ids.map(chName).join(', ')}</td>
                 <td className="p-3 text-right whitespace-nowrap">
-                  {r.event === 'daily_report' && <button className="text-primary hover:underline" onClick={() => act(() => api('POST', `/api/notifications/rules/${r.id}/send-now`), 'Relatório enfileirado: chega em instantes (veja o histórico).')}>Enviar agora</button>}
-                  <button className="ml-3 text-primary hover:underline" onClick={() => setEdit(r)}>Editar</button>
-                  <button className="ml-3 text-primary hover:underline" onClick={() => act(() => api('PATCH', `/api/notifications/rules/${r.id}`, { ...r, enabled: !r.enabled }))}>{r.enabled ? 'Pausar' : 'Ativar'}</button>
-                  <button className="ml-3 text-danger hover:underline" onClick={() => confirm(`Excluir a regra "${r.name}"?`) && act(() => api('DELETE', `/api/notifications/rules/${r.id}`))}>Excluir</button>
+                  <Actions>
+                    {r.event === 'daily_report' && <IconButton icon="enviar" label="Enviar agora" onClick={() => act(() => api('POST', `/api/notifications/rules/${r.id}/send-now`), 'Relatório enfileirado: chega em instantes (veja o histórico).')} />}
+                    <IconButton icon="editar" label="Editar" onClick={() => setEdit(r)} />
+                    <IconButton icon={r.enabled ? 'pausar' : 'ativar'} label={r.enabled ? 'Pausar' : 'Ativar'} onClick={() => act(() => api('PATCH', `/api/notifications/rules/${r.id}`, { ...r, enabled: !r.enabled }))} />
+                    <IconButton icon="excluir" tone="danger" label="Excluir" onClick={async () => await confirmar({ title: `Excluir a regra "${r.name}"?`, danger: true }) && act(() => api('DELETE', `/api/notifications/rules/${r.id}`))} />
+                  </Actions>
                 </td>
               </tr>
             ))}

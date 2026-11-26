@@ -1,6 +1,8 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { ROLE_LABEL, User, api, ApiError, fmtDate } from '../api'
-import { Badge, Button, Card, ErrorBox, Field, Input, Modal } from '../ui'
+import { Actions, Badge, Button, Card, ErrorBox, Field, IconButton, Input, Modal } from '../ui'
+import Avatar from '../Avatar'
+import { confirmar, perguntar } from '../Dialogs'
 
 export default function Users({ me }: { me: User }) {
   const [users, setUsers] = useState<User[]>([])
@@ -28,7 +30,7 @@ export default function Users({ me }: { me: User }) {
           <tbody>
             {users.map((u) => (
               <tr key={u.id} className="border-b border-border last:border-0">
-                <td className="p-3"><b>{u.username}</b>{u.id === me.id && <span className="ml-2 text-xs text-muted">(você)</span>}<div className="text-xs text-muted">{u.display_name}</div></td>
+                <td className="p-3"><div className="flex items-center gap-3"><Avatar user={u} size={34} /><div><b>{u.username}</b>{u.id === me.id && <span className="ml-2 text-xs text-muted">(você)</span>}<div className="text-xs text-muted">{u.display_name}</div></div></div></td>
                 <td className="p-3">
                   <select aria-label={`Perfil de ${u.username}`} className="rounded-md border border-border bg-surface px-2 py-1" value={u.role}
                     onChange={(e) => act(() => api('PATCH', `/api/users/${u.id}`, { role: e.target.value }))}>
@@ -38,10 +40,12 @@ export default function Users({ me }: { me: User }) {
                 <td className="p-3">{u.totp_enabled ? <Badge tone="ok">Ativo</Badge> : <Badge tone="off">Desligado</Badge>}</td>
                 <td className="p-3 text-muted">{fmtDate(u.last_login_at)} {u.disabled && <Badge tone="danger">Desativado</Badge>}</td>
                 <td className="p-3 text-right whitespace-nowrap">
-                  <button className="text-primary hover:underline" onClick={() => { const p = prompt(`Nova senha para ${u.username} (mín. 10 caracteres):`); if (p) act(() => api('PATCH', `/api/users/${u.id}`, { new_password: p })) }}>Redefinir senha</button>
-                  {u.totp_enabled && <button className="ml-3 text-primary hover:underline" onClick={() => confirm(`Desativar o 2FA de ${u.username}?`) && act(() => api('PATCH', `/api/users/${u.id}`, { reset_2fa: true }))}>Resetar 2FA</button>}
-                  <button className="ml-3 text-primary hover:underline" onClick={() => act(() => api('PATCH', `/api/users/${u.id}`, { disabled: !u.disabled }))}>{u.disabled ? 'Ativar' : 'Desativar'}</button>
-                  {u.id !== me.id && <button className="ml-3 text-danger hover:underline" onClick={() => confirm(`Excluir ${u.username}?`) && act(() => api('DELETE', `/api/users/${u.id}`))}>Excluir</button>}
+                  <Actions>
+                    <IconButton icon="senha" label="Redefinir senha" onClick={async () => { const p = await perguntar({ title: `Redefinir a senha de ${u.username}`, label: 'Nova senha', type: 'password', hint: 'Mínimo de 10 caracteres. As sessões abertas dele são encerradas.', confirmLabel: 'Redefinir', icon: 'senha' }); if (p) act(() => api('PATCH', `/api/users/${u.id}`, { new_password: p })) }} />
+                    {u.totp_enabled && <IconButton icon="resetar2fa" label="Resetar 2FA" onClick={async () => await confirmar({ title: `Desativar o 2FA de ${u.username}?`, message: 'Ele passa a entrar só com a senha até ativar a verificação de novo.', confirmLabel: 'Desativar 2FA', danger: true, icon: 'resetar2fa' }) && act(() => api('PATCH', `/api/users/${u.id}`, { reset_2fa: true }))} />}
+                    <IconButton icon="ligar" label={u.disabled ? 'Ativar' : 'Desativar'} onClick={() => act(() => api('PATCH', `/api/users/${u.id}`, { disabled: !u.disabled }))} />
+                    {u.id !== me.id && <IconButton icon="excluir" tone="danger" label="Excluir" onClick={async () => await confirmar({ title: `Excluir ${u.username}?`, message: 'O acesso dele é removido definitivamente.', danger: true }) && act(() => api('DELETE', `/api/users/${u.id}`))} />}
+                  </Actions>
                 </td>
               </tr>
             ))}

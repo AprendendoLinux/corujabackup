@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Job, PHASE, Run, RunLog, User, api, ApiError, fmtBytes, fmtDate, fmtDuration, STATUS } from '../api'
-import { Badge, Button, Card, CopyBox, ErrorBox, Modal } from '../ui'
+import { Badge, Button, Card, CopyBox, ErrorBox, Modal, Spinner } from '../ui'
+import { confirmar } from '../Dialogs'
 
 export function StatusBadge({ s }: { s: string }) {
   const v = STATUS[s] ?? { label: s, tone: 'off' as const }
+  if (s === 'running' || s === 'queued') {
+    return <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary"><Spinner />{v.label}</span>
+  }
   return <Badge tone={v.tone}>{v.label}</Badge>
 }
 
@@ -21,7 +25,9 @@ export default function Runs({ me, jobFilter }: { me: User; jobFilter: number })
     if (job) q.set('job_id', String(job))
     api<{ runs: Run[] }>('GET', `/api/runs?${q}`).then((r) => { setRuns(r.runs); setErr('') }).catch((x) => setErr((x as ApiError).message))
   }, [status, job])
-  useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t) }, [load])
+  const anyRunning = runs.some((r) => r.status === 'running' || r.status === 'queued')
+  useEffect(() => { load() }, [load])
+  useEffect(() => { const t = setInterval(load, anyRunning ? 2000 : 5000); return () => clearInterval(t) }, [load, anyRunning])
   useEffect(() => { api<{ jobs: Job[] }>('GET', '/api/jobs').then((r) => setJobs(r.jobs)).catch(() => {}) }, [])
   useEffect(() => setJob(jobFilter), [jobFilter])
 
@@ -128,7 +134,7 @@ function Detail({ id, me, onChange }: { id: number; me: User; onChange: () => vo
         <b className="text-base">{r.job_name}</b><StatusBadge s={r.status} />
         <span className="text-muted">{r.agent_name}</span>
         {live && <span className="inline-flex items-center gap-1 text-xs text-ok"><span className="inline-block h-2 w-2 animate-pulse rounded-full bg-ok" />ao vivo</span>}
-        {running && me.role !== 'viewer' && <Button variant="danger" className="ml-auto" onClick={() => confirm('Cancelar este backup?') && api('POST', `/api/runs/${r.id}/cancel`).then(() => { onChange(); load() }).catch((x) => setErr((x as ApiError).message))}>Cancelar</Button>}
+        {running && me.role !== 'viewer' && <Button variant="danger" className="ml-auto" onClick={async () => await confirmar({ title: 'Cancelar este backup?', message: 'O agente interrompe a execução e nada é salvo.', confirmLabel: 'Cancelar backup', danger: true, icon: 'fechar' }) && api('POST', `/api/runs/${r.id}/cancel`).then(() => { onChange(); load() }).catch((x) => setErr((x as ApiError).message))}>Cancelar</Button>}
       </div>
       <ErrorBox message={err || (r.status === 'failed' || r.status === 'missed' ? r.error : '')} />
       {note && <div className="rounded-lg border border-ok/40 bg-ok/10 px-3 py-2 text-ok">{note}</div>}
@@ -171,7 +177,7 @@ function RestorePanel({ run, job, onAction }: { run: Run; job: JobInfo; onAction
       <div className="flex flex-wrap items-center gap-2">
         {inCloud && job.net_destination && <Button variant="ghost" onClick={() => onAction(`/api/runs/${run.id}/fetch`, undefined)}>⬇ Trazer do destino para o agente</Button>}
         {inCloud && !job.net_destination && <a className="inline-flex items-center rounded-lg bg-primary px-3.5 py-2 text-sm font-medium text-primary-contrast hover:opacity-90" href={`/api/runs/${run.id}/download`}>⬇ Baixar da nuvem</a>}
-        {run.cloud_status === 'failed' && job.has_cloud && <Button variant="ghost" onClick={() => confirm('Reenviar o arquivo local ao destino?') && onAction(`/api/runs/${run.id}/reupload`, undefined)}>☁ Reenviar ao destino</Button>}
+        {run.cloud_status === 'failed' && job.has_cloud && <Button variant="ghost" onClick={async () => await confirmar({ title: 'Reenviar ao destino?', message: 'O arquivo local deste backup é enviado de novo e conferido.', confirmLabel: 'Reenviar', icon: 'enviar' }) && onAction(`/api/runs/${run.id}/reupload`, undefined)}>☁ Reenviar ao destino</Button>}
         <input aria-label="Pasta de destino" className="w-56 rounded-lg border border-border bg-surface px-3 py-2 text-sm" placeholder="pasta de restauração (opcional)" value={target} onChange={(e) => setTarget(e.target.value)} />
         <Button variant="ghost" onClick={() => onAction(`/api/runs/${run.id}/extract`, { target }, undefined)}>📂 Extrair no agente</Button>
         <button className="text-primary hover:underline" onClick={() => setGuide(!guide)}>{guide ? 'Ocultar guia' : 'Como restaurar manualmente'}</button>

@@ -1,7 +1,9 @@
 import { FormEvent, useEffect, useState } from 'react'
 import QRCode from 'qrcode'
 import { User, api, ApiError, flags, fmtDate } from '../api'
-import { Badge, Button, Card, CopyBox, ErrorBox, Field, Input } from '../ui'
+import Avatar from '../Avatar'
+import { confirmar } from '../Dialogs'
+import { Badge, Button, Card, CopyBox, ErrorBox, Field, IconButton, Input } from '../ui'
 
 export default function Account({ me, recoveryLeft, reload }: { me: User; recoveryLeft: number; reload: () => void }) {
   return (
@@ -11,10 +13,49 @@ export default function Account({ me, recoveryLeft, reload }: { me: User; recove
         <p className="text-sm text-muted">{me.display_name || me.username} · {me.username}</p>
       </div>
       {flags.needs2FA && !me.totp_enabled && <div className="rounded-lg border border-accent/60 bg-accent/10 px-3 py-2 text-sm"><b>A política de segurança exige a verificação em duas etapas.</b> Ative o 2FA abaixo para continuar usando o sistema.</div>}
+      <Photo me={me} reload={reload} />
       <Password />
       <TwoFA me={me} recoveryLeft={recoveryLeft} reload={() => { flags.needs2FA = false; reload() }} />
       <Sessions />
     </div>
+  )
+}
+
+function Photo({ me, reload }: { me: User; reload: () => void }) {
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  async function send(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]; e.target.value = ''
+    if (!f) return
+    setErr(''); setBusy(true)
+    try {
+      const res = await fetch('/api/me/avatar', { method: 'POST', headers: { 'X-Coruja-CSRF': '1', 'Content-Type': f.type || 'application/octet-stream' }, body: f })
+      if (!res.ok) throw new ApiError(res.status, (await res.json().catch(() => ({}))).error ?? 'Falha ao enviar a foto')
+      reload()
+    } catch (x) { setErr((x as ApiError).message) } finally { setBusy(false) }
+  }
+  async function drop() {
+    if (!(await confirmar({ title: 'Remover a foto?', message: 'No lugar dela aparece a inicial do seu nome.', confirmLabel: 'Remover', danger: true }))) return
+    try { await api('DELETE', '/api/me/avatar'); reload() } catch (x) { setErr((x as ApiError).message) }
+  }
+  return (
+    <Card>
+      <h2 className="mb-3 font-semibold">Foto</h2>
+      <div className="flex flex-wrap items-center gap-5">
+        <Avatar user={me} size={80} />
+        <div className="space-y-2 text-sm">
+          <div className="flex items-center gap-1">
+            <label className={`inline-flex cursor-pointer items-center rounded-lg border border-border bg-surface px-3.5 py-2 font-medium hover:bg-bg ${busy ? 'opacity-60' : ''}`}>
+              {busy ? 'Enviando…' : me.avatar_version ? 'Trocar foto' : 'Enviar foto'}
+              <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" className="sr-only" onChange={send} disabled={busy} />
+            </label>
+            {me.avatar_version && <IconButton icon="excluir" tone="danger" label="Remover a foto" onClick={drop} />}
+          </div>
+          <p className="text-xs text-muted">PNG, JPEG, GIF ou WebP, até 2 MB. A foto é recortada no centro e reduzida automaticamente.</p>
+        </div>
+      </div>
+      {err && <div className="mt-3"><ErrorBox message={err} /></div>}
+    </Card>
   )
 }
 
@@ -120,7 +161,7 @@ function Sessions() {
         {list.map((s) => (
           <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
             <span><b>{s.ip}</b> {s.current && <Badge tone="ok">esta sessão</Badge>}<div className="max-w-md truncate text-xs text-muted">{s.user_agent} · último uso {fmtDate(s.last_seen_at)}</div></span>
-            {!s.current && <button className="text-danger hover:underline" onClick={() => act(() => api('DELETE', `/api/me/sessions/${s.id}`))}>Encerrar</button>}
+            {!s.current && <IconButton icon="sair" tone="danger" label="Encerrar a sessão" onClick={() => act(() => api('DELETE', `/api/me/sessions/${s.id}`))} />}
           </li>
         ))}
       </ul>

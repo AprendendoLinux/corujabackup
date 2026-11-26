@@ -1,6 +1,8 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { Agent, PendingToken, User, api, ApiError, fmtDate } from '../api'
-import { Badge, Button, Card, CopyBox, ErrorBox, Field, Input, Modal } from '../ui'
+import { Actions, Badge, Button, Card, CopyBox, ErrorBox, Field, IconButton, Input, Modal, Spinner } from '../ui'
+import { Wizard } from '../Wizard'
+import { confirmar, perguntar } from '../Dialogs'
 
 type Sys = { agent_port: string; agent_address: string; version: string }
 
@@ -10,7 +12,6 @@ export default function Agents({ me }: { me: User }) {
   const [sys, setSys] = useState<Sys | null>(null)
   const [err, setErr] = useState('')
   const [modal, setModal] = useState(false)
-  const [created, setCreated] = useState<{ token: string; name: string; expires_at: string } | null>(null)
   const canEdit = me.role !== 'viewer'
 
   const load = useCallback(() => {
@@ -27,12 +28,12 @@ export default function Agents({ me }: { me: User }) {
   const defaultAddress = `${window.location.hostname}:${sys?.agent_port ?? '8443'}`
   const address = sys?.agent_address || defaultAddress
 
-  const rename = (a: Agent) => {
-    const n = prompt('Novo nome do agente:', a.name)
+  const rename = async (a: Agent) => {
+    const n = await perguntar({ title: 'Renomear agente', label: 'Novo nome', value: a.name, confirmLabel: 'Renomear' })
     if (n && n !== a.name) act(() => api('PATCH', `/api/agents/${a.id}`, { name: n }))
   }
-  const revoke = (a: Agent) => confirm(`Revogar "${a.name}"? Ele será desconectado e não poderá voltar sem nova matrícula.`) && act(() => api('POST', `/api/agents/${a.id}/revoke`))
-  const remove = (a: Agent) => confirm(`Excluir "${a.name}" definitivamente?`) && act(() => api('DELETE', `/api/agents/${a.id}`))
+  const revoke = async (a: Agent) => await confirmar({ title: `Revogar "${a.name}"?`, message: 'Ele é desconectado na hora e só volta com uma nova matrícula.', confirmLabel: 'Revogar', danger: true, icon: 'revogar' }) && act(() => api('POST', `/api/agents/${a.id}/revoke`))
+  const remove = async (a: Agent) => await confirmar({ title: `Excluir "${a.name}"?`, message: 'O agente é removido definitivamente do painel.', danger: true }) && act(() => api('DELETE', `/api/agents/${a.id}`))
 
   return (
     <div className="space-y-6">
@@ -41,7 +42,7 @@ export default function Agents({ me }: { me: User }) {
           <h1 className="text-2xl font-semibold">Agentes</h1>
           <p className="text-sm text-muted">Cada agente executa os backups da máquina em que está instalado e se conecta ao Server com IP:porta e um token de matrícula.</p>
         </div>
-        {canEdit && <Button onClick={() => { setCreated(null); setModal(true) }}>+ Novo agente</Button>}
+        {canEdit && <Button onClick={() => setModal(true)}>+ Novo agente</Button>}
       </div>
       <ErrorBox message={err} />
 
@@ -62,11 +63,11 @@ export default function Agents({ me }: { me: User }) {
                 <td className="p-3 text-muted">{a.agent_version || '—'}</td>
                 <td className="p-3 text-muted">{fmtDate(a.last_seen_at)}</td>
                 <td className="p-3 text-right whitespace-nowrap">
-                  {canEdit && (<>
-                    <button className="text-primary hover:underline" onClick={() => rename(a)}>Renomear</button>
-                    {!a.revoked_at && <button className="ml-3 text-primary hover:underline" onClick={() => revoke(a)}>Revogar</button>}
-                    <button className="ml-3 text-danger hover:underline" onClick={() => remove(a)}>Excluir</button>
-                  </>)}
+                  {canEdit && <Actions>
+                    <IconButton icon="editar" label="Renomear" onClick={() => rename(a)} />
+                    {!a.revoked_at && <IconButton icon="revogar" label="Revogar" onClick={() => revoke(a)} />}
+                    <IconButton icon="excluir" tone="danger" label="Excluir" onClick={() => remove(a)} />
+                  </Actions>}
                 </td>
               </tr>
             ))}
@@ -81,7 +82,7 @@ export default function Agents({ me }: { me: User }) {
             {pending.map((t) => (
               <li key={t.id} className="flex items-center justify-between py-2">
                 <span><b>{t.name}</b> <span className="text-muted">· expira em {fmtDate(t.expires_at)}</span></span>
-                {canEdit && <button className="text-danger hover:underline" onClick={() => act(() => api('DELETE', `/api/agents/tokens/${t.id}`))}>Cancelar</button>}
+                {canEdit && <IconButton icon="fechar" tone="danger" label="Cancelar o token" onClick={() => act(() => api('DELETE', `/api/agents/tokens/${t.id}`))} />}
               </li>
             ))}
           </ul>
@@ -89,8 +90,8 @@ export default function Agents({ me }: { me: User }) {
       )}
 
       {modal && (
-        <Modal title={created ? 'Agente pronto para instalar' : 'Novo agente'} onClose={() => setModal(false)}>
-          {created ? <Created c={created} addr={address} /> : <NewToken onCreated={(c) => { setCreated(c); load() }} />}
+        <Modal wide title="Novo agente" onClose={() => setModal(false)}>
+          <AgentWizard addr={address} onChange={load} onClose={() => { setModal(false); load() }} />
         </Modal>
       )}
     </div>
@@ -130,25 +131,75 @@ function AgentAddress({ current, fallback, canEdit, onSaved }: { current: string
   )
 }
 
-function NewToken({ onCreated }: { onCreated: (c: { token: string; name: string; expires_at: string }) => void }) {
+type NewAgent = { token: string; name: string; expires_at: string }
+
+/** Assistente: identificação → instalação (stack pronta) → conexão (espera o agente aparecer). */
+function AgentWizard({ addr, onChange, onClose }: { addr: string; onChange: () => void; onClose: () => void }) {
+  const [step, setStep] = useState(0)
   const [name, setName] = useState('')
   const [ttl, setTtl] = useState(24)
   const [err, setErr] = useState('')
-  async function submit(e: FormEvent) {
-    e.preventDefault(); setErr('')
-    try { onCreated(await api('POST', '/api/agents/tokens', { name, ttl_hours: ttl })) } catch (x) { setErr((x as ApiError).message) }
+  const [busy, setBusy] = useState(false)
+  const [created, setCreated] = useState<NewAgent | null>(null)
+  const [online, setOnline] = useState<Agent | null>(null)
+  const STEPS = [
+    { title: 'Identificação', hint: 'Como o agente vai aparecer nos jobs, nos e-mails e nos relatórios.' },
+    { title: 'Instalação', hint: 'Suba o agente na máquina que será protegida, com a stack abaixo (Portainer ou docker compose).' },
+    { title: 'Conexão', hint: 'Assim que o agente subir, ele aparece aqui sozinho.' },
+  ]
+  // na etapa de conexão, consulta a cada 3 s até o agente se apresentar
+  useEffect(() => {
+    if (step !== 2 || !created || online) return
+    const look = () => api<{ agents: Agent[] }>('GET', '/api/agents').then((r) => {
+      const a = r.agents.find((x) => x.name === created.name && x.online)
+      if (a) { setOnline(a); onChange() }
+    }).catch(() => {})
+    look()
+    const t = setInterval(look, 3000)
+    return () => clearInterval(t)
+  }, [step, created, online, onChange])
+
+  async function next() {
+    setErr('')
+    if (step === 0) {
+      if (name.trim().length < 2) return setErr('Dê um nome ao agente (pelo menos 2 caracteres).')
+      if (!created) {
+        setBusy(true)
+        try { setCreated(await api<NewAgent>('POST', '/api/agents/tokens', { name: name.trim(), ttl_hours: ttl })); onChange() }
+        catch (x) { return setErr((x as ApiError).message) } finally { setBusy(false) }
+      }
+    }
+    setStep(step + 1)
   }
   return (
-    <form onSubmit={submit} className="space-y-3">
-      <Field label="Nome do agente" hint="Como ele aparecerá nos relatórios. Ex.: umami-server2"><Input autoFocus value={name} onChange={(e) => setName(e.target.value)} required /></Field>
-      <Field label="Validade do token" hint="O token só pode ser usado uma vez">
-        <select className="w-full rounded-lg border border-border bg-surface px-3 py-2" value={ttl} onChange={(e) => setTtl(+e.target.value)}>
-          <option value={1}>1 hora</option><option value={24}>24 horas</option><option value={72}>3 dias</option><option value={168}>7 dias</option>
-        </select>
-      </Field>
-      <ErrorBox message={err} />
-      <Button>Gerar token</Button>
-    </form>
+    <Wizard steps={STEPS} current={step} maxReached={step} onGo={(i) => setStep(i)} onBack={step === 1 ? undefined : step > 0 ? () => setStep(step - 1) : undefined}
+      onNext={next} onFinish={onClose} nextLabel={step === 0 ? 'Gerar e avançar' : 'Avançar'} finishLabel={online ? 'Concluir' : 'Concluir depois'} busy={busy} err={err}>
+      {step === 0 && (<>
+        <Field label="Nome do agente" hint="Ex.: umami-server2. Use o nome da máquina para facilitar."><Input autoFocus value={name} onChange={(e) => setName(e.target.value)} disabled={!!created} /></Field>
+        <Field label="Validade do token" hint="O token de matrícula só pode ser usado uma vez.">
+          <select className="w-full rounded-lg border border-border bg-surface px-3 py-2" value={ttl} onChange={(e) => setTtl(+e.target.value)} disabled={!!created}>
+            <option value={1}>1 hora</option><option value={24}>24 horas</option><option value={72}>3 dias</option><option value={168}>7 dias</option>
+          </select>
+        </Field>
+      </>)}
+      {step === 1 && created && <Created c={created} addr={addr} />}
+      {step === 2 && created && (
+        online ? (
+          <div className="flex flex-col items-center gap-3 py-6 text-center">
+            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-ok/15 text-2xl text-ok">✓</span>
+            <b className="text-lg">{online.name} está conectado!</b>
+            <p className="text-sm text-muted">{online.hostname} · {online.os}/{online.arch} · versão {online.agent_version}{online.docker_available ? ' · Docker disponível' : ''}</p>
+            <p className="text-sm text-muted">Agora crie um job para ele em <b>Jobs</b>.</p>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-3 py-6 text-center">
+            <Spinner className="h-10 w-10 text-primary" />
+            <b>Aguardando o agente {created.name} se conectar…</b>
+            <p className="max-w-md text-sm text-muted">Pode levar alguns segundos depois de subir a stack. Se demorar, confira o log com <code>docker logs corujabackup-agent</code> e se a porta {addr.split(':').pop()} está liberada para a saída dele. Você pode fechar e voltar depois: o token continua valendo até {fmtDate(created.expires_at)}.</p>
+          </div>
+        )
+      )}
+    </Wizard>
   )
 }
 

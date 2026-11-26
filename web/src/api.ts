@@ -1,4 +1,4 @@
-import type { CustomTheme } from './themes'
+import type { CustomTheme, ThemeMode } from './themes'
 export class ApiError extends Error {
   status: number
   code?: string
@@ -26,7 +26,7 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
 
 export type User = {
   id: number; username: string; display_name: string; role: 'admin' | 'operator' | 'viewer'
-  totp_enabled: boolean; disabled: boolean; created_at: string; last_login_at: string | null
+  totp_enabled: boolean; disabled: boolean; created_at: string; last_login_at: string | null; avatar_version?: string
 }
 export type Agent = {
   id: number; name: string; hostname: string; os: string; arch: string; agent_version: string
@@ -105,7 +105,8 @@ export const STATUS: Record<string, { label: string; tone: 'ok' | 'off' | 'warn'
   canceled: { label: 'Cancelado', tone: 'off' }, missed: { label: 'Perdido', tone: 'danger' }, running: { label: 'Executando', tone: 'warn' }, queued: { label: 'Na fila', tone: 'off' },
 }
 
-export type Branding = { name: string; theme: string; themes: CustomTheme[]; has_logo: boolean; logo_version?: string }
+export type Credit = { label: string; name: string; url: string }
+export type Branding = { name: string; theme: string; mode?: ThemeMode; themes: CustomTheme[]; has_logo: boolean; logo_version?: string; credit?: Credit }
 
 export type Channel = {
   id: number; name: string; type: 'email' | 'telegram'; enabled: boolean; created_at: string

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, ApiError } from '../api'
 import { Badge, Button, Card, CopyBox, ErrorBox, Field } from '../ui'
+import { confirmar } from '../Dialogs'
 
 export default function Security() {
   const [policy, setPolicy] = useState({ require_2fa: 'none', session_hours: 12, metrics_enabled: false })
@@ -45,7 +46,7 @@ export default function Security() {
         <div className="mb-2 flex items-center gap-2"><h2 className="font-semibold">Métricas para o Prometheus</h2>{policy.metrics_enabled ? <Badge tone="ok">Ativas</Badge> : <Badge tone="off">Desligadas</Badge>}</div>
         <p className="mb-3 text-sm text-muted">Expõe o estado dos agentes, dos jobs, das nuvens e das execuções em <code>/metrics</code>, protegido por um token. Sem token, o endereço nem existe.</p>
         <div className="flex gap-2"><Button variant="ghost" onClick={genToken}>{policy.metrics_enabled ? 'Gerar novo token (invalida o atual)' : 'Gerar token'}</Button>
-          {policy.metrics_enabled && <Button variant="danger" onClick={() => confirm('Desligar as métricas?') && api('DELETE', '/api/security/metrics-token').then(() => { setToken(''); load() })}>Desligar</Button>}</div>
+          {policy.metrics_enabled && <Button variant="danger" onClick={async () => await confirmar({ title: 'Desligar as métricas?', message: 'O token atual deixa de funcionar e o Prometheus para de coletar.', confirmLabel: 'Desligar', danger: true, icon: 'ligar' }) && api('DELETE', '/api/security/metrics-token').then(() => { setToken(''); load() })}>Desligar</Button>}</div>
         {token && (
           <div className="mt-4 space-y-2 text-sm">
             <div className="rounded-lg border border-accent/50 bg-accent/10 p-3"><b>Guarde o token agora:</b> ele não será mostrado de novo.</div>

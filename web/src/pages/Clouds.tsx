@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { CLOUD_LABEL, CloudAccount, DeviceInfo, User, api, ApiError, fmtBytes, fmtDate } from '../api'
-import { Badge, Button, Card, CopyBox, ErrorBox, Field, Input, Modal } from '../ui'
+import { Actions, Badge, Button, Card, CopyBox, ErrorBox, Field, IconButton, Input, Modal } from '../ui'
+import { confirmar } from '../Dialogs'
 import { CLOUD_ICON } from '../icons'
 import NetDestination, { AgentSelect, NET_TYPES, useAgents } from './NetDestination'
 
@@ -176,12 +177,14 @@ export default function Clouds({ me }: { me: User }) {
                   <div className="mt-1 text-xs text-muted">{fmtBytes(a.quota_used)} de {fmtBytes(a.quota_total)} usados ({pct}%) · verificado {fmtDate(a.quota_checked_at)}</div>
                 </div>
               )}
-              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
                 <span className="text-muted">{a.jobs} job(s) usando</span>
-                {me.role !== 'viewer' && a.status !== 'pending' && !NET_TYPES.includes(a.type) && <button className="text-primary hover:underline" onClick={() => test(a)}>Testar conexão</button>}
-                {isAdmin && NET_TYPES.includes(a.type) && <button className="text-primary hover:underline" onClick={() => setTesting(a)}>Testar conexão</button>}
-                {isAdmin && !NET_TYPES.includes(a.type) && <button className="text-primary hover:underline" onClick={() => reauth(a)}>Reautorizar</button>}
-                {isAdmin && <button className="text-danger hover:underline" onClick={() => confirm(`Excluir a conta "${a.name}"? Os arquivos já enviados à nuvem não são apagados.`) && act(() => api('DELETE', `/api/clouds/${a.id}`))}>Excluir</button>}
+                <Actions>
+                  {me.role !== 'viewer' && a.status !== 'pending' && !NET_TYPES.includes(a.type) && <IconButton icon="testar" label="Testar conexão" onClick={() => test(a)} />}
+                  {isAdmin && NET_TYPES.includes(a.type) && <IconButton icon="testar" label="Testar conexão" onClick={() => setTesting(a)} />}
+                  {isAdmin && !NET_TYPES.includes(a.type) && <IconButton icon="reautorizar" label="Reautorizar" onClick={() => reauth(a)} />}
+                  {isAdmin && <IconButton icon="excluir" tone="danger" label="Excluir" onClick={async () => await confirmar({ title: `Excluir o destino "${a.name}"?`, message: 'Os arquivos já enviados não são apagados.', danger: true }) && act(() => api('DELETE', `/api/clouds/${a.id}`))} />}
+                </Actions>
               </div>
             </Card>
           )

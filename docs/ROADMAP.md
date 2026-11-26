@@ -9,7 +9,11 @@
 - [x] **Fase 6 – Notificações e relatórios (0.0.7):** e-mail, Telegram, PDF A4, configurados pela interface.
 - [x] **Fase 7 – Endurecimento e publicação (0.0.8):** TLS, auditoria, limites, documentação, imagens no GitHub Packages.
 - [x] **Fase 8 – Pacotes de temas (0.0.9):** temas importáveis (`.zip`) aplicados à interface, ao e-mail e ao PDF; `docs/TEMAS.md`; pacotes de exemplo.
-- [ ] **Fase 9 – Destinos de armazenamento (0.0.10):** vários destinos por job; cartões de provedores com login em popup (OAuth); Dropbox, S3 (e compatíveis), SFTP, SMB, SharePoint, pasta local; NFS/iSCSI via volume montado no host.
+- [ ] **Fase 9 – Destinos de armazenamento (0.0.10):** entregue em etapas, cada uma testável sozinha:
+  - **9a · Modelo de destinos:** um job passa a ter uma lista de destinos (pasta local do agente + contas), cada um com retenção e conferência próprias; `Provider` ganha um tipo de sessão por protocolo.
+  - **9b · Compatíveis com S3** (AWS, MinIO, Wasabi, Backblaze): URLs pré-assinadas pelo Server, envio em partes (arquivos grandes), credenciais só no Server.
+  - **9c · Dropbox e SharePoint:** login por código no navegador (cartões com janela de login); SharePoint como biblioteca de documentos do OneDrive.
+  - **9d · Destinos diretos do agente:** SFTP e SMB (clientes Go nativos, credencial cifrada no Server e entregue ao agente), pasta local/volume do host (NFS e iSCSI montados no host).
 - [ ] **Fase 10 – Full/Incremental e MikroTik (0.0.11):** motor `tar.gz` em blocos com índice e catálogo; agenda full + incrementais; retenção por cadeia; jobs de MikroTik (SSH: `.rsc` e `.backup`).
 - [ ] **Fase 11 – Restauração inteligente (0.0.12):** árvore de arquivos, linha do tempo de versões, restauração de arquivos selecionados e de bancos pela interface.
 - [ ] **Fase 12 – Piloto:** instalação em ambiente real, só com autorização e em paralelo ao backup existente; validação com contas reais de nuvem e Telegram.

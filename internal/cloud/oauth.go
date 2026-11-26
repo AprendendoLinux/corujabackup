@@ -33,7 +33,8 @@ type OAuth struct {
 	ClientID     string
 	ClientSecret string
 	DeviceURL    string
-	AuthURL      string // fluxo com retorno (popup)
+	AuthURL      string     // fluxo com retorno (popup)
+	AuthExtra    url.Values // parâmetros próprios do provedor no endereço de login
 	TokenURL     string
 	Scope        string
 	HTTP         *http.Client
@@ -205,8 +206,10 @@ func (ts *TokenSource) Access(ctx context.Context) (string, error) {
 // AuthCodeURL monta o endereço de login do fluxo "código de autorização" com PKCE (S256).
 func (o *OAuth) AuthCodeURL(redirect, state, challenge string) string {
 	q := url.Values{"client_id": {o.ClientID}, "redirect_uri": {redirect}, "response_type": {"code"}, "scope": {o.Scope},
-		"state": {state}, "code_challenge": {challenge}, "code_challenge_method": {"S256"},
-		"access_type": {"offline"}, "prompt": {"consent"}, "include_granted_scopes": {"false"}}
+		"state": {state}, "code_challenge": {challenge}, "code_challenge_method": {"S256"}}
+	for k, v := range o.AuthExtra {
+		q[k] = v
+	}
 	return o.AuthURL + "?" + q.Encode()
 }
 

@@ -21,6 +21,7 @@ const PROVIDERS: { group: string; items: Prov[] }[] = [
     { id: 'smb', label: 'Pasta de rede', hint: 'SMB, NFS, iSCSI', state: 'off' },
   ] },
 ]
+type Defs = { gdrive?: boolean; gdrive_web?: boolean; onedrive_web?: boolean; broker?: string }
 const PROV_BY_ID = Object.fromEntries(PROVIDERS.flatMap((g) => g.items).map((p) => [p.id, p]))
 
 function ProviderIcon({ id, size = 40 }: { id: string; size?: number }) {
@@ -60,12 +61,12 @@ export default function Clouds({ me }: { me: User }) {
   const [accounts, setAccounts] = useState<CloudAccount[]>([])
   const [err, setErr] = useState('')
   const [info, setInfo] = useState('')
-  const [defs, setDefs] = useState<{ gdrive?: boolean; gdrive_web?: boolean; broker?: string }>({})
+  const [defs, setDefs] = useState<Defs>({})
   const [wizard, setWizard] = useState<{ id?: number; device?: DeviceInfo; name?: string; type?: string } | null>(null)
   const isAdmin = me.role === 'admin'
 
   const load = useCallback(() => {
-    api<{ accounts: CloudAccount[]; defaults?: { gdrive?: boolean; gdrive_web?: boolean; broker?: string } }>('GET', '/api/clouds').then((r) => { setAccounts(r.accounts); setDefs(r.defaults ?? {}); setErr('') }).catch((x) => setErr((x as ApiError).message))
+    api<{ accounts: CloudAccount[]; defaults?: Defs }>('GET', '/api/clouds').then((r) => { setAccounts(r.accounts); setDefs(r.defaults ?? {}); setErr('') }).catch((x) => setErr((x as ApiError).message))
   }, [])
   useEffect(() => { load() }, [load])
 
@@ -139,13 +140,15 @@ export default function Clouds({ me }: { me: User }) {
   )
 }
 
-function NewAccount({ type, onBack, onCreated, onConnected, defs }: { type: string; onBack: () => void; onCreated: (id: number, device: DeviceInfo, name: string) => void; onConnected: () => void; defs: { gdrive?: boolean; gdrive_web?: boolean; broker?: string } }) {
+function NewAccount({ type, onBack, onCreated, onConnected, defs }: { type: string; onBack: () => void; onCreated: (id: number, device: DeviceInfo, name: string) => void; onConnected: () => void; defs: Defs }) {
   const [f, setF] = useState({ type, name: '', client_id: '', client_secret: '', tenant: '' })
   const [mode, setMode] = useState<'auto' | 'code' | 'own'>('auto')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const gd = f.type === 'gdrive'
-  const web = gd && !!defs.gdrive_web && mode === 'auto' // botão único: popup do Google
+  const od0 = f.type === 'onedrive'
+  const web = ((gd && !!defs.gdrive_web) || (od0 && !!defs.onedrive_web)) && mode === 'auto' // botão único: popup do provedor
+  const who = od0 ? 'a Microsoft' : 'o Google' // com artigo: "com a Microsoft", "com o Google"
   const std = gd && !web && !!defs.gdrive && mode !== 'own' // aplicativo padrão com código de dispositivo
   const noCreds = web || std // nada de ID/segredo para preencher
   async function viaPopup() {
@@ -160,7 +163,7 @@ function NewAccount({ type, onBack, onCreated, onConnected, defs }: { type: stri
         const end = (fn: () => void) => { if (settled) return; settled = true; window.removeEventListener('message', onMsg); clearInterval(timer); fn() }
         const onMsg = (ev: MessageEvent) => {
           if (ev.origin !== defs.broker || ev.data?.type !== 'coruja-oauth' || ev.data.state !== r.state) return
-          if (ev.data.error) return end(() => reject(new Error(ev.data.error === 'access_denied' ? 'Você não autorizou o acesso.' : `O Google recusou: ${ev.data.error}`)))
+          if (ev.data.error) return end(() => reject(new Error(ev.data.error === 'access_denied' ? 'Você não autorizou o acesso.' : `O provedor recusou: ${ev.data.error}`)))
           api('POST', '/api/clouds/oauth/finish', { state: r.state, code: ev.data.code }).then(() => end(resolve), (x) => end(() => reject(x)))
         }
         window.addEventListener('message', onMsg)
@@ -190,9 +193,8 @@ function NewAccount({ type, onBack, onCreated, onConnected, defs }: { type: stri
       <Field label="Nome da conta" hint="Como aparece nos jobs. Ex.: Backups da empresa"><Input autoFocus value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required /></Field>
       {web && (
         <div className="rounded-lg border border-border bg-bg p-3 text-muted">
-          Uma janela do Google vai abrir para você entrar e autorizar. O Coruja só enxerga os arquivos que ele mesmo criar.{' '}
-          <button type="button" className="text-primary hover:underline" onClick={() => setMode('code')}>Prefiro usar um código</button>
-          {' · '}
+          Uma janela {od0 ? 'da Microsoft' : 'do Google'} vai abrir para você entrar e autorizar.{od0 ? '' : ' O Coruja só enxerga os arquivos que ele mesmo criar.'}{' '}
+          {gd && defs.gdrive && <><button type="button" className="text-primary hover:underline" onClick={() => setMode('code')}>Prefiro usar um código</button>{' · '}</>}
           <button type="button" className="text-primary hover:underline" onClick={() => setMode('own')}>Usar o meu próprio aplicativo (avançado)</button>
         </div>
       )}
@@ -202,7 +204,7 @@ function NewAccount({ type, onBack, onCreated, onConnected, defs }: { type: stri
           <button type="button" className="text-primary hover:underline" onClick={() => setMode('own')}>Usar o meu próprio aplicativo (avançado)</button>
         </div>
       )}
-      {gd && (defs.gdrive || defs.gdrive_web) && mode !== 'auto' && <button type="button" className="text-sm text-primary hover:underline" onClick={() => setMode('auto')}>← Voltar ao login com o Google</button>}
+      {((gd && (defs.gdrive || defs.gdrive_web)) || (od0 && defs.onedrive_web)) && mode !== 'auto' && <button type="button" className="text-sm text-primary hover:underline" onClick={() => setMode('auto')}>← Voltar ao login com {who}</button>}
       {!noCreds && <Field label="Client ID (ID do aplicativo)"><Input className="font-mono" value={f.client_id} onChange={(e) => setF({ ...f, client_id: e.target.value })} required /></Field>}
       {noCreds ? null : od ? (
         <div className="grid gap-3 sm:grid-cols-2">
@@ -232,7 +234,7 @@ function NewAccount({ type, onBack, onCreated, onConnected, defs }: { type: stri
         )}
       </details>}
       <ErrorBox message={err} />
-      <Button disabled={busy}>{web ? (busy ? 'Aguardando o Google…' : 'Entrar com o Google') : 'Continuar'}</Button>
+      <Button disabled={busy}>{web ? (busy ? `Aguardando ${who}…` : `Entrar com ${who}`) : 'Continuar'}</Button>
     </form>
   )
 }

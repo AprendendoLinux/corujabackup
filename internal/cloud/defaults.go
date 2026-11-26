@@ -25,15 +25,41 @@ var (
 	OAuthBrokerURL = "https://coruja.henrique.tec.br"
 )
 
+// Aplicativo da Microsoft (cliente público, sem segredo) para o login por popup do OneDrive. O ID é público.
+var DefaultMicrosoftClientID = "ec0121f5-4ea0-470a-860d-705b6dea180e"
+
 // HasWebApp informa se o login por popup (aplicativo da Web) está disponível para o tipo de nuvem.
 func HasWebApp(typ string) bool {
-	return typ == TypeGDrive && DefaultGoogleWebClientID != "" && DefaultGoogleWebClientSecret != "" && OAuthBrokerURL != ""
+	if OAuthBrokerURL == "" {
+		return false
+	}
+	switch typ {
+	case TypeGDrive:
+		return DefaultGoogleWebClientID != "" && DefaultGoogleWebClientSecret != ""
+	case TypeOneDrive:
+		return DefaultMicrosoftClientID != ""
+	}
+	return false
+}
+
+// WebAppCreds devolve o ID (e o segredo, se houver) do aplicativo de login por popup do tipo de nuvem.
+func WebAppCreds(typ string) (id, secret string) {
+	switch typ {
+	case TypeGDrive:
+		return DefaultGoogleWebClientID, DefaultGoogleWebClientSecret
+	case TypeOneDrive:
+		return DefaultMicrosoftClientID, ""
+	}
+	return "", ""
 }
 
 // BrokerRedirect devolve o endereço de retorno cadastrado no provedor para o tipo de nuvem.
 func BrokerRedirect(typ string) string {
-	if typ == TypeGDrive {
+	switch typ {
+	case TypeGDrive:
 		return strings.TrimRight(OAuthBrokerURL, "/") + "/oauth/google/callback"
+	case TypeOneDrive:
+		return strings.TrimRight(OAuthBrokerURL, "/") + "/oauth/microsoft/callback"
 	}
 	return ""
 }

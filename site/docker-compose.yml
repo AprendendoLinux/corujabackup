@@ -1,6 +1,6 @@
 services:
   coruja-site:
-    image: coruja-site:1.1.0
+    image: coruja-site:1.2.0
     container_name: coruja-site
     restart: always
     read_only: true

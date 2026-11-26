@@ -74,7 +74,7 @@ func (m *Manager) oauth(typ string, cfg AccountConfig) (*cloud.OAuth, error) {
 		if !cloud.HasWebApp(typ) {
 			return nil, errors.New("este Server não tem o aplicativo de login por popup: reconecte a conta")
 		}
-		cfg.ClientID, cfg.ClientSecret = cloud.DefaultGoogleWebClientID, cloud.DefaultGoogleWebClientSecret
+		cfg.ClientID, cfg.ClientSecret = cloud.WebAppCreds(typ)
 	} else if cfg.UseDefault {
 		if !cloud.HasDefaultApp(typ) {
 			return nil, errors.New("este Server não tem aplicativo padrão para esse provedor: reconecte informando as credenciais")

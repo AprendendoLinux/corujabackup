@@ -30,7 +30,7 @@ func (s *Server) listClouds(w http.ResponseWriter, r *http.Request, _ *ctxUser) 
 		n, _ := s.Store.JobsUsingCloud(r.Context(), a.ID)
 		out = append(out, cloudView{a, n})
 	}
-	writeJSON(w, 200, map[string]any{"accounts": out, "defaults": map[string]any{"gdrive": cloud.HasDefaultApp(cloud.TypeGDrive), "gdrive_web": cloud.HasWebApp(cloud.TypeGDrive), "broker": strings.TrimRight(cloud.OAuthBrokerURL, "/")}})
+	writeJSON(w, 200, map[string]any{"accounts": out, "defaults": map[string]any{"gdrive": cloud.HasDefaultApp(cloud.TypeGDrive), "gdrive_web": cloud.HasWebApp(cloud.TypeGDrive), "onedrive_web": cloud.HasWebApp(cloud.TypeOneDrive), "broker": strings.TrimRight(cloud.OAuthBrokerURL, "/")}})
 }
 
 func deviceView(d *cloud.Device) map[string]any {

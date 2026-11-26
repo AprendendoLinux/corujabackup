@@ -643,3 +643,41 @@ func mustParse(t *testing.T, s string) *url.URL {
 	}
 	return u
 }
+
+// OneDrive pelo popup: cliente público (sem segredo), retorno em /oauth/microsoft/callback e conta funcionando.
+func TestOneDriveLoginPorPopup(t *testing.T) {
+	oID, oBroker := cloud.DefaultMicrosoftClientID, cloud.OAuthBrokerURL
+	defer func() { cloud.DefaultMicrosoftClientID, cloud.OAuthBrokerURL = oID, oBroker }()
+	cloud.DefaultMicrosoftClientID, cloud.OAuthBrokerURL = "cid", "https://broker.exemplo.test"
+
+	fake := cloudtest.NewGraph("cid")
+	defer fake.Close()
+	r := newRig(t, cloudmgr.Endpoints{MSDevice: fake.URL + "/devicecode", MSToken: fake.URL + "/token", Graph: fake.GraphURL()})
+	ctx := context.Background()
+	loginURL, state, err := r.mgr.BeginWeb(ctx, "od-web", cloud.TypeOneDrive, "http://187.110.161.52:8081")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := mustParse(t, loginURL)
+	q := u.Query()
+	if u.Host != "login.microsoftonline.com" || !strings.HasSuffix(u.Path, "/common/oauth2/v2.0/authorize") || q.Get("client_id") != "cid" ||
+		q.Get("redirect_uri") != "https://broker.exemplo.test/oauth/microsoft/callback" || !strings.Contains(q.Get("scope"), "offline_access") || q.Get("code_challenge_method") != "S256" {
+		t.Fatalf("endereço de login: %s", loginURL)
+	}
+	id, err := r.mgr.FinishWeb(ctx, state, "codigo-ok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.LastSecret != "" || fake.LastRedirect != "https://broker.exemplo.test/oauth/microsoft/callback" || fake.LastVerifier == "" {
+		t.Fatalf("troca do código: segredo=%q redirect=%q verificador=%q", fake.LastSecret, fake.LastRedirect, fake.LastVerifier)
+	}
+	acc, _ := r.st.GetCloud(ctx, id)
+	cfg, _ := r.mgr.OpenConfigForTest(acc)
+	if acc.Status != "connected" || !cfg.UseDefault || !cfg.Web || cfg.ClientID != "" {
+		t.Fatalf("conta: %s %+v", acc.Status, cfg)
+	}
+	jid := r.newJob("od-web-job", id, 2, 3)
+	if run := r.runNow(jid); run.Status != "ok" || run.CloudStatus != "ok" {
+		t.Fatalf("execução: %+v\n%s", run, r.logs(run))
+	}
+}

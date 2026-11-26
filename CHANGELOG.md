@@ -1,6 +1,7 @@
 # Changelog
 
 ## [Não publicado]
+- **Ícone da aba acompanha a logo** do tema ativo (ou a logo enviada em Aparência); sem logo própria, continua a coruja.
 - **Tema Clube Naval** em `themes/clube-naval` (botões no vermelho da âncora do brasão e dourado; escudo na interface e logo completa em e-mail e PDF).
 
 ## [0.0.10] - Fase 9 · Login com um clique e Dropbox

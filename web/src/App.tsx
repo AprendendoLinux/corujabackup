@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import Logo, { BrandCtx } from './Logo'
+import Logo, { BrandCtx, useFavicon } from './Logo'
 import { THEMES, applyTheme, savedTheme } from './themes'
 import { Agent, Branding, User, api, ApiError, ROLE_LABEL } from './api'
 import { Card } from './ui'
@@ -32,6 +32,7 @@ export default function App() {
   const [me, setMe] = useState<Me | null>(null)
   const [version, setVersion] = useState('0.0.10')
   const route = useRoute()
+  useFavicon(brand)
 
   const loadBrand = useCallback(() => {
     fetch('/api/branding').then((r) => r.json()).then((b: Branding) => {

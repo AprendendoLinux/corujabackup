@@ -67,14 +67,18 @@ async function popupLogin(body: Record<string, unknown>, broker: string) {
     pop.location.href = r.url
     await new Promise<void>((resolve, reject) => {
       let settled = false
+      let received = false // o código já chegou: a janela pode fechar, só falta o Server concluir
       const end = (fn: () => void) => { if (settled) return; settled = true; window.removeEventListener('message', onMsg); clearInterval(timer); fn() }
       const onMsg = (ev: MessageEvent) => {
         if (ev.origin !== broker || ev.data?.type !== 'coruja-oauth' || ev.data.state !== r.state) return
+        if (received) return
+        received = true
+        clearInterval(timer)
         if (ev.data.error) return end(() => reject(new Error(ev.data.error === 'access_denied' ? 'Você não autorizou o acesso.' : `O provedor recusou: ${ev.data.error}`)))
         api('POST', '/api/clouds/oauth/finish', { state: r.state, code: ev.data.code }).then(() => end(resolve), (x) => end(() => reject(x)))
       }
       window.addEventListener('message', onMsg)
-      const timer = window.setInterval(() => { if (pop.closed) setTimeout(() => end(() => reject(new Error('A janela foi fechada antes de terminar.'))), 1500) }, 500)
+      const timer = window.setInterval(() => { if (pop.closed) setTimeout(() => { if (!received) end(() => reject(new Error('A janela foi fechada antes de terminar.'))) }, 1500) }, 500)
     })
   } finally { try { pop.close() } catch { /* já fechou */ } }
 }

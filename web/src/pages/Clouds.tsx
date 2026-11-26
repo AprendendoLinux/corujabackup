@@ -6,11 +6,12 @@ export default function Clouds({ me }: { me: User }) {
   const [accounts, setAccounts] = useState<CloudAccount[]>([])
   const [err, setErr] = useState('')
   const [info, setInfo] = useState('')
+  const [hasDefault, setHasDefault] = useState(false)
   const [wizard, setWizard] = useState<{ id?: number; device?: DeviceInfo; name?: string } | null>(null)
   const isAdmin = me.role === 'admin'
 
   const load = useCallback(() => {
-    api<{ accounts: CloudAccount[] }>('GET', '/api/clouds').then((r) => { setAccounts(r.accounts); setErr('') }).catch((x) => setErr((x as ApiError).message))
+    api<{ accounts: CloudAccount[]; defaults?: { gdrive?: boolean } }>('GET', '/api/clouds').then((r) => { setAccounts(r.accounts); setHasDefault(!!r.defaults?.gdrive); setErr('') }).catch((x) => setErr((x as ApiError).message))
   }, [])
   useEffect(() => { load() }, [load])
 
@@ -74,31 +75,40 @@ export default function Clouds({ me }: { me: User }) {
       {wizard && <Modal title={wizard.device ? 'Autorizar o acesso' : 'Conectar nuvem'} onClose={() => { setWizard(null); load() }}>
         {wizard.device && wizard.id
           ? <Authorize id={wizard.id} name={wizard.name ?? ''} device={wizard.device} onDone={() => { setWizard(null); setInfo('Conta conectada com sucesso.'); load() }} />
-          : <NewAccount onCreated={(id, device, name) => { setWizard({ id, device, name }); load() }} />}
+          : <NewAccount hasDefault={hasDefault} onCreated={(id, device, name) => { setWizard({ id, device, name }); load() }} />}
       </Modal>}
     </div>
   )
 }
 
-function NewAccount({ onCreated }: { onCreated: (id: number, device: DeviceInfo, name: string) => void }) {
+function NewAccount({ onCreated, hasDefault }: { onCreated: (id: number, device: DeviceInfo, name: string) => void; hasDefault: boolean }) {
   const [f, setF] = useState({ type: 'onedrive', name: '', client_id: '', client_secret: '', tenant: '' })
+  const [own, setOwn] = useState(false)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   async function submit(e: FormEvent) {
     e.preventDefault(); setErr(''); setBusy(true)
-    try { const r = await api<{ id: number; device: DeviceInfo }>('POST', '/api/clouds', f); onCreated(r.id, r.device, f.name) }
+    try { const r = await api<{ id: number; device: DeviceInfo }>('POST', '/api/clouds', std ? { ...f, client_id: '', client_secret: '' } : f); onCreated(r.id, r.device, f.name) }
     catch (x) { setErr((x as ApiError).message) } finally { setBusy(false) }
   }
   const sel = 'w-full rounded-lg border border-border bg-surface px-3 py-2'
   const od = f.type === 'onedrive'
+  const std = f.type === 'gdrive' && hasDefault && !own // usa o aplicativo padrão do Coruja: nada a preencher
   return (
     <form onSubmit={submit} className="space-y-4 text-sm">
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Provedor"><select className={sel} value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })}><option value="onedrive">OneDrive (Microsoft)</option><option value="gdrive">Google Drive</option></select></Field>
         <Field label="Nome da conta" hint="Como aparece nos jobs. Ex.: OneDrive da empresa"><Input autoFocus value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required /></Field>
       </div>
-      <Field label="Client ID (ID do aplicativo)"><Input className="font-mono" value={f.client_id} onChange={(e) => setF({ ...f, client_id: e.target.value })} required /></Field>
-      {od ? (
+      {std && (
+        <div className="rounded-lg border border-border bg-bg p-3 text-muted">
+          Vamos mostrar um <b>código</b> e um link do Google. Abra o link, digite o código e autorize a sua conta: não é preciso registrar aplicativo nem colar credenciais. O Coruja só enxerga os arquivos que ele mesmo criar.{' '}
+          <button type="button" className="text-primary hover:underline" onClick={() => setOwn(true)}>Usar o meu próprio aplicativo (avançado)</button>
+        </div>
+      )}
+      {f.type === 'gdrive' && hasDefault && own && <button type="button" className="text-sm text-primary hover:underline" onClick={() => setOwn(false)}>← Voltar ao aplicativo padrão</button>}
+      {!std && <Field label="Client ID (ID do aplicativo)"><Input className="font-mono" value={f.client_id} onChange={(e) => setF({ ...f, client_id: e.target.value })} required /></Field>}
+      {std ? null : od ? (
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Locatário (tenant)" hint="common = contas pessoais e corporativas. Ou o ID/domínio do seu locatário."><Input placeholder="common" value={f.tenant} onChange={(e) => setF({ ...f, tenant: e.target.value })} /></Field>
           <Field label="Client Secret (opcional)" hint="Só se o aplicativo for “confidencial”."><Input type="password" autoComplete="off" value={f.client_secret} onChange={(e) => setF({ ...f, client_secret: e.target.value })} /></Field>
@@ -106,7 +116,7 @@ function NewAccount({ onCreated }: { onCreated: (id: number, device: DeviceInfo,
       ) : (
         <Field label="Client Secret"><Input type="password" autoComplete="off" value={f.client_secret} onChange={(e) => setF({ ...f, client_secret: e.target.value })} required /></Field>
       )}
-      <details className="rounded-lg border border-border bg-bg p-3">
+      {!std && <details className="rounded-lg border border-border bg-bg p-3">
         <summary className="cursor-pointer font-medium">Como obter o Client ID{od ? '' : ' e o Secret'}</summary>
         {od ? (
           <ol className="mt-2 list-decimal space-y-1 pl-5 text-muted">
@@ -124,7 +134,7 @@ function NewAccount({ onCreated }: { onCreated: (id: number, device: DeviceInfo,
             <li>Copie o <b>ID do cliente</b> e a <b>chave secreta</b>. O acesso pedido é só <b>drive.file</b>: o Coruja Backup enxerga apenas os arquivos que ele mesmo cria.</li>
           </ol>
         )}
-      </details>
+      </details>}
       <ErrorBox message={err} />
       <Button disabled={busy}>Continuar</Button>
     </form>

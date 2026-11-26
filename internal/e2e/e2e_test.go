@@ -516,3 +516,38 @@ func TestReenvioParaNuvemExtracaoEDownload(t *testing.T) {
 		t.Fatalf("deveria recusar sobrescrever:\n%s", r.logs(fixed))
 	}
 }
+
+// Com o aplicativo padrão compilado, a conta não guarda credenciais e funciona de ponta a ponta; sem ele, o modo some.
+func TestGoogleDriveComAplicativoPadrao(t *testing.T) {
+	oldID, oldSec := cloud.DefaultGoogleClientID, cloud.DefaultGoogleClientSecret
+	defer func() { cloud.DefaultGoogleClientID, cloud.DefaultGoogleClientSecret = oldID, oldSec }()
+	cloud.DefaultGoogleClientID, cloud.DefaultGoogleClientSecret = "gid", "segredo-compilado"
+
+	fake := cloudtest.NewDrive("gid")
+	defer fake.Close()
+	r := newRig(t, cloudmgr.Endpoints{GDevice: fake.URL + "/device/code", GToken: fake.URL + "/token", GAPI: fake.APIURL(), GUpload: fake.UploadURL()})
+	cid := r.connectCloud(cloud.TypeGDrive, cloudmgr.AccountConfig{}) // sem ID nem segredo
+	acc, err := r.st.GetCloud(context.Background(), cid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := r.mgr.OpenConfigForTest(acc)
+	if !cfg.UseDefault || cfg.ClientID != "" || cfg.ClientSecret != "" {
+		t.Fatalf("a conta não deve gravar credenciais: %+v", cfg)
+	}
+	jid := r.newJob("gd-padrao", cid, 2, 3)
+	if run := r.runNow(jid); run.Status != "ok" || run.CloudStatus != "ok" || run.CloudVerifiedBy != "md5" {
+		t.Fatalf("execução: %+v\n%s", run, r.logs(run))
+	}
+
+	// sem aplicativo padrão compilado: pedir conta sem credenciais é recusado com mensagem clara
+	cloud.DefaultGoogleClientSecret = ""
+	if _, _, err := r.mgr.Create(context.Background(), "sem-padrao", cloud.TypeGDrive, cloudmgr.AccountConfig{}); err == nil || !strings.Contains(err.Error(), "Client ID") {
+		t.Fatalf("esperava erro pedindo o Client ID: %v", err)
+	}
+	// uma conta criada no modo padrão não consegue renovar sem o aplicativo compilado
+	r.mgr.Invalidate(cid)
+	if _, err := r.mgr.Provider(context.Background(), cid); err == nil {
+		t.Fatal("sem o aplicativo padrão a conta deveria falhar de forma explícita")
+	}
+}

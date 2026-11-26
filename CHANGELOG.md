@@ -1,5 +1,8 @@
 # Changelog
 
+## [Não publicado] - Fase 9
+- **Aplicativo OAuth padrão do Google Drive** nas imagens oficiais: o usuário só abre o link e digita o código, sem registrar aplicativo (o modo manual continua disponível).
+
 ## [0.0.9] - Fase 8 · Pacotes de temas
 - **Pacotes de tema (`.zip`):** importados em Aparência; o tema vale para a **interface**, os **e-mails** e os **PDFs** (cores, logo de interface e logo de documento). Importar o mesmo `id` atualiza o tema.
 - **Validação rígida:** `.zip` plano e limitado, nomes e tipos verificados, imagens identificadas pelo conteúdo, SVG com script/referência externa recusado, sem CSS livre; auditoria de importação.

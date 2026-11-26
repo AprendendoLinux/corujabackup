@@ -66,7 +66,7 @@ docker run -d --name corujabackup-agent --restart always \
 - O arquivo `deploy/docker-compose.agent.yml` traz tudo isso, com `cap_drop: ALL` e só as capacidades necessárias.
 
 ## 3. Primeiros passos
-1. **Nuvem** (opcional): registre um aplicativo no provedor e conecte a conta pelo código de dispositivo (a tela explica o passo a passo).
+1. **Nuvem** (opcional): no **Google Drive** das imagens oficiais não há nada a registrar: escolha o provedor, abra o link e digite o código (o aplicativo padrão do Coruja só acessa os arquivos que ele mesmo cria). Para OneDrive, ou para usar o seu próprio aplicativo do Google, registre um aplicativo no provedor e informe o Client ID (a tela explica o passo a passo).
 2. **Jobs**: pastas/arquivos ou banco de dados; escolha a agenda, as cópias locais e o destino de nuvem.
 3. **Notificações**: crie um canal (e-mail/Telegram), clique em **Enviar teste** e use **Criar regras recomendadas**.
 4. **Aparência**: nome, logo e tema da sua marca.

@@ -33,6 +33,8 @@ type AccountConfig struct {
 	Tenant       string `json:"tenant,omitempty"`
 	DriveID      string `json:"drive_id,omitempty"`
 	HardDelete   bool   `json:"hard_delete"`
+	// UseDefault: usa o aplicativo OAuth padrão compilado (as credenciais não são gravadas na conta).
+	UseDefault bool `json:"use_default,omitempty"`
 }
 
 type Manager struct {
@@ -54,6 +56,12 @@ func New(st *store.Store, box *secrets.Box) *Manager {
 var ErrNotConnected = errors.New("a conta de nuvem não está conectada")
 
 func (m *Manager) oauth(typ string, cfg AccountConfig) (*cloud.OAuth, error) {
+	if cfg.UseDefault {
+		if !cloud.HasDefaultApp(typ) {
+			return nil, errors.New("este Server não tem aplicativo padrão para esse provedor: reconecte informando as credenciais")
+		}
+		cfg.ClientID, cfg.ClientSecret = cloud.DefaultGoogleClientID, cloud.DefaultGoogleClientSecret
+	}
 	var o *cloud.OAuth
 	switch typ {
 	case cloud.TypeOneDrive:
@@ -84,10 +92,13 @@ func (m *Manager) openConfig(a *store.CloudAccount) (AccountConfig, error) {
 
 // Create cadastra a conta (pendente) e inicia a autorização: o usuário abre a URL, digita o código e aprova.
 func (m *Manager) Create(ctx context.Context, name, typ string, cfg AccountConfig) (int64, *cloud.Device, error) {
-	if cfg.ClientID == "" {
+	if cfg.ClientID == "" && cloud.HasDefaultApp(typ) {
+		cfg.UseDefault, cfg.ClientSecret = true, ""
+	}
+	if cfg.ClientID == "" && !cfg.UseDefault {
 		return 0, nil, errors.New("informe o Client ID do aplicativo cadastrado no provedor")
 	}
-	if typ == cloud.TypeGDrive && cfg.ClientSecret == "" {
+	if typ == cloud.TypeGDrive && cfg.ClientSecret == "" && !cfg.UseDefault {
 		return 0, nil, errors.New("o Google exige o Client Secret (credencial do tipo “TVs e dispositivos de entrada limitada”)")
 	}
 	o, err := m.oauth(typ, cfg)
@@ -430,4 +441,9 @@ func (m *Manager) Open(ctx context.Context, accountID int64, folder, name string
 		return nil, 0, err
 	}
 	return p.Open(ctx, f, name)
+}
+
+// OpenConfigForTest expõe a configuração decifrada (somente para testes).
+func (m *Manager) OpenConfigForTest(a *store.CloudAccount) (AccountConfig, error) {
+	return m.openConfig(a)
 }

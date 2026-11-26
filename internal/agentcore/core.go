@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/AprendendoLinux/corujabackup/internal/auth"
+	"github.com/AprendendoLinux/corujabackup/internal/dockerapi"
 	"github.com/AprendendoLinux/corujabackup/internal/pb"
 	"github.com/AprendendoLinux/corujabackup/internal/sched"
 	"github.com/AprendendoLinux/corujabackup/internal/uploader"
@@ -55,6 +56,7 @@ type Core struct {
 	active   map[string]bool               // run_uid enfileirados ou rodando (vai no Hello)
 	send     func(*pb.AgentMessage) bool   // nil quando desconectado
 
+	docker  *dockerapi.Client
 	upload  UploadFn
 	waiters map[string]chan *pb.ServerMessage
 	httpc   *httpClientHolder
@@ -76,12 +78,15 @@ type UploadFn func(ctx context.Context, spec *pb.JobSpec, runUID string, res Res
 func New(cfg Config, st *State, log *slog.Logger) *Core {
 	c := &Core{cfg: cfg, st: st, log: log, now: time.Now, queue: make(chan runReq, 64),
 		jobs: map[int64]*pb.JobSpec{}, lastFire: st.LoadLastFire(), running: map[string]context.CancelFunc{}, busyJobs: map[int64]bool{},
-		active: map[string]bool{}, waiters: map[string]chan *pb.ServerMessage{}, httpc: &httpClientHolder{}}
+		active: map[string]bool{}, docker: dockerapi.New(os.Getenv("CORUJA_DOCKER_SOCKET")), waiters: map[string]chan *pb.ServerMessage{}, httpc: &httpClientHolder{}}
 	c.upload = c.uploadToCloud
 	for _, j := range st.LoadJobs() {
 		c.jobs[j.JobId] = j
 	}
 	c.exec = func(ctx context.Context, job FilesJob, loc *time.Location, now time.Time, h Hooks) (Result, error) {
+		if job.DB != nil {
+			return RunDatabase(ctx, job.Name, job.DB, job.Subdir, c.docker, c.cfg.BackupDir, loc, now, h)
+		}
 		return RunFiles(ctx, job, c.cfg.HostRoot, c.cfg.BackupDir, loc, now, h)
 	}
 	return c
@@ -142,7 +147,7 @@ func (c *Core) Tick() {
 	var due []runReq
 	changed := false
 	for id, spec := range c.jobs {
-		if !spec.Enabled || spec.Kind != "files" {
+		if !spec.Enabled || (spec.Kind != "files" && spec.Kind != "database") {
 			continue
 		}
 		sc, err := sched.Parse(spec.Cron, spec.Timezone)
@@ -315,6 +320,9 @@ func (c *Core) execute(parent context.Context, r runReq) {
 		loc = time.UTC
 	}
 	job := FilesJob{Name: r.spec.Name, Paths: r.spec.Paths, Excludes: r.spec.Excludes, Subdir: r.spec.DestSubdir, Keep: int(r.spec.Keep), SkipRetention: true}
+	if r.spec.Kind == "database" {
+		job.DB = r.spec.Db
+	}
 	phase := func(name string, pct int) {
 		pr := proto.Clone(base).(*pb.RunReport)
 		pr.State, pr.Phase, pr.ProgressPct = pb.RunReport_PROGRESS, name, int32(pct)

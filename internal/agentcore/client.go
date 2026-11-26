@@ -151,6 +151,9 @@ func session(ctx context.Context, log *slog.Logger, st *Credentials, core *Core)
 				core.Enqueue(m.GetRunNow().JobId, m.GetRunNow().RunUid, "manual", time.Time{})
 			case m.GetCancelRun() != nil:
 				core.Cancel(m.GetCancelRun().RunUid)
+			case m.GetRpc() != nil:
+				rpc := m.GetRpc()
+				go func() { _ = safeSend(core.HandleRPC(ctx, rpc)) }()
 			case m.GetUploadSession() != nil:
 				core.OnUploadSession(m.GetUploadSession())
 			case m.GetUploadVerdict() != nil:

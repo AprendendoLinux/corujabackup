@@ -80,8 +80,9 @@ func main() {
 	clouds := cloudmgr.New(st, box)
 	hub := agentsrv.New(st, version.Version)
 	hub.Cloud = clouds
+	hub.Box = box
 	_, agentPort, _ := net.SplitHostPort(cfg.AgentListen)
-	api := &httpapi.Server{DB: d, Store: st, Pinger: d, Agents: hub, Clouds: clouds, Started: time.Now(), Web: webui.Handler(),
+	api := &httpapi.Server{DB: d, Store: st, Pinger: d, Agents: hub, Clouds: clouds, Box: box, Started: time.Now(), Web: webui.Handler(),
 		Fingerprint: fp, AgentPort: agentPort, TrustProxy: cfg.TrustProxy}
 	srv := &http.Server{Addr: cfg.Listen, Handler: api.Routes(), ReadHeaderTimeout: 10 * time.Second}
 

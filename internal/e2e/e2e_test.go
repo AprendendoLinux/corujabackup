@@ -2,7 +2,9 @@
 package e2e
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"io"
 	"log/slog"
@@ -19,6 +21,7 @@ import (
 	"github.com/AprendendoLinux/corujabackup/internal/cloud"
 	"github.com/AprendendoLinux/corujabackup/internal/cloud/cloudtest"
 	"github.com/AprendendoLinux/corujabackup/internal/cloudmgr"
+	"github.com/AprendendoLinux/corujabackup/internal/dockerapi"
 	"github.com/AprendendoLinux/corujabackup/internal/enroll"
 	"github.com/AprendendoLinux/corujabackup/internal/secrets"
 	"github.com/AprendendoLinux/corujabackup/internal/store"
@@ -55,6 +58,7 @@ func newRig(t *testing.T, ep cloudmgr.Endpoints) *rig {
 	}
 	srv := agentsrv.New(st, "teste")
 	srv.Cloud = mgr
+	srv.Box = box
 	lis, _ := net.Listen("tcp", "127.0.0.1:0")
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -315,5 +319,99 @@ func TestExecucaoOrfaDepoisDeReinicioEhMarcadaComoFalha(t *testing.T) {
 	run, _ := r.st.RunByUID(context.Background(), "uid-orfao")
 	if run.Status != "failed" || !strings.Contains(run.Error, "reiniciado") {
 		t.Fatalf("%+v", run)
+	}
+}
+
+// ---------------------------------------------------------------- banco de dados (contêiner MySQL real + nuvem falsa)
+
+func TestJobDeBancoDeBuildAFimComRestauracaoRealENuvem(t *testing.T) {
+	if os.Getenv("CORUJA_TEST_DOCKER") != "1" {
+		t.Skip("CORUJA_TEST_DOCKER=1 não definido")
+	}
+	dk := dockerapi.New("")
+	if !dk.Available(context.Background()) {
+		t.Skip("Docker indisponível")
+	}
+	ctx := context.Background()
+	if err := dk.Pull(ctx, "mysql:8.0"); err != nil {
+		t.Fatal(err)
+	}
+	src, err := dk.Create(ctx, dockerapi.CreateOptions{Image: "mysql:8.0", Env: []string{"MYSQL_ROOT_PASSWORD=segredo-e2e"}, Memory: 2 << 30, Labels: map[string]string{"coruja.test": "1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { dk.Remove(context.Background(), src) })
+	if err := dk.Start(ctx, src); err != nil {
+		t.Fatal(err)
+	}
+	// espera o MySQL aceitar conexões (TCP = servidor final) e cria dados
+	deadline := time.Now().Add(3 * time.Minute)
+	for {
+		code, _ := dk.Exec(ctx, src, dockerapi.ExecOptions{Cmd: []string{"mysqladmin", "-h", "127.0.0.1", "-uroot", "-psegredo-e2e", "ping"}, Stdout: io.Discard, Stderr: io.Discard})
+		if code == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("mysql não ficou pronto")
+		}
+		time.Sleep(2 * time.Second)
+	}
+	code, err := dk.Exec(ctx, src, dockerapi.ExecOptions{Cmd: []string{"mysql", "-uroot", "-psegredo-e2e"}, Stdin: strings.NewReader("CREATE DATABASE app; USE app; CREATE TABLE a (id INT PRIMARY KEY); CREATE TABLE b (id INT PRIMARY KEY); INSERT INTO a VALUES (1);"), Stdout: io.Discard, Stderr: io.Discard})
+	if err != nil || code != 0 {
+		t.Fatalf("seed: %d %v", code, err)
+	}
+
+	fake := cloudtest.NewGraph("cid")
+	defer fake.Close()
+	r := newRig(t, cloudmgr.Endpoints{MSDevice: fake.URL + "/devicecode", MSToken: fake.URL + "/token", Graph: fake.GraphURL()})
+	cid := r.connectCloud(cloud.TypeOneDrive, cloudmgr.AccountConfig{ClientID: "cid", HardDelete: true})
+
+	cfg := &store.DBConfig{Engine: "mysql", Mode: "docker", Container: src, RestoreTest: "full"}
+	cfg.ExcludeDatabases = []string{"mysql"}
+	sealed, err := cfg.Seal(r.mgr.Box) // sem senha: o agente a obtém do ambiente do contêiner
+	if err != nil {
+		t.Fatal(err)
+	}
+	j := &store.Job{Name: "bancos", AgentID: r.agent.ID, Kind: "database", Enabled: true, Cron: "0 0 1 1 *", Timezone: "UTC", Paths: []string{}, DestSubdir: "e2e",
+		Keep: 0, CloudAccountID: &cid, CloudFolder: "Coruja Backup/srv-e2e/bancos", CloudKeep: 2, DBSealed: sealed}
+	jid, err := r.st.CreateJob(ctx, j)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.srv.PushJobs(ctx, r.agent.ID)
+	time.Sleep(400 * time.Millisecond)
+
+	run := r.runNow(jid)
+	if run.Status != "ok" || run.CloudStatus != "ok" || run.CloudVerifiedBy != "quickxor" || run.Files != 1 {
+		t.Fatalf("execução: %+v\n%s", run, r.logs(run))
+	}
+	logs := r.logs(run)
+	for _, want := range []string{"banco app", "2 tabela(s)/coleção", "teste de restauração real concluído", "verificado por quickxor", "cópia local removida"} {
+		if !strings.Contains(logs, want) {
+			t.Errorf("log sem %q:\n%s", want, logs)
+		}
+	}
+	names := fake.Names("Coruja Backup/srv-e2e/bancos")
+	if len(names) != 1 {
+		t.Fatalf("nuvem: %v", names)
+	}
+	gz, err := gzip.NewReader(bytes.NewReader(fake.Content("Coruja Backup/srv-e2e/bancos", names[0])))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var files []string
+	tr := tar.NewReader(gz)
+	for {
+		h, err := tr.Next()
+		if err != nil {
+			break
+		}
+		files = append(files, h.Name)
+	}
+	if strings.Join(files, ",") != "bancos/app.sql,bancos/manifest.json" {
+		t.Fatalf("conteúdo do arquivo na nuvem: %v", files)
+	}
+	if lf := localFiles(t, r.bkDir); len(lf) != 0 {
+		t.Fatalf("keep=0: sem cópia local: %v", lf)
 	}
 }

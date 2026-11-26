@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"path"
@@ -13,6 +14,7 @@ import (
 	"github.com/AprendendoLinux/corujabackup/internal/agentsrv"
 	"github.com/AprendendoLinux/corujabackup/internal/auth"
 	"github.com/AprendendoLinux/corujabackup/internal/cloud"
+	"github.com/AprendendoLinux/corujabackup/internal/dbdump"
 	"github.com/AprendendoLinux/corujabackup/internal/sched"
 	"github.com/AprendendoLinux/corujabackup/internal/slug"
 	"github.com/AprendendoLinux/corujabackup/internal/store"
@@ -39,6 +41,129 @@ type jobIn struct {
 	CloudKeep      *int    `json:"cloud_keep"`
 	CloudKeepDays  *int    `json:"cloud_keep_days"`
 	ClearCloud     bool    `json:"clear_cloud"`
+
+	Kind *string `json:"kind"`
+	DB   *dbIn   `json:"db"`
+}
+
+type dbIn struct {
+	Engine           string    `json:"engine"`
+	Mode             string    `json:"mode"`
+	Container        string    `json:"container"`
+	Host             string    `json:"host"`
+	Port             int       `json:"port"`
+	User             string    `json:"user"`
+	Password         *string   `json:"password"` // nil ou vazio = manter a senha atual
+	AuthDB           string    `json:"auth_db"`
+	Databases        *[]string `json:"databases"`
+	ExcludeDatabases *[]string `json:"exclude_databases"`
+	SSLSkipVerify    bool      `json:"ssl_skip_verify"`
+	RestoreTest      string    `json:"restore_test"`
+	RestoreImage     string    `json:"restore_image"`
+}
+
+var (
+	containerRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
+	hostRE      = regexp.MustCompile(`^[A-Za-z0-9._:\-]{1,255}$`)
+	imageRE     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,200}$`)
+)
+
+// buildDB valida a configuração de banco e a mescla com a anterior (para não exigir a senha a cada edição).
+func buildDB(in *dbIn, old *store.DBConfig) (*store.DBConfig, string) {
+	c := &store.DBConfig{}
+	if old != nil {
+		c.Password = old.Password
+	}
+	c.Engine, c.Mode, c.Container, c.Host, c.Port = in.Engine, in.Mode, strings.TrimSpace(in.Container), strings.TrimSpace(in.Host), in.Port
+	c.User, c.AuthDB, c.SSLSkipVerify = strings.TrimSpace(in.User), strings.TrimSpace(in.AuthDB), in.SSLSkipVerify
+	if in.Password != nil && *in.Password != "" {
+		c.Password = *in.Password
+	}
+	switch c.Engine {
+	case "mysql", "mariadb", "postgres", "mongodb":
+	default:
+		return nil, "motor de banco inválido (mysql, mariadb, postgres ou mongodb)"
+	}
+	switch c.Mode {
+	case "docker":
+		if !containerRE.MatchString(c.Container) {
+			return nil, "informe o nome do contêiner do banco"
+		}
+		c.Host, c.Port = "", 0
+	case "network":
+		if !hostRE.MatchString(c.Host) {
+			return nil, "informe o endereço do servidor de banco"
+		}
+		if c.Port < 0 || c.Port > 65535 {
+			return nil, "porta inválida"
+		}
+		c.Container = ""
+	default:
+		return nil, "modo de conexão inválido (docker ou network)"
+	}
+	if len(c.User) > 128 || len(c.Password) > 256 || len(c.AuthDB) > 64 || strings.ContainsAny(c.User+c.AuthDB, "\x00\n\r") {
+		return nil, "usuário, senha ou banco de autenticação inválido"
+	}
+	list := func(p *[]string, old []string) ([]string, string) {
+		if p == nil {
+			return old, ""
+		}
+		var out []string
+		for _, d := range *p {
+			d = strings.TrimSpace(d)
+			if d == "" {
+				continue
+			}
+			if !dbdump.ValidName(d) {
+				return nil, "nome de banco inválido: " + d
+			}
+			out = append(out, d)
+		}
+		if len(out) > 200 {
+			return nil, "bancos demais na lista"
+		}
+		return out, ""
+	}
+	var msg string
+	var oldDBs, oldEx []string
+	if old != nil {
+		oldDBs, oldEx = old.Databases, old.ExcludeDatabases
+	}
+	if c.Databases, msg = list(in.Databases, oldDBs); msg != "" {
+		return nil, msg
+	}
+	if c.ExcludeDatabases, msg = list(in.ExcludeDatabases, oldEx); msg != "" {
+		return nil, msg
+	}
+	c.RestoreTest = in.RestoreTest
+	switch c.RestoreTest {
+	case "":
+		c.RestoreTest = "structural"
+	case "none", "structural", "full":
+	default:
+		return nil, "teste de restauração inválido (none, structural ou full)"
+	}
+	c.RestoreImage = strings.TrimSpace(in.RestoreImage)
+	if c.RestoreImage != "" && !imageRE.MatchString(c.RestoreImage) {
+		return nil, "imagem do teste de restauração inválida"
+	}
+	return c, ""
+}
+
+func dbView(c *store.DBConfig) map[string]any {
+	if c == nil {
+		return nil
+	}
+	return map[string]any{"engine": c.Engine, "mode": c.Mode, "container": c.Container, "host": c.Host, "port": c.Port, "user": c.User,
+		"password_set": c.Password != "", "auth_db": c.AuthDB, "databases": nonNil(c.Databases), "exclude_databases": nonNil(c.ExcludeDatabases),
+		"ssl_skip_verify": c.SSLSkipVerify, "restore_test": c.RestoreTest, "restore_image": c.RestoreImage}
+}
+
+func nonNil(v []string) []string {
+	if v == nil {
+		return []string{}
+	}
+	return v
 }
 
 func slugify(s string) string { return slug.Of(s) }
@@ -94,17 +219,42 @@ func (s *Server) applyJobIn(ctx context.Context, j *store.Job, in jobIn) string 
 	if _, err := sched.Parse(j.Cron, j.Timezone); err != nil {
 		return err.Error()
 	}
-	if in.Paths != nil {
-		p, msg := cleanList(*in.Paths, 50, 1024, true)
-		if msg != "" {
-			return msg
+	if j.Kind == "database" {
+		var old *store.DBConfig
+		if j.DBSealed != "" && s.Box != nil {
+			old, _ = j.OpenDB(s.Box)
 		}
-		j.Paths = p
+		if in.DB == nil && old == nil {
+			return "informe a configuração do banco de dados"
+		}
+		if in.DB != nil {
+			if s.Box == nil {
+				return "chave de criptografia indisponível"
+			}
+			cfg, msg := buildDB(in.DB, old)
+			if msg != "" {
+				return msg
+			}
+			sealed, err := cfg.Seal(s.Box)
+			if err != nil {
+				return "não foi possível proteger as credenciais"
+			}
+			j.DBSealed = sealed
+		}
+		j.Paths, j.Excludes = []string{}, []string{}
+	} else {
+		if in.Paths != nil {
+			p, msg := cleanList(*in.Paths, 50, 1024, true)
+			if msg != "" {
+				return msg
+			}
+			j.Paths = p
+		}
+		if len(j.Paths) == 0 {
+			return "informe pelo menos uma pasta ou arquivo para salvar"
+		}
 	}
-	if len(j.Paths) == 0 {
-		return "informe pelo menos uma pasta ou arquivo para salvar"
-	}
-	if in.Excludes != nil {
+	if in.Excludes != nil && j.Kind != "database" {
 		e, msg := cleanList(*in.Excludes, 100, 500, false)
 		if msg != "" {
 			return msg
@@ -176,16 +326,16 @@ func (s *Server) applyJobIn(ctx context.Context, j *store.Job, in jobIn) string 
 		}
 		return "a quantidade de cópias a manter deve ficar entre 1 e 365"
 	}
-	j.Kind = "files"
 	return ""
 }
 
 type jobView struct {
 	store.Job
-	AgentName   string     `json:"agent_name"`
-	AgentOnline bool       `json:"agent_online"`
-	NextRunAt   *time.Time `json:"next_run_at"`
-	LastRun     *store.Run `json:"last_run"`
+	AgentName   string         `json:"agent_name"`
+	AgentOnline bool           `json:"agent_online"`
+	NextRunAt   *time.Time     `json:"next_run_at"`
+	LastRun     *store.Run     `json:"last_run"`
+	DB          map[string]any `json:"db"`
 }
 
 func (s *Server) listJobs(w http.ResponseWriter, r *http.Request, _ *ctxUser) {
@@ -212,6 +362,11 @@ func (s *Server) listJobs(w http.ResponseWriter, r *http.Request, _ *ctxUser) {
 			n := sc.Next(s.clock())
 			v.NextRunAt = &n
 		}
+		if j.Kind == "database" {
+			if cfg, err := j.OpenDB(s.Box); err == nil {
+				v.DB = dbView(cfg)
+			}
+		}
 		if lr, ok := last[j.ID]; ok {
 			lr := lr
 			v.LastRun = &lr
@@ -226,7 +381,14 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request, cu *ctxUser) 
 	if !decode(w, r, &in) {
 		return
 	}
-	j := &store.Job{Enabled: true, Keep: 7, Timezone: "America/Sao_Paulo", Cron: "10 0 * * *"}
+	j := &store.Job{Enabled: true, Keep: 7, Timezone: "America/Sao_Paulo", Cron: "10 0 * * *", Kind: "files"}
+	if in.Kind != nil {
+		if *in.Kind != "files" && *in.Kind != "database" {
+			writeErr(w, 400, "tipo de job inválido (files ou database)")
+			return
+		}
+		j.Kind = *in.Kind
+	}
 	if msg := s.applyJobIn(r.Context(), j, in); msg != "" {
 		writeErr(w, 400, msg)
 		return
@@ -257,6 +419,10 @@ func (s *Server) updateJob(w http.ResponseWriter, r *http.Request, cu *ctxUser) 
 	j, err := s.Store.GetJob(r.Context(), id)
 	if err != nil {
 		writeErr(w, 404, "job não encontrado")
+		return
+	}
+	if in.Kind != nil && *in.Kind != j.Kind {
+		writeErr(w, 400, "o tipo do job não pode ser alterado (crie outro job)")
 		return
 	}
 	oldAgent := j.AgentID
@@ -406,4 +572,62 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request, _ *ctxUser) {
 	}
 	jobs, _ := s.Store.ListJobs(r.Context())
 	writeJSON(w, 200, map[string]any{"last_24h": map[string]int{"ok": st.OK, "warning": st.Warning, "failed": st.Failed, "missed": st.Missed, "running": st.Running}, "jobs": len(jobs)})
+}
+
+// ---------------------------------------------------------------- consultas ao agente (contêineres, teste de banco)
+
+func (s *Server) agentCall(w http.ResponseWriter, r *http.Request, agentID int64, kind string, payload []byte, timeout time.Duration) {
+	if s.Agents == nil {
+		writeErr(w, 503, "canal dos agentes indisponível")
+		return
+	}
+	out, err := s.Agents.Call(r.Context(), agentID, kind, payload, timeout)
+	switch {
+	case errors.Is(err, agentsrv.ErrOffline):
+		writeErr(w, 409, "o agente está offline")
+	case err != nil:
+		writeErr(w, 422, err.Error())
+	default:
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(out)
+	}
+}
+
+func (s *Server) agentContainers(w http.ResponseWriter, r *http.Request, _ *ctxUser) {
+	id, ok := pathID(r)
+	if !ok {
+		writeErr(w, 400, "id inválido")
+		return
+	}
+	s.agentCall(w, r, id, "containers", nil, 20*time.Second)
+}
+
+// dbTest valida a conexão com o banco (lista os bancos) usando a configuração informada; se a senha vier vazia e o
+// job_id for informado, reaproveita a senha já salva do job.
+func (s *Server) dbTest(w http.ResponseWriter, r *http.Request, _ *ctxUser) {
+	id, ok := pathID(r)
+	var in struct {
+		DB    dbIn  `json:"db"`
+		JobID int64 `json:"job_id"`
+	}
+	if !ok || !decode(w, r, &in) {
+		if !ok {
+			writeErr(w, 400, "id inválido")
+		}
+		return
+	}
+	var old *store.DBConfig
+	if in.JobID > 0 && s.Box != nil {
+		if j, err := s.Store.GetJob(r.Context(), in.JobID); err == nil && j.AgentID == id {
+			old, _ = j.OpenDB(s.Box)
+		}
+	}
+	cfg, msg := buildDB(&in.DB, old)
+	if msg != "" {
+		writeErr(w, 400, msg)
+		return
+	}
+	payload, _ := json.Marshal(cfg)
+	s.agentCall(w, r, id, "db_test", payload, 70*time.Second)
 }

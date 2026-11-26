@@ -11,7 +11,7 @@ RUN mkdir -p /src/internal/webui && npm run build
 
 # --- binários Go -----------------------------------------------------------------------------------------------------
 FROM golang:1.24-alpine AS gobuild
-ARG VERSION=0.0.4
+ARG VERSION=0.0.5
 WORKDIR /src
 COPY go.mod go.sum* ./
 RUN go mod download
@@ -24,7 +24,7 @@ RUN go build -trimpath -ldflags "-s -w -X github.com/AprendendoLinux/corujabacku
 
 # --- Server ------------------------------------------------------------------------------------------------------------
 FROM alpine:3.21 AS server
-ARG VERSION=0.0.4
+ARG VERSION=0.0.5
 LABEL org.opencontainers.image.title="Coruja Backup Server" \
       org.opencontainers.image.description="Backup centralizado: orquestração, agendamentos, nuvem e interface web" \
       org.opencontainers.image.source="https://github.com/AprendendoLinux/corujabackup" \
@@ -40,12 +40,13 @@ ENTRYPOINT ["/usr/local/bin/coruja-server"]
 
 # --- Agente ------------------------------------------------------------------------------------------------------------
 FROM alpine:3.21 AS agent
-ARG VERSION=0.0.4
+ARG VERSION=0.0.5
 LABEL org.opencontainers.image.title="Coruja Backup Agent" \
       org.opencontainers.image.description="Agente leve do Coruja Backup (conecta ao Server por IP:porta)" \
       org.opencontainers.image.source="https://github.com/AprendendoLinux/corujabackup" \
       org.opencontainers.image.version="${VERSION}" org.opencontainers.image.licenses="MIT"
-RUN apk add --no-cache ca-certificates tzdata && mkdir -p /var/lib/coruja-agent
+# Clientes de banco para o modo "rede" (no modo contêiner o dump roda com as ferramentas do próprio contêiner).
+RUN apk add --no-cache ca-certificates tzdata mariadb-client postgresql17-client mongodb-tools && mkdir -p /var/lib/coruja-agent
 COPY --from=gobuild /out/coruja-agent /usr/local/bin/coruja-agent
 VOLUME /var/lib/coruja-agent
 # Roda como root: a Fase 2 precisa ler pastas do host (montadas somente leitura).

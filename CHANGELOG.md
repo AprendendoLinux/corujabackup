@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.0.5] - Fase 4 · Bancos de dados
+- **Jobs de banco de dados** para **MySQL, MariaDB, PostgreSQL e MongoDB**, configurados na interface (escolha do tipo ao criar o job).
+- **Dois modos:** *contêiner Docker* (o dump roda **dentro** do contêiner, com as ferramentas da versão certa, pela Docker Engine API;
+  sem usuário/senha informados, usa as credenciais do próprio contêiner) ou *rede* (host e porta, com os clientes incluídos no agente).
+  A interface busca os contêineres do agente e tem "Testar conexão" (lista os bancos e a versão).
+- **Um arquivo por execução:** `.tar.gz` com um dump por banco + `manifest.json` (versão, tamanhos, SHA-256, nº de tabelas),
+  seguindo o mesmo fluxo de verificação, envio à nuvem (conferido por hash), retenção local e na nuvem dos jobs de arquivos.
+- **Conferência real de cada dump:** MySQL/MariaDB pelo marcador de conclusão (não confia só no código de saída), PostgreSQL com
+  `pg_restore --list`, MongoDB pela assinatura e integridade do arquivo; PostgreSQL também salva papéis/globais.
+- **Teste de restauração automatizado (opcional, recomendado):** restaura o backup num **servidor descartável** (contêiner sem rede,
+  apagado depois), compara o número de tabelas/coleções com a origem e registra o resultado; falha vira aviso destacado.
+- Segredos: a senha do banco fica cifrada no Server, nunca volta pela API, e vai ao agente só pelo canal TLS; os comandos recebem
+  credenciais por variáveis de ambiente, não por argumentos.
+- Testado com contêineres **reais** (MySQL 8.0, MariaDB 11.4, PostgreSQL 17, MongoDB 7.0), inclusive o fluxo completo até a nuvem.
+
 ## [0.0.4] - Fase 3 · Conectores de nuvem
 - **OneDrive (Microsoft Graph) e Google Drive (Drive v3)**, arquitetura modular (`Provider`): conta, cota, sessão de upload,
   consulta de hashes, listagem e exclusão **definitiva** (sem lixeira, que continuaria ocupando a cota).

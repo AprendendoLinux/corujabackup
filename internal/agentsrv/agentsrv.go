@@ -28,6 +28,7 @@ import (
 	"github.com/AprendendoLinux/corujabackup/internal/enroll"
 	"github.com/AprendendoLinux/corujabackup/internal/pb"
 	"github.com/AprendendoLinux/corujabackup/internal/ratelimit"
+	"github.com/AprendendoLinux/corujabackup/internal/secrets"
 	"github.com/AprendendoLinux/corujabackup/internal/slug"
 	"github.com/AprendendoLinux/corujabackup/internal/store"
 )
@@ -51,6 +52,7 @@ type CloudService interface {
 
 type Server struct {
 	pb.UnimplementedAgentServiceServer
+	Box           *secrets.Box
 	Cloud         CloudService
 	Store         *store.Store
 	ServerVersion string
@@ -58,6 +60,9 @@ type Server struct {
 
 	mu     sync.Mutex
 	online map[int64]*conn
+
+	rpcMu      sync.Mutex
+	rpcWaiters map[string]chan *pb.RpcResult
 }
 
 var ErrOffline = errors.New("o agente está offline")
@@ -69,10 +74,20 @@ func SpecFromJob(j store.Job) *pb.JobSpec {
 		CloudFolder: j.CloudFolder}
 }
 
-func specWithCloud(j store.Job) *pb.JobSpec {
+// specFor monta a definição do job enviada ao agente (decifrando a configuração de banco, se houver).
+func (s *Server) specFor(j store.Job) *pb.JobSpec {
 	sp := SpecFromJob(j)
 	if j.CloudAccountID != nil {
 		sp.CloudAccountId = *j.CloudAccountID
+	}
+	if j.Kind == "database" {
+		if cfg, err := j.OpenDB(s.Box); err == nil && cfg != nil {
+			sp.Db = &pb.DbSpec{Engine: cfg.Engine, Mode: cfg.Mode, Container: cfg.Container, Host: cfg.Host, Port: int32(cfg.Port), User: cfg.User,
+				Password: cfg.Password, AuthDb: cfg.AuthDB, Databases: cfg.Databases, ExcludeDatabases: cfg.ExcludeDatabases,
+				SslSkipVerify: cfg.SSLSkipVerify, RestoreTest: cfg.RestoreTest, RestoreImage: cfg.RestoreImage}
+		} else if err != nil {
+			slog.Error("não foi possível decifrar a configuração do banco", "job", j.Name, "erro", err.Error())
+		}
 	}
 	return sp
 }
@@ -101,7 +116,7 @@ func (s *Server) PushJobs(ctx context.Context, agentID int64) {
 	}
 	specs := make([]*pb.JobSpec, 0, len(jobs))
 	for _, j := range jobs {
-		specs = append(specs, specWithCloud(j))
+		specs = append(specs, s.specFor(j))
 	}
 	_ = s.enqueue(agentID, &pb.ServerMessage{Body: &pb.ServerMessage_SyncJobs{SyncJobs: &pb.SyncJobs{Jobs: specs}}})
 }
@@ -149,7 +164,7 @@ func reportFrom(agentID int64, r *pb.RunReport) store.Report {
 }
 
 func New(st *store.Store, version string) *Server {
-	return &Server{Store: st, ServerVersion: version, Limiter: ratelimit.New(10, 10*time.Minute), online: map[int64]*conn{}}
+	return &Server{Store: st, ServerVersion: version, Limiter: ratelimit.New(10, 10*time.Minute), online: map[int64]*conn{}, rpcWaiters: map[string]chan *pb.RpcResult{}}
 }
 
 // Online diz quais agentes têm o canal aberto agora.
@@ -387,6 +402,9 @@ func (s *Server) Connect(stream pb.AgentService_ConnectServer) error {
 					}
 				}
 			}
+			if rr := m.GetRpcResult(); rr != nil {
+				s.deliverRPC(rr)
+			}
 			if ur := m.GetUploadRequest(); ur != nil {
 				go s.send(c, s.handleUploadRequest(ctx, a, ur))
 			}
@@ -496,4 +514,44 @@ func (s *Server) handleUploadDone(ctx context.Context, a *store.Agent, d *pb.Upl
 		slog.Warn("envio à nuvem não conferiu", "job", j.Name, "motivo", v.Message)
 	}
 	return reply(&pb.UploadVerdict{Ok: v.OK, Message: v.Message, VerifiedBy: v.VerifiedBy, RemotePath: v.RemotePath, RemoteHash: v.RemoteHash, RetentionLog: v.Retention})
+}
+
+// Call faz uma chamada com resposta ao agente (listar contêineres, testar banco...). ErrOffline se ele não estiver conectado.
+func (s *Server) Call(ctx context.Context, agentID int64, kind string, payload []byte, timeout time.Duration) ([]byte, error) {
+	id := auth.NewUUID()
+	ch := make(chan *pb.RpcResult, 1)
+	s.rpcMu.Lock()
+	s.rpcWaiters[id] = ch
+	s.rpcMu.Unlock()
+	defer func() {
+		s.rpcMu.Lock()
+		delete(s.rpcWaiters, id)
+		s.rpcMu.Unlock()
+	}()
+	if err := s.enqueue(agentID, &pb.ServerMessage{Body: &pb.ServerMessage_Rpc{Rpc: &pb.Rpc{Id: id, Kind: kind, Payload: payload}}}); err != nil {
+		return nil, err
+	}
+	select {
+	case r := <-ch:
+		if !r.Ok {
+			return nil, errors.New(r.Error)
+		}
+		return r.Payload, nil
+	case <-time.After(timeout):
+		return nil, errors.New("o agente não respondeu a tempo")
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (s *Server) deliverRPC(r *pb.RpcResult) {
+	s.rpcMu.Lock()
+	ch := s.rpcWaiters[r.Id]
+	s.rpcMu.Unlock()
+	if ch != nil {
+		select {
+		case ch <- r:
+		default:
+		}
+	}
 }

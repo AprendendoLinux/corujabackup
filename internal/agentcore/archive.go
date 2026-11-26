@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/AprendendoLinux/corujabackup/internal/pb"
 	"github.com/AprendendoLinux/corujabackup/internal/slug"
 )
 
@@ -30,6 +31,8 @@ type FilesJob struct {
 	Keep     int
 	// SkipRetention: quem chama aplica a retenção depois (por exemplo, só após o envio à nuvem ser verificado).
 	SkipRetention bool
+	// DB != nil: job de banco de dados (o executor padrão usa RunDatabase em vez de RunFiles).
+	DB *pb.DbSpec
 }
 
 type Result struct {

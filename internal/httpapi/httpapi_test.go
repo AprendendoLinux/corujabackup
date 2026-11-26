@@ -17,6 +17,7 @@ import (
 	"github.com/AprendendoLinux/corujabackup/internal/cloud"
 	"github.com/AprendendoLinux/corujabackup/internal/cloudmgr"
 	"github.com/AprendendoLinux/corujabackup/internal/ratelimit"
+	"github.com/AprendendoLinux/corujabackup/internal/secrets"
 	"github.com/AprendendoLinux/corujabackup/internal/store"
 	"github.com/AprendendoLinux/corujabackup/internal/testutil"
 )
@@ -30,6 +31,9 @@ type fakeHub struct {
 	pushes  int
 	runs    []string
 	offline bool
+	calls   []string
+	callOut []byte
+	callErr error
 }
 
 func (f *fakeHub) Online() map[int64]time.Time     { return map[int64]time.Time{} }
@@ -43,6 +47,13 @@ func (f *fakeHub) RunNow(_, jobID int64, uid string) error {
 	return nil
 }
 func (f *fakeHub) CancelRun(int64, string) error { return nil }
+func (f *fakeHub) Call(_ context.Context, _ int64, kind string, payload []byte, _ time.Duration) ([]byte, error) {
+	f.calls = append(f.calls, kind+":"+string(payload))
+	if f.callErr != nil {
+		return nil, f.callErr
+	}
+	return f.callOut, nil
+}
 
 // ---------------------------------------------------------------- sem banco
 
@@ -96,7 +107,8 @@ func newEnv(t *testing.T) *env {
 	t.Helper()
 	d := testutil.DB(t)
 	e := &env{t: t, hub: &fakeHub{}, now: time.Now().UTC().Truncate(time.Second)}
-	e.api = &Server{DB: d, Store: store.New(d), Pinger: d, Agents: e.hub, Started: time.Now(), Fingerprint: strings.Repeat("ab", 32), AgentPort: "8443",
+	box, _ := secrets.Open(t.TempDir())
+	e.api = &Server{DB: d, Store: store.New(d), Box: box, Pinger: d, Agents: e.hub, Started: time.Now(), Fingerprint: strings.Repeat("ab", 32), AgentPort: "8443",
 		LoginLimiter: ratelimit.New(5, 15*time.Minute), now: func() time.Time { return e.now }}
 	e.srv = httptest.NewServer(e.api.Routes())
 	t.Cleanup(e.srv.Close)
@@ -625,4 +637,110 @@ func TestNuvemPermissoesSegredosEJobs(t *testing.T) {
 	}
 	adm.mustOK("PATCH", "/api/jobs/"+itoa(id), map[string]any{"clear_cloud": true, "keep": 3})
 	adm.mustOK("DELETE", "/api/clouds/"+itoa(int(cid)), nil)
+}
+
+// ---------------------------------------------------------------- bancos de dados
+
+func TestJobDeBancoValidacaoSenhaEEdicao(t *testing.T) {
+	e := newEnv(t)
+	adm := setupAdmin(e)
+	a := newAgent(t, e, "srv-db")
+	dbOK := map[string]any{"engine": "mysql", "mode": "docker", "container": "mysql-8", "user": "root", "password": "segredo-super", "restore_test": "full", "exclude_databases": []string{"mysql"}}
+	base := func(extra map[string]any) map[string]any {
+		m := map[string]any{"name": "Bancos", "agent_id": a.ID, "kind": "database", "keep": 3, "db": dbOK}
+		for k, v := range extra {
+			m[k] = v
+		}
+		return m
+	}
+	with := func(mod func(db map[string]any)) map[string]any {
+		db := map[string]any{}
+		for k, v := range dbOK {
+			db[k] = v
+		}
+		mod(db)
+		return base(map[string]any{"db": db})
+	}
+	for name, body := range map[string]map[string]any{
+		"sem configuração":     {"name": "x1", "agent_id": a.ID, "kind": "database"},
+		"motor inválido":       with(func(d map[string]any) { d["engine"] = "oracle" }),
+		"modo inválido":        with(func(d map[string]any) { d["mode"] = "ssh" }),
+		"sem contêiner":        with(func(d map[string]any) { d["container"] = "" }),
+		"contêiner malicioso":  with(func(d map[string]any) { d["container"] = "x; rm -rf /" }),
+		"rede sem host":        with(func(d map[string]any) { d["mode"] = "network"; d["host"] = "" }),
+		"porta inválida":       with(func(d map[string]any) { d["mode"] = "network"; d["host"] = "10.0.0.1"; d["port"] = 70000 }),
+		"banco malicioso":      with(func(d map[string]any) { d["databases"] = []string{"ok", "-rf"} }),
+		"restauração inválida": with(func(d map[string]any) { d["restore_test"] = "magica" }),
+		"tipo inválido":        base(map[string]any{"kind": "planilha"}),
+	} {
+		if code, _ := adm.do("POST", "/api/jobs", body); code != 400 {
+			t.Errorf("%s: esperava 400, veio %d", name, code)
+		}
+	}
+	id := int(adm.mustOK("POST", "/api/jobs", base(nil))["id"].(float64))
+
+	// a senha nunca sai pela API e fica cifrada no banco
+	jobs := adm.mustOK("GET", "/api/jobs", nil)["jobs"].([]any)
+	raw := jsonString(jobs)
+	if strings.Contains(raw, "segredo-super") {
+		t.Fatalf("a senha vazou pela API: %s", raw)
+	}
+	j := jobs[0].(map[string]any)
+	dv := j["db"].(map[string]any)
+	if j["kind"] != "database" || dv["engine"] != "mysql" || dv["password_set"] != true || dv["restore_test"] != "full" || len(j["paths"].([]any)) != 0 {
+		t.Fatalf("job de banco: %v", j)
+	}
+	var sealed string
+	e.api.DB.QueryRow("SELECT db_config FROM jobs WHERE id=?", id).Scan(&sealed)
+	if !strings.HasPrefix(sealed, "v1:") || strings.Contains(sealed, "segredo-super") || strings.Contains(sealed, "mysql-8") {
+		t.Fatalf("a configuração deve estar cifrada: %.30s", sealed)
+	}
+	// a edição sem senha mantém a anterior; o tipo não muda
+	adm.mustOK("PATCH", "/api/jobs/"+itoa(id), map[string]any{"db": map[string]any{"engine": "mysql", "mode": "docker", "container": "mysql-9", "user": "root", "restore_test": "full"}})
+	job, _ := e.api.Store.GetJob(context.Background(), int64(id))
+	cfg, err := job.OpenDB(e.api.Box)
+	if err != nil || cfg.Password != "segredo-super" || cfg.Container != "mysql-9" {
+		t.Fatalf("a senha deveria ser mantida: %+v %v", cfg, err)
+	}
+	if code, _ := adm.do("PATCH", "/api/jobs/"+itoa(id), map[string]any{"kind": "files"}); code != 400 {
+		t.Fatalf("o tipo do job é imutável: %d", code)
+	}
+	// o agente recebe a senha (por canal TLS) — o spec é montado a partir do banco
+	if cfg.Engine != "mysql" || cfg.RestoreTest != "full" || len(cfg.ExcludeDatabases) != 1 {
+		t.Fatalf("%+v", cfg)
+	}
+}
+
+func TestConsultasAoAgenteContainersETesteDeBanco(t *testing.T) {
+	e := newEnv(t)
+	adm := setupAdmin(e)
+	a := newAgent(t, e, "srv-q")
+	e.hub.callOut = []byte(`{"containers":[{"name":"db","image":"mysql:8","engine":"mysql"}]}`)
+	r := adm.mustOK("GET", "/api/agents/"+itoa(int(a.ID))+"/containers", nil)
+	if len(r["containers"].([]any)) != 1 || e.hub.calls[0] != "containers:" {
+		t.Fatalf("%v %v", r, e.hub.calls)
+	}
+	// db-test: valida a configuração e repassa ao agente (com a senha), sem a devolver
+	e.hub.callOut = []byte(`{"databases":["app"],"version":"8.0","user":"root","where":"contêiner db"}`)
+	r = adm.mustOK("POST", "/api/agents/"+itoa(int(a.ID))+"/db-test", map[string]any{"db": map[string]any{"engine": "mysql", "mode": "docker", "container": "db", "password": "p4ss"}})
+	if r["databases"].([]any)[0] != "app" || !strings.Contains(e.hub.calls[1], `"password":"p4ss"`) || !strings.HasPrefix(e.hub.calls[1], "db_test:") {
+		t.Fatalf("%v %v", r, e.hub.calls)
+	}
+	if code, _ := adm.do("POST", "/api/agents/"+itoa(int(a.ID))+"/db-test", map[string]any{"db": map[string]any{"engine": "mysql", "mode": "docker", "container": ""}}); code != 400 {
+		t.Fatalf("config inválida: %d", code)
+	}
+	e.hub.callErr = agentsrv.ErrOffline
+	if code, _ := adm.do("GET", "/api/agents/"+itoa(int(a.ID))+"/containers", nil); code != 409 {
+		t.Fatalf("agente offline: %d", code)
+	}
+	e.hub.callErr = errors.New("o Docker não está acessível")
+	if code, m := adm.do("GET", "/api/agents/"+itoa(int(a.ID))+"/containers", nil); code != 422 || !strings.Contains(m["error"].(string), "Docker") {
+		t.Fatalf("erro do agente deve chegar à interface: %d %v", code, m)
+	}
+	adm.mustOK("POST", "/api/users", map[string]string{"username": "leitor2", "password": pw, "role": "viewer"})
+	v := e.client()
+	v.mustOK("POST", "/api/login", map[string]string{"username": "leitor2", "password": pw})
+	if code, _ := v.do("GET", "/api/agents/"+itoa(int(a.ID))+"/containers", nil); code != 403 {
+		t.Fatalf("somente leitura não consulta contêineres: %d", code)
+	}
 }

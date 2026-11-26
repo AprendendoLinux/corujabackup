@@ -62,7 +62,7 @@ func (c *Core) fetch(ctx context.Context, act *pb.AgentAction, al *actionLog) er
 	if !backupFileRE.MatchString(act.FileName) {
 		return errors.New("nome de arquivo de backup inválido")
 	}
-	dir, err := SafeSubdir(c.cfg.BackupDir, act.Subdir)
+	dir, err := c.localDir(act.Subdir)
 	if err != nil {
 		return err
 	}
@@ -71,7 +71,7 @@ func (c *Core) fetch(ctx context.Context, act *pb.AgentAction, al *actionLog) er
 	}
 	local := filepath.Join(dir, act.FileName)
 	if _, err := os.Stat(local); err == nil {
-		al.flush("ok", "o arquivo já está neste agente", func(m *pb.ActionLog) { m.Path = local })
+		al.flush("ok", "o arquivo já está neste agente", func(m *pb.ActionLog) { m.Path = c.shownPath(local) })
 		return nil
 	}
 	al.logf("info", "trazendo %s do destino %s", path.Join(spec.Dest.Folder, act.FileName), cfg.Label())
@@ -81,6 +81,6 @@ func (c *Core) fetch(ctx context.Context, act *pb.AgentAction, al *actionLog) er
 	}
 	msg := fmt.Sprintf("%s trazido e conferido (%s)", act.FileName, HumanBytes(n))
 	al.logf("info", "%s", msg)
-	al.flush("ok", msg, func(m *pb.ActionLog) { m.Path = local })
+	al.flush("ok", msg, func(m *pb.ActionLog) { m.Path = c.shownPath(local) })
 	return nil
 }

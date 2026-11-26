@@ -249,6 +249,17 @@ func (c *Core) rpc(ctx context.Context, m *pb.Rpc) ([]byte, error) {
 		if err := json.Unmarshal(m.Payload, &req); err != nil {
 			return nil, fmt.Errorf("pedido inválido: %w", err)
 		}
+		if req.Area == BrowseDiskArea {
+			root, err := c.writeRoot()
+			if err != nil {
+				return nil, err
+			}
+			r, err := BrowseDisk(root, req.Path, c.cfg.BackupRoots)
+			if err != nil {
+				return nil, err
+			}
+			return json.Marshal(r)
+		}
 		var base string
 		switch req.Area {
 		case BrowseHost:

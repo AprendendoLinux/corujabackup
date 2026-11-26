@@ -28,7 +28,12 @@ const (
 
 type Config struct {
 	HostRoot  string // raiz do servidor vista pelo agente ("/" fora de contêiner; "/host" com o host montado)
-	BackupDir string // onde os arquivos de backup são gravados (nunca fora dela)
+	BackupDir string // pasta de backups padrão do agente (jobs sem uma pasta escolhida na interface)
+	// HostWriteRoot é a raiz gravável do servidor (montagem separada da origem), usada somente para gravar na pasta de backup
+	// local escolhida na interface. Vazio ou inexistente = o agente só grava em BackupDir.
+	HostWriteRoot string
+	// BackupRoots limita as pastas do servidor que podem receber backups. Vazio = qualquer uma (menos as do sistema).
+	BackupRoots []string
 	// Defesa em profundidade: o agente só executa o que a política local permitir, mesmo que o Server (ou quem o controla)
 	// peça outra coisa. Vazio = sem restrição.
 	AllowedPaths      []string // pastas que podem ser salvas (e tudo dentro delas)
@@ -93,8 +98,25 @@ func New(cfg Config, st *State, log *slog.Logger) *Core {
 		c.jobs[j.JobId] = j
 	}
 	c.exec = func(ctx context.Context, job FilesJob, loc *time.Location, now time.Time, h Hooks) (Result, error) {
+		var chosen string // caminho real da pasta escolhida na interface ("" = pasta de backups padrão)
+		if strings.HasPrefix(job.Subdir, "/") {
+			var err error
+			if chosen, err = c.localDir(job.Subdir); err != nil {
+				return Result{}, err
+			}
+			h.log("info", "pasta do backup local no servidor: %s", job.Subdir)
+		}
 		if job.DB != nil {
+			if chosen != "" {
+				return RunDatabase(ctx, job.Name, job.DB, ".", c.docker, chosen, loc, now, h)
+			}
 			return RunDatabase(ctx, job.Name, job.DB, job.Subdir, c.docker, c.cfg.BackupDir, loc, now, h)
+		}
+		job.DestPath, job.Artifacts = chosen, c.artifactDirs()
+		job.OwnDirs = []string{c.cfg.DestDir}
+		if c.st != nil {
+			// dados do agente: a credencial e os jobs (com senhas de bancos e de destinos) não podem ir para um backup
+			job.OwnDirs = append(job.OwnDirs, c.st.dir)
 		}
 		return RunFiles(ctx, job, c.cfg.HostRoot, c.cfg.BackupDir, loc, now, h)
 	}
@@ -416,7 +438,7 @@ func (c *Core) execute(parent context.Context, r runReq) {
 		logf("error", "falhou: %v", err)
 	case cloudErr != nil:
 		fin.Status, fin.Error = "failed", "o backup local foi concluído e conferido, mas o envio para a nuvem falhou: "+cloudErr.Error()
-		logf("error", "o arquivo local foi preservado em %s", res.OutputPath)
+		logf("error", "o arquivo local foi preservado em %s", c.shownPath(res.OutputPath))
 	case res.Warnings > 0:
 		fin.Status = "warning"
 		logf("warn", "concluído com %d aviso(s)", res.Warnings)
@@ -609,6 +631,26 @@ func PathAllowed(allowed []string, p string) bool {
 		}
 	}
 	return false
+}
+
+// artifactDirs reúne as pastas de backup local escolhidas nos jobs deste agente, para o que há de gerado nelas ficar fora
+// das origens (inclusive quando um job salva a pasta onde outro grava).
+func (c *Core) artifactDirs() []ArtifactDir {
+	c.mu.Lock()
+	specs := make([]*pb.JobSpec, 0, len(c.jobs))
+	for _, j := range c.jobs {
+		specs = append(specs, j)
+	}
+	c.mu.Unlock()
+	var out []ArtifactDir
+	for _, j := range specs {
+		if strings.HasPrefix(j.DestSubdir, "/") {
+			if p, err := c.localDir(j.DestSubdir); err == nil {
+				out = append(out, ArtifactDir{Path: p, Prefix: Slug(j.Name)})
+			}
+		}
+	}
+	return out
 }
 
 // ContainerAllowed confere o nome do contêiner com os padrões permitidos (lista vazia = qualquer um).

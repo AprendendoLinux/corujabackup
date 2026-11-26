@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -18,6 +19,8 @@ const (
 	// BrowseHost é a origem dos backups (o servidor do agente); BrowseBackups é a pasta de backups do agente.
 	BrowseHost    = "host"
 	BrowseBackups = "backups"
+	// BrowseDiskArea é o servidor visto para ESCOLHER a pasta do backup local (só pastas, com o espaço disponível).
+	BrowseDiskArea = "disk"
 
 	maxBrowseEntries = 3000
 )
@@ -41,6 +44,11 @@ type BrowseResult struct {
 	Path      string        `json:"path"`
 	Entries   []BrowseEntry `json:"entries"`
 	Truncated bool          `json:"truncated,omitempty"`
+	// só na área "disk"
+	Free    int64  `json:"free,omitempty"`
+	Total   int64  `json:"total,omitempty"`
+	Exists  bool   `json:"exists,omitempty"`
+	Blocked string `json:"blocked,omitempty"` // por que esta pasta não pode ser escolhida
 }
 
 // pastas que o job pode usar como destino local (mesma regra que o Server aplica ao salvar o job)
@@ -67,7 +75,7 @@ func Browse(base string, req BrowseRequest, allowed []string) (BrowseResult, err
 	if strings.ContainsRune(logical, 0) {
 		return res, errors.New("caminho inválido")
 	}
-	if req.Area != BrowseHost {
+	if req.Area == BrowseBackups {
 		allowed = nil
 	}
 	if !leadsToAllowed(allowed, logical) {
@@ -112,6 +120,11 @@ func Browse(base string, req BrowseRequest, allowed []string) (BrowseResult, err
 			continue
 		}
 		e := BrowseEntry{Name: it.Name(), Dir: it.IsDir(), Link: it.Type()&fs.ModeSymlink != 0}
+		if req.Area == BrowseDiskArea {
+			if !e.Dir || slices.Contains(forbiddenLocalDirs, full) {
+				continue
+			}
+		}
 		if req.Area == BrowseBackups {
 			// aqui só interessam pastas que podem virar destino de um job
 			if !e.Dir || !subdirNameRE.MatchString(e.Name) || strings.HasPrefix(e.Name, ".") || (logical == "/" && e.Name == "restores") {

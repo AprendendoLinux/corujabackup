@@ -428,17 +428,19 @@ func TestJobsCRUDValidacoesEPush(t *testing.T) {
 		return code
 	}
 	for name, mod := range map[string]func(map[string]any){
-		"nome vazio":         func(m map[string]any) { m["name"] = "" },
-		"agente inexistente": func(m map[string]any) { m["agent_id"] = 9999 },
-		"cron inválido":      func(m map[string]any) { m["cron"] = "99 * * * *" },
-		"cron @daily":        func(m map[string]any) { m["cron"] = "@daily" },
-		"fuso inválido":      func(m map[string]any) { m["timezone"] = "Marte/X" },
-		"caminho relativo":   func(m map[string]any) { m["paths"] = []string{"etc"} },
-		"sem caminhos":       func(m map[string]any) { m["paths"] = []string{} },
-		"destino com ..":     func(m map[string]any) { m["dest_subdir"] = "../fora" },
-		"destino absoluto":   func(m map[string]any) { m["dest_subdir"] = "/etc" },
-		"keep zero":          func(m map[string]any) { m["keep"] = 0 },
-		"campo desconhecido": func(m map[string]any) { m["foo"] = 1 },
+		"nome vazio":          func(m map[string]any) { m["name"] = "" },
+		"agente inexistente":  func(m map[string]any) { m["agent_id"] = 9999 },
+		"cron inválido":       func(m map[string]any) { m["cron"] = "99 * * * *" },
+		"cron @daily":         func(m map[string]any) { m["cron"] = "@daily" },
+		"fuso inválido":       func(m map[string]any) { m["timezone"] = "Marte/X" },
+		"caminho relativo":    func(m map[string]any) { m["paths"] = []string{"etc"} },
+		"sem caminhos":        func(m map[string]any) { m["paths"] = []string{} },
+		"destino com ..":      func(m map[string]any) { m["dest_subdir"] = "../fora" },
+		"destino na raiz":     func(m map[string]any) { m["dest_subdir"] = "/" },
+		"destino virtual":     func(m map[string]any) { m["dest_subdir"] = "/proc/x" },
+		"destino sai da base": func(m map[string]any) { m["dest_subdir"] = "/srv/../etc" },
+		"keep zero":           func(m map[string]any) { m["keep"] = 0 },
+		"campo desconhecido":  func(m map[string]any) { m["foo"] = 1 },
 	} {
 		if code := bad(mod); code != 400 {
 			t.Errorf("%s: esperava 400, veio %d", name, code)
@@ -791,6 +793,27 @@ func TestSeletorDePastasEEnderecoDosAgentes(t *testing.T) {
 	if len(r["entries"].([]any)) != 1 || e.hub.calls[0] != `fs_list:{"area":"host","path":"/etc"}` {
 		t.Fatalf("%v %v", r, e.hub.calls)
 	}
+	// pasta do backup local: caminho completo do servidor, com espaços e acentos
+	job := adm.mustOK("POST", "/api/jobs", map[string]any{"name": "local escolhido", "agent_id": a.ID, "cron": "0 3 * * *", "timezone": "UTC", "paths": []string{"/etc"}, "keep": 2, "dest_subdir": "/mnt/hd 2/Cópias//diárias/"})
+	got := ""
+	for _, x := range adm.mustOK("GET", "/api/jobs", nil)["jobs"].([]any) {
+		if m := x.(map[string]any); m["id"] == job["id"] {
+			got, _ = m["dest_subdir"].(string)
+		}
+	}
+	if got != "/mnt/hd 2/Cópias/diárias" {
+		t.Fatalf("pasta gravada: %q", got)
+	}
+	e.hub.calls = nil
+	e.hub.callOut = []byte(`{"path":"/mnt","entries":[],"free":10,"total":20,"exists":true}`)
+	if r = adm.mustOK("GET", browse+"?area=disk&path=%2Fmnt", nil); r["free"].(float64) != 10 || e.hub.calls[0] != `fs_list:{"area":"disk","path":"/mnt"}` {
+		t.Fatalf("%v %v", r, e.hub.calls)
+	}
+	e.hub.callErr = errors.New("área de navegação inválida")
+	if code, m := adm.do("GET", browse+"?area=disk", nil); code != 422 || !strings.Contains(m["error"].(string), "atualize o agente") {
+		t.Fatalf("agente 0.0.13 precisa de mensagem clara: %d %v", code, m)
+	}
+	e.hub.callErr = nil
 	if code, _ := adm.do("GET", browse+"?area=qualquer", nil); code != 400 {
 		t.Fatalf("área inválida: %d", code)
 	}

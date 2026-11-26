@@ -63,7 +63,7 @@ export default function NetDestination({ type, onSaved }: { type: string; onSave
 
       {type === 'local' && (
         <div className="rounded-lg border border-border bg-bg p-3 text-muted">
-          Grava numa pasta do próprio agente, dentro da raiz de destinos (<code>/destinos</code>). Para NFS, iSCSI ou um disco externo, monte-o no servidor e
+          Grava numa pasta do próprio agente, dentro da raiz de destinos (<code>/destinos</code>). Para NFS, iSCSI ou um disco externo, monte-o na máquina do agente e
           adicione ao contêiner do agente um volume como <code>- /mnt/nas:/destinos/nas</code>.
         </div>
       )}

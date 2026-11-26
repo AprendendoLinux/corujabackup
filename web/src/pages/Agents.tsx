@@ -39,7 +39,7 @@ export default function Agents({ me }: { me: User }) {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Agentes</h1>
-          <p className="text-sm text-muted">Servidores que executam os backups. Cada um se conecta ao Server com IP:porta e um token de matrícula.</p>
+          <p className="text-sm text-muted">Cada agente executa os backups da máquina em que está instalado e se conecta ao Server com IP:porta e um token de matrícula.</p>
         </div>
         {canEdit && <Button onClick={() => { setCreated(null); setModal(true) }}>+ Novo agente</Button>}
       </div>
@@ -140,7 +140,7 @@ function NewToken({ onCreated }: { onCreated: (c: { token: string; name: string;
   }
   return (
     <form onSubmit={submit} className="space-y-3">
-      <Field label="Nome do servidor" hint="Como ele aparecerá nos relatórios. Ex.: umami-server2"><Input autoFocus value={name} onChange={(e) => setName(e.target.value)} required /></Field>
+      <Field label="Nome do agente" hint="Como ele aparecerá nos relatórios. Ex.: umami-server2"><Input autoFocus value={name} onChange={(e) => setName(e.target.value)} required /></Field>
       <Field label="Validade do token" hint="O token só pode ser usado uma vez">
         <select className="w-full rounded-lg border border-border bg-surface px-3 py-2" value={ttl} onChange={(e) => setTtl(+e.target.value)}>
           <option value={1}>1 hora</option><option value={24}>24 horas</option><option value={72}>3 dias</option><option value={168}>7 dias</option>
@@ -188,7 +188,7 @@ volumes:
         <div className="mb-1 font-medium">Opção 2 · docker-compose.yml</div>
         <CopyBox text={compose} />
       </div>
-      <p className="text-muted">O agente se conecta de dentro para fora, em <b>{addr}</b> (porta do canal dos agentes). Libere essa porta para o servidor do agente. A origem dos backups é lida em /host, <b>somente leitura</b>. A montagem /host-rw dá ao agente permissão de gravação no servidor, usada na pasta do backup local que você escolher no job.</p>
+      <p className="text-muted">O agente se conecta de dentro para fora, em <b>{addr}</b> (porta do canal dos agentes). Libere essa porta para a saída do agente. A origem dos backups é lida em /host, <b>somente leitura</b>. A montagem /host-rw dá ao agente permissão de gravação em todo o sistema de arquivos dele, usada na pasta do backup local que você escolher no job.</p>
     </div>
   )
 }

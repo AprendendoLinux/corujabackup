@@ -110,7 +110,7 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
     if (f.kind === 'files' && f.paths.length === 0) { setErr('Selecione pelo menos uma pasta ou arquivo para salvar.'); return }
     // job novo (ou que trocou de agente): a pasta local é escolhida no painel; jobs antigos podem continuar na pasta padrão
     const mustChoose = !job || job.agent_id !== Number(f.agent_id)
-    if (mustChoose && agentHasDiskPicker(agentVersion) && noWriteAgent !== Number(f.agent_id) && !f.dest_subdir.startsWith('/')) { setErr('Escolha a pasta do backup local no servidor.'); return }
+    if (mustChoose && agentHasDiskPicker(agentVersion) && noWriteAgent !== Number(f.agent_id) && !f.dest_subdir.startsWith('/')) { setErr('Escolha a pasta do backup local no agente.'); return }
     setBusy(true)
     const body: Record<string, unknown> = { name: f.name, agent_id: Number(f.agent_id), kind: f.kind, paths: f.paths, excludes: f.excludes, cron: f.cron, timezone: f.timezone, dest_subdir: f.dest_subdir, keep: Number(f.keep), enabled: f.enabled }
     if (f.cloud_account_id) Object.assign(body, { cloud_account_id: Number(f.cloud_account_id), cloud_folder: f.cloud_folder, cloud_keep: Number(f.cloud_keep), cloud_keep_days: Number(f.cloud_keep_days) })
@@ -124,7 +124,7 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
     <form onSubmit={submit} className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Nome do job"><Input autoFocus value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required /></Field>
-        <Field label="Agente (servidor)">
+        <Field label="Agente">
           <select className={sel} value={f.agent_id} onChange={(e) => setF({ ...f, agent_id: Number(e.target.value), dest_subdir: job && job.agent_id === Number(e.target.value) ? job.dest_subdir : '' })}>
             {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
@@ -137,10 +137,10 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
         </select>
       </Field>
       {f.kind === 'files' ? (<>
-        <PathList label="Pastas e arquivos a salvar" items={f.paths} empty="Nada selecionado ainda." pickLabel="Selecionar pastas e arquivos…"
+        <PathList agentId={Number(f.agent_id)} label="Pastas e arquivos a salvar" items={f.paths} empty="Nada selecionado ainda." pickLabel="Selecionar pastas e arquivos…"
           typeLabel="digitar um caminho" placeholder="/srv/dados" onPick={() => setTree('paths')} onChange={(paths) => setF((v) => ({ ...v, paths }))}
-          hint="Os caminhos são os do servidor do agente. O agente precisa estar online para navegar." />
-        <PathList label="Exclusões (opcional)" items={f.excludes} empty="Nada fica de fora." pickLabel="Selecionar o que fica de fora…"
+          hint="Os caminhos são os do agente. Ele precisa estar online para navegar." />
+        <PathList agentId={Number(f.agent_id)} label="Exclusões (opcional)" items={f.excludes} empty="Nada fica de fora." pickLabel="Selecionar o que fica de fora…"
           pickDisabled={f.paths.length === 0 ? 'Primeiro selecione o que salvar' : undefined} typeLabel="adicionar um padrão (ex.: *.tmp)" placeholder="*.tmp"
           onPick={() => setTree('excludes')} onChange={(excludes) => setF((v) => ({ ...v, excludes }))}
           hint="Num padrão, * vale para qualquer coisa. Sem / vale para o nome em qualquer pasta (*.tmp); com / vale para o caminho (*/data/cache/*)." />
@@ -187,7 +187,7 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
           </select>
         </Field>
         {f.cloud_account_id !== 0 && (<>
-          <FolderField key={f.cloud_account_id} label="Pasta no destino" hint="Automática = Coruja Backup/<servidor>/<job>. Pastas novas são criadas no primeiro backup." value={f.cloud_folder} autoText="(automática)"
+          <FolderField key={f.cloud_account_id} label="Pasta no destino" hint="Automática = Coruja Backup/<agente>/<job>. Pastas novas são criadas no primeiro backup." value={f.cloud_folder} autoText="(automática)"
             onChange={(cloud_folder) => setF((v) => ({ ...v, cloud_folder }))}
             picker={{ title: `Pasta em ${dest?.name ?? 'destino'}`, rootLabel: dest?.name ?? 'Destino',
               intro: dest?.type === 'gdrive' ? 'Por segurança, o Google Drive só mostra ao Coruja Backup as pastas criadas por ele.'
@@ -246,7 +246,7 @@ function DbSection({ db, setDb, agentId, job }: { db: DbState; setDb: (d: DbStat
             {Object.entries(ENGINE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
         </Field>
-        <Field label="Como o agente acessa" hint={isDocker ? 'Recomendado: executa o dump dentro do contêiner (usa as ferramentas na versão certa).' : 'Usa as ferramentas de cliente do agente; o servidor precisa estar acessível pela rede.'}>
+        <Field label="Como o agente acessa" hint={isDocker ? 'Recomendado: executa o dump dentro do contêiner (usa as ferramentas na versão certa).' : 'Usa as ferramentas de cliente do agente; o servidor de banco precisa estar acessível pela rede.'}>
           <select className={sel} value={db.mode} onChange={(e) => upd({ mode: e.target.value })}>
             <option value="docker">Contêiner Docker (via docker.sock)</option>
             <option value="network">Rede (host e porta)</option>
@@ -267,7 +267,7 @@ function DbSection({ db, setDb, agentId, job }: { db: DbState; setDb: (d: DbStat
         </Field>
       ) : (
         <div className="grid gap-3 sm:grid-cols-3">
-          <div className="sm:col-span-2"><Field label="Endereço do servidor"><Input value={db.host} onChange={(e) => upd({ host: e.target.value })} placeholder="10.0.0.5 ou db.exemplo.com" /></Field></div>
+          <div className="sm:col-span-2"><Field label="Endereço do servidor de banco"><Input value={db.host} onChange={(e) => upd({ host: e.target.value })} placeholder="10.0.0.5 ou db.exemplo.com" /></Field></div>
           <Field label="Porta"><Input type="number" min={0} max={65535} value={db.port || ''} placeholder={String(ENGINE_PORT[db.engine])} onChange={(e) => upd({ port: Number(e.target.value) })} /></Field>
         </div>
       )}
@@ -285,14 +285,14 @@ function DbSection({ db, setDb, agentId, job }: { db: DbState; setDb: (d: DbStat
         <Field label="Bancos a salvar" hint="Um por linha. Vazio = todos."><textarea className={`${sel} font-mono text-xs`} rows={3} value={db.databases} onChange={(e) => upd({ databases: e.target.value })} /></Field>
         <Field label="Bancos a ignorar" hint="Um por linha. Já ignorados: information_schema, performance_schema, sys (MySQL) e local, config (MongoDB)."><textarea className={`${sel} font-mono text-xs`} rows={3} value={db.exclude_databases} onChange={(e) => upd({ exclude_databases: e.target.value })} /></Field>
       </div>
-      <Field label="Teste de restauração" hint={db.restore_test === 'full' ? 'Restaura o backup num servidor descartável (sem rede, apagado em seguida) e compara o número de tabelas com a origem. Exige Docker no agente e usa alguns minutos e ~1 GiB de memória.' : db.restore_test === 'structural' ? 'Confere a integridade do arquivo e a estrutura do dump, sem restaurar.' : 'Nenhuma conferência além do próprio dump.'}>
+      <Field label="Teste de restauração" hint={db.restore_test === 'full' ? 'Restaura o backup num servidor de banco descartável (sem rede, apagado em seguida) e compara o número de tabelas com a origem. Exige Docker no agente e usa alguns minutos e ~1 GiB de memória.' : db.restore_test === 'structural' ? 'Confere a integridade do arquivo e a estrutura do dump, sem restaurar.' : 'Nenhuma conferência além do próprio dump.'}>
         <select className={sel} value={db.restore_test} onChange={(e) => upd({ restore_test: e.target.value })}>
           <option value="full">Restauração real (recomendado)</option>
           <option value="structural">Só estrutura</option>
           <option value="none">Nenhum</option>
         </select>
       </Field>
-      {db.restore_test === 'full' && <Field label="Imagem do servidor descartável (opcional)" hint="Vazio = a mesma imagem do contêiner de origem (ou a versão equivalente, no modo rede)."><Input value={db.restore_image} onChange={(e) => upd({ restore_image: e.target.value })} placeholder="mysql:8.0" /></Field>}
+      {db.restore_test === 'full' && <Field label="Imagem do servidor de banco descartável (opcional)" hint="Vazio = a mesma imagem do contêiner de origem (ou a versão equivalente, no modo rede)."><Input value={db.restore_image} onChange={(e) => upd({ restore_image: e.target.value })} placeholder="mysql:8.0" /></Field>}
       <div className="flex items-center gap-3">
         <Button type="button" variant="ghost" onClick={test} disabled={busy || !agentId}>Testar conexão</Button>
         {busy && <span className="text-sm text-muted">Consultando o agente…</span>}

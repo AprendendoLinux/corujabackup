@@ -281,7 +281,7 @@ func (s *Server) applyJobIn(ctx context.Context, j *store.Job, in jobIn) string 
 	} else {
 		j.DestSubdir = strings.TrimRight(j.DestSubdir, "/")
 		if !subdirRE.MatchString(j.DestSubdir) || strings.Contains(j.DestSubdir, "..") {
-			return "pasta de destino inválida: use um caminho completo do servidor ou um nome relativo (letras, números, ponto, hífen, sublinhado e /), sem .."
+			return "pasta de destino inválida: use um caminho completo do agente ou um nome relativo (letras, números, ponto, hífen, sublinhado e /), sem .."
 		}
 	}
 	if in.Keep != nil {

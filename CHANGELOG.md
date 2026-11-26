@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.0.15] - Agente e tipos na lista
+- **Pasta e arquivo diferenciados:** nas listas do que salvar e das exclusões, cada item tem ícone e etiqueta (Pasta, Arquivo, Atalho, Padrão), e as pastas terminam com `/`. Um caminho que não existe mais no agente aparece como **Não encontrado**.
+- **Nomes:** a máquina onde o backup roda é sempre chamada de **agente** na interface, nos e-mails e no PDF. "Servidor" fica só para servidores SMTP, SFTP, FTP, SMB e de banco.
+
 ## [0.0.14] - Pasta local pelo painel
 - **Segurança:** a pasta de dados do agente (credencial e jobs, com senhas de bancos e destinos) nunca entra num backup, mesmo selecionando o `/` inteiro.
 - **Pasta do backup local escolhida no painel:** navegue pelos discos do servidor, crie a pasta e veja o **espaço livre** antes de escolher. Exige o novo volume `- /:/host-rw` na stack do agente (dá permissão de gravação no servidor; `CORUJA_BACKUP_ROOTS` limita onde). A origem continua somente leitura. Jobs antigos continuam na pasta padrão.

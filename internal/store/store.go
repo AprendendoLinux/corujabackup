@@ -272,3 +272,71 @@ func (s *Store) ListAudit(ctx context.Context, limit int) ([]AuditEntry, error) 
 	}
 	return out, rows.Err()
 }
+
+// ---------------------------------------------------------------- sessões (gestão)
+
+type SessionInfo struct {
+	ID         string    `json:"id"`
+	CreatedAt  time.Time `json:"created_at"`
+	LastSeenAt time.Time `json:"last_seen_at"`
+	ExpiresAt  time.Time `json:"expires_at"`
+	IP         string    `json:"ip"`
+	UserAgent  string    `json:"user_agent"`
+	Pending2FA bool      `json:"pending_2fa"`
+}
+
+func (s *Store) ListSessions(ctx context.Context, userID int64) ([]SessionInfo, error) {
+	rows, err := s.DB.QueryContext(ctx, "SELECT id, created_at, last_seen_at, expires_at, ip, user_agent, pending_2fa FROM sessions WHERE user_id=? AND expires_at > UTC_TIMESTAMP() ORDER BY last_seen_at DESC", userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []SessionInfo{}
+	for rows.Next() {
+		var x SessionInfo
+		if err := rows.Scan(&x.ID, &x.CreatedAt, &x.LastSeenAt, &x.ExpiresAt, &x.IP, &x.UserAgent, &x.Pending2FA); err != nil {
+			return nil, err
+		}
+		out = append(out, x)
+	}
+	return out, rows.Err()
+}
+
+// DeleteSessionOf encerra uma sessão específica do usuário (outro usuário não consegue encerrar sessões alheias).
+func (s *Store) DeleteSessionOf(ctx context.Context, userID int64, id string) (bool, error) {
+	res, err := s.DB.ExecContext(ctx, "DELETE FROM sessions WHERE id=? AND user_id=?", id, userID)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+func (s *Store) PurgeAudit(ctx context.Context, olderThan time.Time) error {
+	_, err := s.DB.ExecContext(ctx, "DELETE FROM audit_log WHERE at < ?", olderThan.UTC())
+	return err
+}
+
+// SealedSamples devolve alguns valores cifrados do banco, para conferir se a chave de criptografia ainda os abre.
+func (s *Store) SealedSamples(ctx context.Context) []string {
+	var out []string
+	for _, q := range []string{
+		"SELECT tokens FROM cloud_accounts WHERE tokens IS NOT NULL AND tokens<>'' LIMIT 3",
+		"SELECT config FROM cloud_accounts WHERE config LIKE 'v1:%' LIMIT 3",
+		"SELECT config FROM notification_channels LIMIT 3",
+		"SELECT db_config FROM jobs WHERE db_config IS NOT NULL AND db_config<>'' LIMIT 3",
+	} {
+		rows, err := s.DB.QueryContext(ctx, q)
+		if err != nil {
+			continue
+		}
+		for rows.Next() {
+			var v string
+			if rows.Scan(&v) == nil && v != "" {
+				out = append(out, v)
+			}
+		}
+		rows.Close()
+	}
+	return out
+}

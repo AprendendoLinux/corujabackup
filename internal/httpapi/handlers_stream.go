@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/AprendendoLinux/corujabackup/internal/store"
@@ -12,12 +13,28 @@ import (
 
 // streamRun envia, por SSE (Server-Sent Events), o log e o andamento de uma execução ao vivo. Termina sozinho quando a
 // execução acaba e todo o log foi entregue. Cada conexão consulta o banco 1x por segundo (poucas conexões simultâneas).
-func (s *Server) streamRun(w http.ResponseWriter, r *http.Request, _ *ctxUser) {
+func (s *Server) streamRun(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
 	id, ok := pathID(r)
 	if !ok {
 		writeErr(w, 400, "id inválido")
 		return
 	}
+	// limites de transmissões simultâneas (cada uma segura uma conexão e consulta o banco 1x/s)
+	if s.sseTotal.Add(1) > 60 {
+		s.sseTotal.Add(-1)
+		writeErr(w, 429, "transmissões ao vivo demais no momento; tente em instantes")
+		return
+	}
+	defer s.sseTotal.Add(-1)
+	uk := cu.User.ID
+	cnt, _ := s.sseUser.LoadOrStore(uk, new(atomic.Int32))
+	uc := cnt.(*atomic.Int32)
+	if uc.Add(1) > 8 {
+		uc.Add(-1)
+		writeErr(w, 429, "você já tem transmissões ao vivo demais abertas")
+		return
+	}
+	defer uc.Add(-1)
 	fl, ok := w.(http.Flusher)
 	if !ok {
 		writeErr(w, 500, "transmissão não suportada")

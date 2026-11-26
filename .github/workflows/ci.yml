@@ -2,6 +2,8 @@ name: CI
 on:
   push: { branches: [main] }
   pull_request:
+permissions:
+  contents: read
 jobs:
   go:
     runs-on: ubuntu-latest
@@ -17,7 +19,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with: { go-version: "1.24" }
+        with: { go-version: "1.26" }
+      - name: gofmt
+        run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: go test -p 1 ./...
   web:
@@ -27,3 +31,12 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: "22" }
       - run: cd web && npm install --no-audit --no-fund && npm run build
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build das imagens (sem publicar)
+        run: |
+          docker buildx build --target server --build-arg VERSION=ci .
+          docker buildx build --target agent --build-arg VERSION=ci .

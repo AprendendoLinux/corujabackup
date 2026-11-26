@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/AprendendoLinux/corujabackup/internal/auth"
@@ -46,6 +47,11 @@ func (s *Server) authed(min int, h func(http.ResponseWriter, *http.Request, *ctx
 			writeErr(w, 403, "sem permissão para esta ação")
 			return
 		}
+		// política "exigir 2FA": enquanto o usuário não ativar, só acessa a própria conta (para poder ativar)
+		if !strings.HasPrefix(r.URL.Path, "/api/me") && s.needs2FA(r, cu.User) {
+			writeJSON(w, 403, map[string]string{"error": "a política de segurança exige a verificação em duas etapas: ative o 2FA em Minha conta", "code": "2fa_required"})
+			return
+		}
 		h(w, r, cu)
 	}
 }
@@ -64,7 +70,7 @@ func (s *Server) currentUser(r *http.Request, allowPending bool) (*ctxUser, erro
 		return nil, errors.New("sessão não autorizada")
 	}
 	if !se.Pending2FA {
-		_ = s.Store.ExtendSession(r.Context(), se.IDHash, s.clock().Add(sessionTTL))
+		_ = s.Store.ExtendSession(r.Context(), se.IDHash, s.clock().Add(s.sessionTTL(r)))
 	}
 	return &ctxUser{User: se.User, Session: se}, nil
 }
@@ -74,7 +80,7 @@ func (s *Server) startSession(ctx context.Context, w http.ResponseWriter, r *htt
 	if err != nil {
 		return err
 	}
-	ttl := sessionTTL
+	ttl := s.sessionTTL(r)
 	if pending {
 		ttl = pendingTTL
 	}

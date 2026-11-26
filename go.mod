@@ -1,20 +1,20 @@
 module github.com/AprendendoLinux/corujabackup
 
-go 1.24
+go 1.26.0
 
 require (
-	github.com/go-sql-driver/mysql v1.9.3
-	golang.org/x/crypto v0.38.0
-	google.golang.org/grpc v1.72.2
-	google.golang.org/protobuf v1.36.6
+	github.com/go-pdf/fpdf v0.9.0
+	github.com/go-sql-driver/mysql v1.10.2
+	github.com/robfig/cron/v3 v3.0.1
+	golang.org/x/crypto v0.59.0
+	google.golang.org/grpc v1.85.0
+	google.golang.org/protobuf v1.36.12
 )
 
 require (
-	filippo.io/edwards25519 v1.1.0 // indirect
-	github.com/go-pdf/fpdf v0.9.0 // indirect
-	github.com/robfig/cron/v3 v3.0.1 // indirect
-	golang.org/x/net v0.35.0 // indirect
-	golang.org/x/sys v0.33.0 // indirect
-	golang.org/x/text v0.25.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20250218202821-56aae31c358a // indirect
+	filippo.io/edwards25519 v1.2.0 // indirect
+	golang.org/x/net v0.63.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261123191846-1e707ab9fbc2 // indirect
 )

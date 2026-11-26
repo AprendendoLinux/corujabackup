@@ -1,58 +1,69 @@
 # 🦉 Coruja Backup
 
-Sistema de backup **centralizado**, em Docker, gerenciado por **interface web**: um **Server** que orquestra tudo e
-**Agentes** leves nos servidores de destino. Fase atual: **0.0.7 (Fase 6: notificações e relatórios)**.
+Sistema de backup **centralizado**, em Docker, gerenciado por **interface web**. Um **Server** orquestra tudo; **Agentes** leves rodam
+nos servidores de destino e se conectam a ele informando só **IP:porta + token**.
+
+> **Versão 0.0.8** · [Changelog](CHANGELOG.md) · [Instalação](docs/INSTALACAO.md) · [Operação](docs/OPERACAO.md) · [Segurança](docs/SEGURANCA.md) · [FAQ](docs/FAQ.md)
+
+## O que faz
+
+| Área | Recursos |
+| :--- | :--- |
+| **Backups** | Pastas/arquivos (`.tar.gz` com exclusões) e **bancos de dados** (MySQL, MariaDB, PostgreSQL, MongoDB). Agenda cron com fuso; o **agente agenda sozinho** e roda mesmo com o Server fora do ar. |
+| **Confiança** | Cada arquivo é conferido (SHA-256, gzip, estrutura) e há **teste de restauração real** de bancos num servidor descartável. A retenção só roda depois de verificar. Horários perdidos viram alerta. |
+| **Nuvem** | **OneDrive** e **Google Drive**: o agente envia **direto** (sessão retomável), conferência por hash do agente **e** do Server, retenção por quantidade/dias, exclusão definitiva (sem lixeira). |
+| **Restauração** | Baixar da nuvem, reenviar, extrair no agente (extração segura) e guia manual por tipo de backup. |
+| **Avisos** | E-mail (SMTP) e Telegram; falha, aviso, sucesso, agente offline e **relatório diário consolidado em PDF A4**. |
+| **Interface** | Painel, agentes, jobs, histórico com **log ao vivo**, nuvem, notificações, **white-label** (nome, logo, temas), usuários e perfis, 2FA, auditoria. |
+| **Operação** | Métricas Prometheus, CLI de recuperação de acesso, política de 2FA/sessão, imagens endurecidas e multi-arquitetura. |
 
 ## Como funciona
 
 ```
- ┌────────────┐  gRPC/TLS (agente → server)   ┌───────────────────────┐   MySQL   ┌────────┐
- │  Agente    │ ────────────────────────────▶ │  Server (UI + API)    │ ────────▶ │ mysql  │
- │ (cada host)│   IP:porta + token            │  agenda, orquestra    │           └────────┘
- └─────┬──────┘                               └──────────┬────────────┘
-       │ upload direto (sessão emitida pelo Server)       │ credenciais da nuvem ficam só aqui
-       ▼                                                  ▼
-   OneDrive · Google Drive · (outros conectores)
+ ┌────────────┐  gRPC/TLS 1.3 (agente → server)   ┌───────────────────────┐   MySQL   ┌────────┐
+ │  Agente    │ ────────────────────────────────▶ │  Server (UI + API)    │ ────────▶ │ mysql  │
+ │ (cada host)│   IP:8443 + token                 │  agenda, orquestra    │           └────────┘
+ └─────┬──────┘                                   └──────────┬────────────┘
+       │ envio direto (sessão emitida pelo Server)            │ credenciais da nuvem ficam só aqui (cifradas)
+       ▼                                                      ▼
+   OneDrive · Google Drive                            e-mail · Telegram · Prometheus
 ```
 
-- **Server:** guarda configuração, agendamentos, histórico e as credenciais da nuvem; expõe **uma porta**.
-- **Agente:** só precisa de **IP:porta + token**. Faz tar das pastas e dumps de bancos (MySQL/MariaDB, PostgreSQL, MongoDB…) e envia direto à nuvem.
-- **Conectores de nuvem** modulares (OneDrive e Google Drive primeiro). **White-label:** temas e logo personalizada.
+- O **Server** guarda configuração, histórico e credenciais (cifradas) e expõe duas portas: `8080` (interface/API) e `8443` (agentes).
+- O **Agente** só faz conexões de saída, não abre portas, e executa apenas o que a política local permitir.
+- Tudo é configurado pela interface; as variáveis de ambiente dos compose são mínimas.
 
-## Subir o Server
+## Instalação rápida
 
 ```bash
-cd deploy
-# troque COLOQUE_UMA_SENHA_FORTE nos dois lugares do arquivo
+# Server + MySQL (troque COLOQUE_UMA_SENHA_FORTE nos dois lugares do arquivo)
+curl -fsSLO https://raw.githubusercontent.com/AprendendoLinux/corujabackup/main/deploy/docker-compose.server.yml
 docker compose -f docker-compose.server.yml up -d
-# abra http://IP_DO_SERVER:8080
+docker logs corujabackup-server 2>&1 | grep "CONFIGURAÇÃO INICIAL"     # código para criar o administrador
+# abra http://IP_DO_SERVER:8080, crie o administrador e vá em Agentes > Novo agente
 ```
 
-Na primeira abertura a interface pede para criar o administrador. Única variável obrigatória: `CORUJA_DB_PASSWORD`. Opcionais: `CORUJA_AGENT_LISTEN` (padrão `:8443`), `CORUJA_DATA_DIR` (padrão `/data`), `CORUJA_TRUST_PROXY`, `CORUJA_DB_HOST` (padrão `db`), `CORUJA_DB_NAME`,
-`CORUJA_DB_USER`, `CORUJA_DB_PORT`, `CORUJA_LISTEN` (padrão `:8080`). Todo o resto é configurado na interface.
+O guia completo (HTTPS, proxy reverso, firewall, agentes, nuvem) está em [docs/INSTALACAO.md](docs/INSTALACAO.md).
 
-## Subir um Agente
+## Documentação
 
-```bash
-cd deploy
-# informe CORUJA_SERVER (IP:8443) e CORUJA_TOKEN (Agentes > Novo agente, na interface; o token vale uma vez)
-docker compose -f docker-compose.agent.yml up -d
-```
-
-O agente lê o servidor por `/host` (somente leitura, `CORUJA_HOST_ROOT=/host`) e grava os backups em `/backups`; os jobs são criados na interface (Jobs). O acesso ao `docker.sock` (para dumps dentro de contêineres de banco) é **opcional** e vem desligado.
+- [Instalação](docs/INSTALACAO.md) — Server, agentes, HTTPS/proxy, primeiros passos e referência de variáveis.
+- [Operação](docs/OPERACAO.md) — backup do próprio Server, atualização, recuperação de acesso, monitoramento, solução de problemas.
+- [Segurança](docs/SEGURANCA.md) — modelo de ameaças, o que protege, checklist de endurecimento.
+- [Arquitetura](docs/ARQUITETURA.md) e [Roadmap](docs/ROADMAP.md) — decisões técnicas e fases.
+- [FAQ](docs/FAQ.md) · [Contribuindo](CONTRIBUTING.md) · [Política de segurança](SECURITY.md)
 
 ## Desenvolvimento
 
 ```bash
-cp docker-compose.dev.example.yml docker-compose.dev.yml   # ajuste a senha (arquivo ignorado pelo git)
-docker compose -f docker-compose.dev.yml up -d --build      # http://localhost:8081
-# testes Go (com um MySQL descartável em CORUJA_TEST_DSN para os de integração):
-docker run --rm --network SUA_REDE -e CORUJA_TEST_DSN='usuario:senha@tcp(db:3306)/banco_de_teste?parseTime=true&loc=UTC' -v "$PWD":/src -w /src golang:1.24-alpine go test -p 1 ./...
-# ATENÇÃO: os testes de integração APAGAM as tabelas do banco indicado em CORUJA_TEST_DSN; use um banco descartável.
-./scripts/gen-proto.sh   # regenera internal/pb a partir de proto/ (só se mudar o .proto)
+cp docker-compose.dev.example.yml docker-compose.dev.yml     # ajuste a senha (arquivo ignorado pelo git)
+docker compose -f docker-compose.dev.yml up -d --build        # http://localhost:8081
+# testes (Go 1.26 em contêiner; os de integração APAGAM as tabelas do banco indicado: use um banco descartável)
+docker run --rm --network SUA_REDE -e CORUJA_TEST_DSN='usuario:senha@tcp(db:3306)/banco_de_teste?parseTime=true&loc=UTC' \
+  -v "$PWD":/src -w /src golang:1.26-alpine go test -p 1 ./...
+# testes com contêineres reais de bancos (baixa imagens): adicione -e CORUJA_TEST_DOCKER=1 -v /var/run/docker.sock:/var/run/docker.sock
+./scripts/gen-proto.sh                                        # regenera internal/pb (só se mudar o .proto)
 ```
 
-Roteiro completo em [docs/ROADMAP.md](docs/ROADMAP.md); decisões em [docs/ARQUITETURA.md](docs/ARQUITETURA.md).
-
 ---
-Coruja Backup - Versão 0.0.7 - Desenvolvido por [Henrique Fagundes](https://henrique.tec.br) · Licença MIT
+Coruja Backup - Versão 0.0.8 - Desenvolvido por [Henrique Fagundes](https://henrique.tec.br) · Licença MIT

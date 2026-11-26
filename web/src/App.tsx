@@ -12,6 +12,7 @@ import Users from './pages/Users'
 import Audit from './pages/Audit'
 import Account from './pages/Account'
 import Appearance from './pages/Appearance'
+import Security from './pages/Security'
 import Notifications from './pages/Notifications'
 
 type Me = { user: User; recovery_codes_left: number; version: string }
@@ -29,7 +30,7 @@ export default function App() {
   const [theme, setTheme] = useState('coruja')
   const [phase, setPhase] = useState<Phase>('loading')
   const [me, setMe] = useState<Me | null>(null)
-  const [version, setVersion] = useState('0.0.7')
+  const [version, setVersion] = useState('0.0.8')
   const route = useRoute()
 
   const loadBrand = useCallback(() => {
@@ -79,6 +80,7 @@ export default function App() {
               {me.user.role === 'admin' && <NavLink to="usuarios" cur={route}>Usuários</NavLink>}
               {me.user.role === 'admin' && <NavLink to="auditoria" cur={route}>Auditoria</NavLink>}
               {me.user.role === 'admin' && <NavLink to="notificacoes" cur={route}>Notificações</NavLink>}
+              {me.user.role === 'admin' && <NavLink to="seguranca" cur={route}>Segurança</NavLink>}
               {me.user.role === 'admin' && <NavLink to="aparencia" cur={route}>Aparência</NavLink>}
             </nav>
           )}
@@ -109,6 +111,7 @@ export default function App() {
           : route === 'usuarios' && me.user.role === 'admin' ? <Users me={me.user} />
           : route === 'auditoria' && me.user.role === 'admin' ? <Audit />
           : route === 'notificacoes' && me.user.role === 'admin' ? <Notifications />
+          : route === 'seguranca' && me.user.role === 'admin' ? <Security />
           : route === 'aparencia' && me.user.role === 'admin' ? <Appearance />
           : route === 'conta' ? <Account me={me.user} recoveryLeft={me.recovery_codes_left} reload={refresh} />
           : <Dashboard name={brand.name} canReport={me.user.role !== 'viewer'} />

@@ -61,7 +61,7 @@ func main() {
 		log.Error("não foi possível preparar a pasta de dados do agente", "erro", err.Error())
 		os.Exit(1)
 	}
-	core := agentcore.New(agentcore.Config{HostRoot: *hostRoot, BackupDir: *backupDir}, local, log)
+	core := agentcore.New(agentcore.Config{HostRoot: *hostRoot, BackupDir: *backupDir, AllowedPaths: splitList(os.Getenv("CORUJA_ALLOWED_PATHS")), AllowedContainers: splitList(os.Getenv("CORUJA_ALLOWED_CONTAINERS"))}, local, log)
 	if err := os.MkdirAll(*backupDir, 0o750); err != nil {
 		log.Warn("a pasta de backups não está disponível (monte um volume gravável)", "pasta", *backupDir, "erro", err.Error())
 	}
@@ -76,4 +76,14 @@ func envOr(k, d string) string {
 		return v
 	}
 	return d
+}
+
+func splitList(v string) []string {
+	var out []string
+	for _, p := range strings.Split(v, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

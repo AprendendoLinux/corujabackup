@@ -25,7 +25,7 @@ type Brand struct {
 }
 
 func DefaultBrand() Brand {
-	return Brand{Name: "Coruja Backup", Primary: "#3b2a6b", Accent: "#f5a524", Bg: "#f6f5fb", Text: "#1e1b2e", Muted: "#6b6784", Border: "#e3e0f0", Ok: "#1f9d55", Danger: "#d64545", Version: "0.0.7"}
+	return Brand{Name: "Coruja Backup", Primary: "#3b2a6b", Accent: "#f5a524", Bg: "#f6f5fb", Text: "#1e1b2e", Muted: "#6b6784", Border: "#e3e0f0", Ok: "#1f9d55", Danger: "#d64545", Version: "0.0.8"}
 }
 
 type RunRow struct {

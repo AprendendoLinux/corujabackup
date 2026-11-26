@@ -89,6 +89,7 @@ function NewAccount({ onCreated, onConnected, defs }: { onCreated: (id: number, 
   const gd = f.type === 'gdrive'
   const web = gd && !!defs.gdrive_web && mode === 'auto' // botão único: popup do Google
   const std = gd && !web && !!defs.gdrive && mode !== 'own' // aplicativo padrão com código de dispositivo
+  const noCreds = web || std // nada de ID/segredo para preencher
   async function viaPopup() {
     // abre o popup já no clique (senão o navegador bloqueia) e só depois descobre o endereço
     const pop = window.open('', 'coruja-oauth', 'width=520,height=700')
@@ -142,8 +143,8 @@ function NewAccount({ onCreated, onConnected, defs }: { onCreated: (id: number, 
         </div>
       )}
       {gd && (defs.gdrive || defs.gdrive_web) && mode !== 'auto' && <button type="button" className="text-sm text-primary hover:underline" onClick={() => setMode('auto')}>← Voltar ao login com o Google</button>}
-      {!std && <Field label="Client ID (ID do aplicativo)"><Input className="font-mono" value={f.client_id} onChange={(e) => setF({ ...f, client_id: e.target.value })} required /></Field>}
-      {std ? null : od ? (
+      {!noCreds && <Field label="Client ID (ID do aplicativo)"><Input className="font-mono" value={f.client_id} onChange={(e) => setF({ ...f, client_id: e.target.value })} required /></Field>}
+      {noCreds ? null : od ? (
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Locatário (tenant)" hint="common = contas pessoais e corporativas. Ou o ID/domínio do seu locatário."><Input placeholder="common" value={f.tenant} onChange={(e) => setF({ ...f, tenant: e.target.value })} /></Field>
           <Field label="Client Secret (opcional)" hint="Só se o aplicativo for “confidencial”."><Input type="password" autoComplete="off" value={f.client_secret} onChange={(e) => setF({ ...f, client_secret: e.target.value })} /></Field>
@@ -151,7 +152,7 @@ function NewAccount({ onCreated, onConnected, defs }: { onCreated: (id: number, 
       ) : (
         <Field label="Client Secret"><Input type="password" autoComplete="off" value={f.client_secret} onChange={(e) => setF({ ...f, client_secret: e.target.value })} required /></Field>
       )}
-      {!std && <details className="rounded-lg border border-border bg-bg p-3">
+      {!noCreds && <details className="rounded-lg border border-border bg-bg p-3">
         <summary className="cursor-pointer font-medium">Como obter o Client ID{od ? '' : ' e o Secret'}</summary>
         {od ? (
           <ol className="mt-2 list-decimal space-y-1 pl-5 text-muted">

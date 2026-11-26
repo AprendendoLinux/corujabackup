@@ -31,7 +31,7 @@ func CheckLocalDir(p string) (string, error) {
 	}
 	clean := path.Clean(p)
 	if clean == "/" {
-		return "", errors.New("escolha uma pasta: o backup não pode ser gravado direto na raiz do servidor")
+		return "", errors.New("escolha uma pasta: o backup não pode ser gravado direto na raiz do agente")
 	}
 	for _, f := range forbiddenLocalDirs {
 		if clean == f || strings.HasPrefix(clean, f+"/") {
@@ -41,7 +41,7 @@ func CheckLocalDir(p string) (string, error) {
 	return clean, nil
 }
 
-var errNoWriteMount = errors.New("este agente não pode gravar no servidor: adicione o volume \"- /:/host-rw\" à stack do agente e recrie o contêiner")
+var errNoWriteMount = errors.New("este agente não pode gravar fora das próprias pastas: adicione o volume \"- /:/host-rw\" à stack do agente e recrie o contêiner")
 
 // writeRoot devolve a raiz gravável do servidor, como o agente a enxerga.
 func (c *Core) writeRoot() (string, error) {

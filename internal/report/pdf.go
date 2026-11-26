@@ -339,7 +339,7 @@ func (dl Daily) PDF() ([]byte, error) {
 		}
 		ar = append(ar, []string{a.Name, st, a.Version})
 	}
-	d.table([]col{{"Servidor", 70, "L"}, {"Estado", 80, "L"}, {"Versão", 30, "L"}}, ar)
+	d.table([]col{{"Agente", 70, "L"}, {"Estado", 80, "L"}, {"Versão", 30, "L"}}, ar)
 
 	if len(dl.Runs) > 0 {
 		p.AddPage()

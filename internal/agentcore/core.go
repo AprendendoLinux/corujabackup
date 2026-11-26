@@ -104,7 +104,7 @@ func New(cfg Config, st *State, log *slog.Logger) *Core {
 			if chosen, err = c.localDir(job.Subdir); err != nil {
 				return Result{}, err
 			}
-			h.log("info", "pasta do backup local no servidor: %s", job.Subdir)
+			h.log("info", "pasta do backup local: %s", job.Subdir)
 		}
 		if job.DB != nil {
 			if chosen != "" {

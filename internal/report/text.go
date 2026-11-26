@@ -113,7 +113,7 @@ func (e RunEvent) Telegram() string {
 
 func (e RunEvent) Text() string {
 	r, loc := e.Run, e.loc()
-	s := fmt.Sprintf("%s\n\nJob: %s\nServidor: %s\nEstado: %s\nInício: %s\nDuração: %s\n", e.Subject(), r.Job, r.Agent, StatusLabel(r.Status), fmtTime(r.StartedAt, loc), fmtDur(r.StartedAt, r.FinishedAt))
+	s := fmt.Sprintf("%s\n\nJob: %s\nAgente: %s\nEstado: %s\nInício: %s\nDuração: %s\n", e.Subject(), r.Job, r.Agent, StatusLabel(r.Status), fmtTime(r.StartedAt, loc), fmtDur(r.StartedAt, r.FinishedAt))
 	if r.BytesOut > 0 {
 		s += "Arquivo: " + FmtBytes(r.BytesOut) + "\n"
 	}
@@ -142,5 +142,5 @@ func (e AgentEvent) Text() string {
 	if loc == nil {
 		loc = timeUTC
 	}
-	return fmt.Sprintf("%s\n\nO servidor %s não dá sinal há mais de %d minutos.\nVisto por último: %s\n\n%s - Versão %s\n", e.Subject(), e.Agent.Name, e.Minutes, fmtTime(e.Agent.LastSeen, loc), e.Name, e.Version)
+	return fmt.Sprintf("%s\n\nO agente %s não dá sinal há mais de %d minutos.\nVisto por último: %s\n\n%s - Versão %s\n", e.Subject(), e.Agent.Name, e.Minutes, fmtTime(e.Agent.LastSeen, loc), e.Name, e.Version)
 }

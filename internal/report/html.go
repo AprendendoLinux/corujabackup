@@ -166,7 +166,7 @@ func (e RunEvent) HTML() string {
 	var sb strings.Builder
 	sb.WriteString(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px">`)
 	sb.WriteString(kv(b, "Job", "<b>"+esc(r.Job)+"</b>"))
-	sb.WriteString(kv(b, "Servidor", esc(r.Agent)))
+	sb.WriteString(kv(b, "Agente", esc(r.Agent)))
 	sb.WriteString(kv(b, "Estado", badge(b, r.Status)))
 	sb.WriteString(kv(b, "Início", esc(fmtTime(r.StartedAt, loc))))
 	sb.WriteString(kv(b, "Duração", esc(fmtDur(r.StartedAt, r.FinishedAt))))
@@ -197,7 +197,7 @@ func (e AgentEvent) HTML() string {
 	if loc == nil {
 		loc = timeUTC
 	}
-	body := fmt.Sprintf(`<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="font-size:14px">%s%s%s</table><p style="color:%s">O servidor não dá sinal há mais de %d minutos. Se ele estiver desligado ou sem rede, os backups agendados não vão rodar.</p>`,
-		kv(b, "Servidor", "<b>"+esc(e.Agent.Name)+"</b>"), kv(b, "Visto por último", esc(fmtTime(e.Agent.LastSeen, loc))), kv(b, "Versão do agente", esc(e.Agent.Version)), b.Muted, e.Minutes)
+	body := fmt.Sprintf(`<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="font-size:14px">%s%s%s</table><p style="color:%s">O agente não dá sinal há mais de %d minutos. Se a máquina dele estiver desligada ou sem rede, os backups agendados não vão rodar.</p>`,
+		kv(b, "Agente", "<b>"+esc(e.Agent.Name)+"</b>"), kv(b, "Visto por último", esc(fmtTime(e.Agent.LastSeen, loc))), kv(b, "Versão do agente", esc(e.Agent.Version)), b.Muted, e.Minutes)
 	return shell(b, e.Subject(), "Agente offline", b.Danger, body, len(b.LogoPNG) > 0)
 }

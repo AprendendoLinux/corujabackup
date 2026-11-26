@@ -1,13 +1,67 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { CLOUD_LABEL, CloudAccount, DeviceInfo, User, api, ApiError, fmtBytes, fmtDate } from '../api'
 import { Badge, Button, Card, CopyBox, ErrorBox, Field, Input, Modal } from '../ui'
+import { CLOUD_ICON } from '../icons'
+
+// Catálogo de destinos. ok = disponível; soon = em construção (colorido); off = previsto (cinza).
+type Prov = { id: string; label: string; hint: string; state: 'ok' | 'soon' | 'off' }
+const PROVIDERS: { group: string; items: Prov[] }[] = [
+  { group: 'Nuvem', items: [
+    { id: 'gdrive', label: 'Google Drive', hint: 'Entre com a sua conta Google', state: 'ok' },
+    { id: 'onedrive', label: 'OneDrive', hint: 'Microsoft pessoal ou corporativo', state: 'ok' },
+    { id: 'dropbox', label: 'Dropbox', hint: 'Entre com a sua conta Dropbox', state: 'soon' },
+    { id: 's3', label: 'Amazon S3', hint: 'AWS, MinIO, Wasabi…', state: 'off' },
+    { id: 'b2', label: 'Backblaze B2', hint: 'Armazenamento econômico', state: 'off' },
+    { id: 'box', label: 'Box', hint: 'Armazenamento corporativo', state: 'off' },
+    { id: 'mega', label: 'MEGA', hint: 'Armazenamento cifrado', state: 'off' },
+    { id: 'pcloud', label: 'pCloud', hint: 'Armazenamento europeu', state: 'off' },
+  ] },
+  { group: 'Servidores e rede', items: [
+    { id: 'sftp', label: 'SFTP', hint: 'Servidor por SSH', state: 'off' },
+    { id: 'smb', label: 'Pasta de rede', hint: 'SMB, NFS, iSCSI', state: 'off' },
+  ] },
+]
+const PROV_BY_ID = Object.fromEntries(PROVIDERS.flatMap((g) => g.items).map((p) => [p.id, p]))
+
+function ProviderIcon({ id, size = 40 }: { id: string; size?: number }) {
+  const I = CLOUD_ICON[id]
+  return I ? I({ size }) : null
+}
+
+function ProviderGrid({ onPick }: { onPick: (id: string) => void }) {
+  return (
+    <div className="space-y-5">
+      <p className="text-sm text-muted">Escolha onde guardar os backups.</p>
+      {PROVIDERS.map((g) => (
+        <section key={g.group} aria-label={g.group}>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">{g.group}</h3>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {g.items.map((p) => {
+              const on = p.state === 'ok'
+              return (
+                <button key={p.id} type="button" disabled={!on} aria-disabled={!on} onClick={() => on && onPick(p.id)}
+                  title={on ? p.label : 'Em breve'}
+                  className={`group relative flex flex-col items-center gap-2 rounded-xl border px-3 py-4 text-center transition ${on ? 'border-border bg-surface hover:-translate-y-0.5 hover:border-primary hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary' : 'cursor-not-allowed border-border/70 bg-bg'}`}>
+                  <span className={on || p.state === 'soon' ? '' : 'opacity-60 grayscale'}><ProviderIcon id={p.id} size={44} /></span>
+                  <span className={`text-sm font-semibold ${on ? '' : 'text-muted'}`}>{p.label}</span>
+                  <span className="text-xs leading-snug text-muted">{p.hint}</span>
+                  {!on && <span className="absolute right-2 top-2 rounded-full bg-border/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">Em breve</span>}
+                </button>
+              )
+            })}
+          </div>
+        </section>
+      ))}
+    </div>
+  )
+}
 
 export default function Clouds({ me }: { me: User }) {
   const [accounts, setAccounts] = useState<CloudAccount[]>([])
   const [err, setErr] = useState('')
   const [info, setInfo] = useState('')
   const [defs, setDefs] = useState<{ gdrive?: boolean; gdrive_web?: boolean; broker?: string }>({})
-  const [wizard, setWizard] = useState<{ id?: number; device?: DeviceInfo; name?: string } | null>(null)
+  const [wizard, setWizard] = useState<{ id?: number; device?: DeviceInfo; name?: string; type?: string } | null>(null)
   const isAdmin = me.role === 'admin'
 
   const load = useCallback(() => {
@@ -48,9 +102,12 @@ export default function Clouds({ me }: { me: User }) {
           return (
             <Card key={a.id}>
               <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className="font-semibold">{a.name}</div>
-                  <div className="text-sm text-muted">{CLOUD_LABEL[a.type]}{a.account_label && ` · ${a.account_label}`}</div>
+                <div className="flex min-w-0 items-center gap-3">
+                  <ProviderIcon id={a.type} size={36} />
+                  <div className="min-w-0">
+                    <div className="truncate font-semibold">{a.name}</div>
+                    <div className="truncate text-sm text-muted">{CLOUD_LABEL[a.type]}{a.account_label && ` · ${a.account_label}`}</div>
+                  </div>
                 </div>
                 {a.status === 'connected' ? <Badge tone="ok">Conectada</Badge> : a.status === 'error' ? <Badge tone="danger">Erro</Badge> : <Badge tone="warn">Aguardando autorização</Badge>}
               </div>
@@ -72,17 +129,18 @@ export default function Clouds({ me }: { me: User }) {
         })}
       </div>
 
-      {wizard && <Modal title={wizard.device ? 'Autorizar o acesso' : 'Conectar nuvem'} onClose={() => { setWizard(null); load() }}>
+      {wizard && <Modal title={wizard.device ? 'Autorizar o acesso' : wizard.type ? `Conectar ${PROV_BY_ID[wizard.type]?.label ?? 'nuvem'}` : 'Conectar nuvem'} onClose={() => { setWizard(null); load() }}>
         {wizard.device && wizard.id
           ? <Authorize id={wizard.id} name={wizard.name ?? ''} device={wizard.device} onDone={() => { setWizard(null); setInfo('Conta conectada com sucesso.'); load() }} />
-          : <NewAccount defs={defs} onCreated={(id, device, name) => { setWizard({ id, device, name }); load() }} onConnected={() => { setWizard(null); setInfo('Conta conectada com sucesso.'); load() }} />}
+          : !wizard.type ? <ProviderGrid onPick={(type) => setWizard({ type })} />
+          : <NewAccount type={wizard.type} onBack={() => setWizard({})} defs={defs} onCreated={(id, device, name) => { setWizard({ id, device, name }); load() }} onConnected={() => { setWizard(null); setInfo('Conta conectada com sucesso.'); load() }} />}
       </Modal>}
     </div>
   )
 }
 
-function NewAccount({ onCreated, onConnected, defs }: { onCreated: (id: number, device: DeviceInfo, name: string) => void; onConnected: () => void; defs: { gdrive?: boolean; gdrive_web?: boolean; broker?: string } }) {
-  const [f, setF] = useState({ type: 'onedrive', name: '', client_id: '', client_secret: '', tenant: '' })
+function NewAccount({ type, onBack, onCreated, onConnected, defs }: { type: string; onBack: () => void; onCreated: (id: number, device: DeviceInfo, name: string) => void; onConnected: () => void; defs: { gdrive?: boolean; gdrive_web?: boolean; broker?: string } }) {
+  const [f, setF] = useState({ type, name: '', client_id: '', client_secret: '', tenant: '' })
   const [mode, setMode] = useState<'auto' | 'code' | 'own'>('auto')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
@@ -124,10 +182,12 @@ function NewAccount({ onCreated, onConnected, defs }: { onCreated: (id: number, 
   const od = f.type === 'onedrive'
   return (
     <form onSubmit={submit} className="space-y-4 text-sm">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Provedor"><select className={sel} value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })}><option value="onedrive">OneDrive (Microsoft)</option><option value="gdrive">Google Drive</option></select></Field>
-        <Field label="Nome da conta" hint="Como aparece nos jobs. Ex.: OneDrive da empresa"><Input autoFocus value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required /></Field>
+      <div className="flex items-center gap-3 rounded-xl border border-border bg-bg px-4 py-3">
+        <ProviderIcon id={type} size={40} />
+        <div className="min-w-0 flex-1"><div className="font-semibold">{PROV_BY_ID[type]?.label}</div><div className="text-xs text-muted">{PROV_BY_ID[type]?.hint}</div></div>
+        <button type="button" className="text-sm text-primary hover:underline" onClick={onBack}>← Trocar</button>
       </div>
+      <Field label="Nome da conta" hint="Como aparece nos jobs. Ex.: Backups da empresa"><Input autoFocus value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required /></Field>
       {web && (
         <div className="rounded-lg border border-border bg-bg p-3 text-muted">
           Uma janela do Google vai abrir para você entrar e autorizar. O Coruja só enxerga os arquivos que ele mesmo criar.{' '}

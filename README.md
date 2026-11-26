@@ -1,7 +1,7 @@
 # 🦉 Coruja Backup
 
 Sistema de backup **centralizado**, em Docker, gerenciado por **interface web**: um **Server** que orquestra tudo e
-**Agentes** leves nos servidores de destino. Fase atual: **0.0.6 (Fase 5: interface completa)**.
+**Agentes** leves nos servidores de destino. Fase atual: **0.0.7 (Fase 6: notificações e relatórios)**.
 
 ## Como funciona
 
@@ -55,4 +55,4 @@ docker run --rm --network SUA_REDE -e CORUJA_TEST_DSN='usuario:senha@tcp(db:3306
 Roteiro completo em [docs/ROADMAP.md](docs/ROADMAP.md); decisões em [docs/ARQUITETURA.md](docs/ARQUITETURA.md).
 
 ---
-Coruja Backup - Versão 0.0.6 - Desenvolvido por [Henrique Fagundes](https://henrique.tec.br) · Licença MIT
+Coruja Backup - Versão 0.0.7 - Desenvolvido por [Henrique Fagundes](https://henrique.tec.br) · Licença MIT

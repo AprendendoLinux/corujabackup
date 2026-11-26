@@ -19,6 +19,7 @@ import (
 	"github.com/AprendendoLinux/corujabackup/internal/cloudmgr"
 	"github.com/AprendendoLinux/corujabackup/internal/pb"
 	"github.com/AprendendoLinux/corujabackup/internal/ratelimit"
+	"github.com/AprendendoLinux/corujabackup/internal/report"
 	"github.com/AprendendoLinux/corujabackup/internal/secrets"
 	"github.com/AprendendoLinux/corujabackup/internal/store"
 	"github.com/AprendendoLinux/corujabackup/internal/testutil"
@@ -983,4 +984,185 @@ func TestRestauracaoDownloadReenvioEExtracao(t *testing.T) {
 	if code, _, _ := v.raw("GET", "/api/runs/"+itoa(int(r1.ID))+"/download", nil, ""); code != 403 {
 		t.Fatalf("viewer não baixa: %d", code)
 	}
+}
+
+// ---------------------------------------------------------------- notificações
+
+type fakeNotifier struct {
+	tested []int64
+	queued []int64
+	fail   error
+}
+
+func (f *fakeNotifier) SendTest(_ context.Context, id int64) error {
+	f.tested = append(f.tested, id)
+	return f.fail
+}
+func (f *fakeNotifier) QueueRuleNow(_ context.Context, id int64) error {
+	f.queued = append(f.queued, id)
+	return nil
+}
+func (f *fakeNotifier) Preview(context.Context) (*report.Daily, []byte, error) {
+	return &report.Daily{Generated: time.Date(2026, 11, 26, 7, 0, 0, 0, time.UTC)}, []byte("%PDF-1.4 falso"), nil
+}
+
+func TestCanaisDeNotificacaoValidacaoSegredosETeste(t *testing.T) {
+	e := newEnv(t)
+	fn := &fakeNotifier{}
+	e.api.Notifier = fn
+	adm := setupAdmin(e)
+	email := map[string]any{"host": "smtp.exemplo.com", "port": 587, "security": "starttls", "user": "u", "password": "senha-smtp-secreta", "from": "backup@exemplo.com", "from_name": "Backup", "to": []string{"a@x.com", "Fulana <b@x.com>"}}
+	ok := func(extra map[string]any) map[string]any {
+		m := map[string]any{"name": "SMTP principal", "type": "email", "email": email}
+		for k, v := range extra {
+			m[k] = v
+		}
+		return m
+	}
+	mut := func(f func(m map[string]any)) map[string]any {
+		cp := map[string]any{}
+		for k, v := range email {
+			cp[k] = v
+		}
+		f(cp)
+		return ok(map[string]any{"email": cp})
+	}
+	for name, body := range map[string]map[string]any{
+		"host com espaço":     mut(func(m map[string]any) { m["host"] = "a b" }),
+		"porta inválida":      mut(func(m map[string]any) { m["port"] = 70000 }),
+		"segurança inválida":  mut(func(m map[string]any) { m["security"] = "ssl3" }),
+		"remetente inválido":  mut(func(m map[string]any) { m["from"] = "sem-arroba" }),
+		"sem destinatários":   mut(func(m map[string]any) { m["to"] = []string{} }),
+		"destinatário ruim":   mut(func(m map[string]any) { m["to"] = []string{"nao-e-email"} }),
+		"tipo inválido":       ok(map[string]any{"type": "sms"}),
+		"nome vazio":          ok(map[string]any{"name": ""}),
+		"telegram token ruim": {"name": "TG1", "type": "telegram", "telegram": map[string]any{"token": "abc", "chat_ids": []string{"123"}}},
+		"telegram chat ruim":  {"name": "TG2", "type": "telegram", "telegram": map[string]any{"token": "123456:ABCDEFGHIJKLMNOPQRSTUVWX", "chat_ids": []string{"abc def"}}},
+	} {
+		if code, _ := adm.do("POST", "/api/notifications/channels", body); code != 400 {
+			t.Errorf("%s: esperava 400, veio %d", name, code)
+		}
+	}
+	id := int(adm.mustOK("POST", "/api/notifications/channels", ok(nil))["id"].(float64))
+	tgID := int(adm.mustOK("POST", "/api/notifications/channels", map[string]any{"name": "Telegram", "type": "telegram", "telegram": map[string]any{"token": "123456:ABCDEFGHIJKLMNOPQRSTUVWX", "chat_ids": []string{"87646403", "-1003931742209", "@meucanal"}}})["id"].(float64))
+	if code, _ := adm.do("POST", "/api/notifications/channels", ok(nil)); code != 409 {
+		t.Fatalf("nome repetido: %d", code)
+	}
+	// nenhum segredo sai pela API; ficam cifrados no banco
+	raw := jsonString(adm.mustOK("GET", "/api/notifications/channels", nil))
+	if strings.Contains(raw, "senha-smtp-secreta") || strings.Contains(raw, "ABCDEFGHIJKLMNOPQRSTUVWX") || !strings.Contains(raw, `"password_set":true`) || !strings.Contains(raw, `"token_set":true`) || !strings.Contains(raw, "b@x.com") {
+		t.Fatalf("segredos/forma da lista: %s", raw)
+	}
+	var cfg string
+	e.api.DB.QueryRow("SELECT config FROM notification_channels WHERE id=?", id).Scan(&cfg)
+	if !strings.HasPrefix(cfg, "v1:") || strings.Contains(cfg, "smtp.exemplo.com") {
+		t.Fatalf("configuração deve estar cifrada: %.20s", cfg)
+	}
+	// editar sem a senha mantém a atual
+	upd := map[string]any{}
+	for k, v := range email {
+		upd[k] = v
+	}
+	delete(upd, "password")
+	upd["host"] = "smtp2.exemplo.com"
+	adm.mustOK("PATCH", "/api/notifications/channels/"+itoa(id), map[string]any{"email": upd})
+	ch, _ := e.api.Store.GetChannel(context.Background(), int64(id))
+	plain, _ := e.api.Box.Open(ch.Config)
+	if !strings.Contains(plain, "senha-smtp-secreta") || !strings.Contains(plain, "smtp2.exemplo.com") {
+		t.Fatalf("a senha deveria ser mantida: %s", plain)
+	}
+	// teste de envio e permissões
+	if r := adm.mustOK("POST", "/api/notifications/channels/"+itoa(id)+"/test", nil); r["ok"] != true || len(fn.tested) != 1 {
+		t.Fatalf("%v %v", r, fn.tested)
+	}
+	fn.fail = errors.New("autenticação SMTP recusada")
+	if r := adm.mustOK("POST", "/api/notifications/channels/"+itoa(id)+"/test", nil); r["ok"] != false || !strings.Contains(r["error"].(string), "autenticação") {
+		t.Fatalf("erro do teste deve chegar à interface: %v", r)
+	}
+	adm.mustOK("POST", "/api/users", map[string]string{"username": "operador3", "password": pw, "role": "operator"})
+	op := e.client()
+	op.mustOK("POST", "/api/login", map[string]string{"username": "operador3", "password": pw})
+	for _, rq := range []struct{ m, p string }{{"GET", "/api/notifications/channels"}, {"POST", "/api/notifications/channels/1/test"}, {"GET", "/api/notifications/log"}} {
+		if code, _ := op.do(rq.m, rq.p, nil); code != 403 {
+			t.Errorf("operador em %s %s deveria dar 403, deu %d", rq.m, rq.p, code)
+		}
+	}
+	adm.mustOK("DELETE", "/api/notifications/channels/"+itoa(tgID), nil)
+}
+
+func TestRegrasDeNotificacaoRelatorioEConfiguracao(t *testing.T) {
+	e := newEnv(t)
+	fn := &fakeNotifier{}
+	e.api.Notifier = fn
+	adm := setupAdmin(e)
+	a := newAgent(t, e, "srv-rn")
+	jid := int(adm.mustOK("POST", "/api/jobs", map[string]any{"name": "j-rn", "agent_id": a.ID, "paths": []string{"/etc"}})["id"].(float64))
+	chID := int(adm.mustOK("POST", "/api/notifications/channels", map[string]any{"name": "TG", "type": "telegram", "telegram": map[string]any{"token": "123456:ABCDEFGHIJKLMNOPQRSTUVWX", "chat_ids": []string{"87646403"}}})["id"].(float64))
+	rule := func(extra map[string]any) map[string]any {
+		m := map[string]any{"name": "regra", "event": "run_failed", "channel_ids": []int{chID}}
+		for k, v := range extra {
+			m[k] = v
+		}
+		return m
+	}
+	for name, body := range map[string]map[string]any{
+		"evento inválido":   rule(map[string]any{"event": "chuva"}),
+		"sem canal":         rule(map[string]any{"channel_ids": []int{}}),
+		"canal inexistente": rule(map[string]any{"channel_ids": []int{9999}}),
+		"job inexistente":   rule(map[string]any{"job_ids": []int{9999}}),
+		"hora inválida":     rule(map[string]any{"event": "daily_report", "params": map[string]any{"time": "25:00"}}),
+		"fuso inválido":     rule(map[string]any{"event": "daily_report", "params": map[string]any{"time": "07:00", "timezone": "Marte/X"}}),
+		"offline inválido":  rule(map[string]any{"event": "agent_offline", "params": map[string]any{"offline_minutes": 5000}}),
+		"nome vazio":        rule(map[string]any{"name": ""}),
+	} {
+		if code, _ := adm.do("POST", "/api/notifications/rules", body); code != 400 {
+			t.Errorf("%s: esperava 400, veio %d", name, code)
+		}
+	}
+	adm.mustOK("POST", "/api/notifications/rules", rule(map[string]any{"name": "falha do job", "job_ids": []int{jid}}))
+	did := int(adm.mustOK("POST", "/api/notifications/rules", rule(map[string]any{"name": "diário", "event": "daily_report", "job_ids": []int{jid}, "params": map[string]any{"attach_pdf": true}}))["id"].(float64))
+	adm.mustOK("POST", "/api/notifications/rules", rule(map[string]any{"name": "offline", "event": "agent_offline"}))
+	rs := adm.mustOK("GET", "/api/notifications/rules", nil)["rules"].([]any)
+	byName := map[string]map[string]any{}
+	for _, x := range rs {
+		m := x.(map[string]any)
+		byName[m["name"].(string)] = m
+	}
+	d := byName["diário"]["params"].(map[string]any)
+	if d["time"] != "07:00" || d["timezone"] != "America/Sao_Paulo" || d["attach_pdf"] != true || len(byName["diário"]["job_ids"].([]any)) != 0 {
+		t.Fatalf("padrões do relatório diário: %v", byName["diário"])
+	}
+	if byName["offline"]["params"].(map[string]any)["offline_minutes"] != float64(15) || len(byName["falha do job"]["job_ids"].([]any)) != 1 {
+		t.Fatalf("regras: %v", byName)
+	}
+	adm.mustOK("PATCH", "/api/notifications/rules/"+itoa(did), rule(map[string]any{"name": "diário", "event": "daily_report", "params": map[string]any{"time": "06:30", "only_problems": true}}))
+	adm.mustOK("POST", "/api/notifications/rules/"+itoa(did)+"/send-now", nil)
+	if len(fn.queued) != 1 || fn.queued[0] != int64(did) {
+		t.Fatalf("enviar agora: %v", fn.queued)
+	}
+	// PDF do relatório: operador baixa, somente leitura não
+	code, body, h := adm.raw("GET", "/api/reports/daily.pdf", nil, "")
+	if code != 200 || !strings.HasPrefix(string(body), "%PDF") || h.Get("Content-Type") != "application/pdf" || !strings.Contains(h.Get("Content-Disposition"), "2026-11-26") {
+		t.Fatalf("pdf: %d %q %v", code, body, h)
+	}
+	adm.mustOK("POST", "/api/users", map[string]string{"username": "leitor4", "password": pw, "role": "viewer"})
+	v := e.client()
+	v.mustOK("POST", "/api/login", map[string]string{"username": "leitor4", "password": pw})
+	if code, _, _ := v.raw("GET", "/api/reports/daily.pdf", nil, ""); code != 403 {
+		t.Fatalf("viewer não gera relatório: %d", code)
+	}
+	// histórico e endereço público
+	if l := adm.mustOK("GET", "/api/notifications/log", nil); l["notifications"] == nil {
+		t.Fatalf("%v", l)
+	}
+	for _, bad := range []string{"ftp://x.com", "javascript:alert(1)", "sem-esquema.com", "http://"} {
+		if code, _ := adm.do("PUT", "/api/notifications/settings", map[string]string{"base_url": bad}); code != 400 {
+			t.Errorf("%q: esperava 400, veio %d", bad, code)
+		}
+	}
+	adm.mustOK("PUT", "/api/notifications/settings", map[string]string{"base_url": "https://backup.exemplo.com/"})
+	if m := adm.mustOK("GET", "/api/notifications/settings", nil); m["base_url"] != "https://backup.exemplo.com" {
+		t.Fatalf("%v", m)
+	}
+	adm.mustOK("DELETE", "/api/notifications/rules/"+itoa(did), nil)
 }

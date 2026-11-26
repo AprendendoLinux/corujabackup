@@ -1,7 +1,7 @@
 # Coruja Backup · Agente. Informe só o endereço do Server e o token gerado na interface web.
 services:
   agent:
-    image: ghcr.io/aprendendolinux/corujabackup-agent:0.0.6
+    image: ghcr.io/aprendendolinux/corujabackup-agent:0.0.7
     container_name: corujabackup-agent
     restart: always
     environment:

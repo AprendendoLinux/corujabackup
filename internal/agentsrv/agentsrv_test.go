@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -294,5 +295,71 @@ func TestRunNowComAgenteOfflineEPerdidos(t *testing.T) {
 	got, err := r.st.RunByUID(ctx, "recuperado")
 	if err != nil || got.ID != last.ID || got.Status != "ok" {
 		t.Fatalf("a linha perdida deveria ser adotada: %+v %v", got, err)
+	}
+}
+
+type recNotifier struct {
+	mu  sync.Mutex
+	ids []int64
+}
+
+func (r *recNotifier) OnRunFinished(_ context.Context, id int64) {
+	r.mu.Lock()
+	r.ids = append(r.ids, id)
+	r.mu.Unlock()
+}
+
+func (r *recNotifier) got() []int64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]int64(nil), r.ids...)
+}
+
+func TestNotificaUmaVezQuandoAExecucaoTerminaEQuandoPerde(t *testing.T) {
+	r := newRig(t)
+	n := &recNotifier{}
+	r.srv.Notify = n
+	cli := pb.NewAgentServiceClient(dial(t, r.addr, r.fp))
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	en, _ := cli.Enroll(ctx, &pb.EnrollRequest{Token: r.newToken(t, "srv-ntf")})
+	jid, _ := r.st.CreateJob(ctx, &store.Job{Name: "n", AgentID: en.AgentId, Kind: "files", Enabled: true, Cron: "10 0 * * *", Timezone: "UTC", Paths: []string{"/etc"}, DestSubdir: "n", Keep: 1})
+	st, _ := cli.Connect(authCtx(ctx, en.AgentId, en.Credential))
+	st.Send(&pb.AgentMessage{Body: &pb.AgentMessage_Hello{Hello: &pb.Hello{AgentVersion: "x"}}})
+	now := time.Now().UnixMilli()
+	st.Send(&pb.AgentMessage{Body: &pb.AgentMessage_RunReport{RunReport: &pb.RunReport{RunUid: "r1", JobId: jid, State: pb.RunReport_STARTED, StartedMs: now}}})
+	st.Send(&pb.AgentMessage{Body: &pb.AgentMessage_RunReport{RunReport: &pb.RunReport{RunUid: "r1", JobId: jid, State: pb.RunReport_PROGRESS, Files: 3}}})
+	fin := &pb.RunReport{RunUid: "r1", JobId: jid, State: pb.RunReport_FINISHED, Status: "failed", Error: "x", StartedMs: now, FinishedMs: now}
+	st.Send(&pb.AgentMessage{Body: &pb.AgentMessage_RunReport{RunReport: fin}})
+	for { // espera o ack do final
+		m, err := st.Recv()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m.GetReportAck() != nil {
+			break
+		}
+	}
+	st.Send(&pb.AgentMessage{Body: &pb.AgentMessage_RunReport{RunReport: fin}}) // reenvio da fila local
+	for {
+		m, _ := st.Recv()
+		if m.GetReportAck() != nil {
+			break
+		}
+	}
+	time.Sleep(200 * time.Millisecond)
+	if ids := n.got(); len(ids) != 1 {
+		t.Fatalf("a notificação deve sair uma única vez, mesmo com reenvio: %v", ids)
+	}
+	// horário perdido também notifica (uma vez)
+	r.st.DB.Exec("UPDATE jobs SET updated_at = ? WHERE id = ?", time.Now().UTC().Add(-72*time.Hour), jid)
+	r.srv.CheckMissed(ctx, time.Now().UTC())
+	after := len(n.got())
+	if after < 2 {
+		t.Fatalf("o perdido deveria notificar: %v", n.got())
+	}
+	r.srv.CheckMissed(ctx, time.Now().UTC())
+	if len(n.got()) != after {
+		t.Fatal("o mesmo perdido não notifica de novo")
 	}
 }

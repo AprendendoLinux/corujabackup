@@ -20,6 +20,7 @@ import (
 	"github.com/AprendendoLinux/corujabackup/internal/config"
 	"github.com/AprendendoLinux/corujabackup/internal/db"
 	"github.com/AprendendoLinux/corujabackup/internal/httpapi"
+	"github.com/AprendendoLinux/corujabackup/internal/notify"
 	"github.com/AprendendoLinux/corujabackup/internal/secrets"
 	"github.com/AprendendoLinux/corujabackup/internal/store"
 	"github.com/AprendendoLinux/corujabackup/internal/tlsutil"
@@ -81,8 +82,10 @@ func main() {
 	hub := agentsrv.New(st, version.Version)
 	hub.Cloud = clouds
 	hub.Box = box
+	notifier := notify.New(st, box)
+	hub.Notify = notifier
 	_, agentPort, _ := net.SplitHostPort(cfg.AgentListen)
-	api := &httpapi.Server{DB: d, Store: st, Pinger: d, Agents: hub, Clouds: clouds, Box: box, Started: time.Now(), Web: webui.Handler(),
+	api := &httpapi.Server{DB: d, Store: st, Pinger: d, Agents: hub, Clouds: clouds, Box: box, Notifier: notifier, Started: time.Now(), Web: webui.Handler(),
 		Fingerprint: fp, AgentPort: agentPort, TrustProxy: cfg.TrustProxy}
 	srv := &http.Server{Addr: cfg.Listen, Handler: api.Routes(), ReadHeaderTimeout: 10 * time.Second}
 
@@ -95,8 +98,13 @@ func main() {
 		}
 	}()
 	go hub.WatchMissed(ctx)
+	go notifier.Run(ctx)
 	go func() { // limpeza periódica de sessões e histórico antigo
-		purge := func() { _ = st.PurgeSessions(ctx); _ = st.PurgeRuns(ctx, time.Now().AddDate(0, 0, -400)) }
+		purge := func() {
+			_ = st.PurgeSessions(ctx)
+			_ = st.PurgeRuns(ctx, time.Now().AddDate(0, 0, -400))
+			_ = st.PurgeNotifications(ctx, time.Now().AddDate(0, 0, -90))
+		}
 		purge()
 		t := time.NewTicker(time.Hour)
 		defer t.Stop()

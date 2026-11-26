@@ -98,3 +98,18 @@ export const STATUS: Record<string, { label: string; tone: 'ok' | 'off' | 'warn'
 }
 
 export type Branding = { name: string; theme: string; themes: { id: string; label: string; vars: Record<string, string> }[]; has_logo: boolean; logo_version?: string }
+
+export type Channel = {
+  id: number; name: string; type: 'email' | 'telegram'; enabled: boolean; created_at: string
+  email?: { host: string; port: number; security: string; user: string; password_set: boolean; from: string; from_name: string; to: string[]; skip_verify: boolean }
+  telegram?: { token_set: boolean; chat_ids: string[] }
+}
+export type Rule = {
+  id: number; name: string; event: string; enabled: boolean; job_ids: number[]; channel_ids: number[]
+  params: { time?: string; timezone?: string; offline_minutes?: number; attach_pdf?: boolean; only_problems?: boolean }
+}
+export type NotifLog = { id: number; rule_name: string; channel_name: string; kind: string; subject: string; status: string; attempts: number; error: string; created_at: string; sent_at: string | null }
+export const EVENT_LABEL: Record<string, string> = {
+  run_failed: 'Falha ou backup perdido', run_warning: 'Backup com avisos', run_ok: 'Backup concluído com sucesso',
+  daily_report: 'Relatório diário consolidado', agent_offline: 'Agente offline',
+}

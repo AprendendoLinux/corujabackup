@@ -53,6 +53,7 @@ type Server struct {
 	Agents      AgentHub
 	Clouds      CloudAdmin
 	Box         *secrets.Box
+	Notifier    NotifyAdmin
 	Started     time.Time
 	Web         http.Handler
 	Fingerprint string // impressão digital do certificado do canal dos agentes
@@ -108,6 +109,20 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("DELETE /api/agents/{id}", s.authed(roleOperator, s.deleteAgent))
 	mux.HandleFunc("GET /api/agents/{id}/containers", s.authed(roleOperator, s.agentContainers))
 	mux.HandleFunc("POST /api/agents/{id}/db-test", s.authed(roleOperator, s.dbTest))
+	mux.HandleFunc("GET /api/notifications/channels", s.authed(roleAdmin, s.listChannels))
+	mux.HandleFunc("POST /api/notifications/channels", s.authed(roleAdmin, s.createChannel))
+	mux.HandleFunc("PATCH /api/notifications/channels/{id}", s.authed(roleAdmin, s.updateChannel))
+	mux.HandleFunc("DELETE /api/notifications/channels/{id}", s.authed(roleAdmin, s.deleteChannel))
+	mux.HandleFunc("POST /api/notifications/channels/{id}/test", s.authed(roleAdmin, s.testChannel))
+	mux.HandleFunc("GET /api/notifications/rules", s.authed(roleAdmin, s.listRules))
+	mux.HandleFunc("POST /api/notifications/rules", s.authed(roleAdmin, s.createRule))
+	mux.HandleFunc("PATCH /api/notifications/rules/{id}", s.authed(roleAdmin, s.updateRule))
+	mux.HandleFunc("DELETE /api/notifications/rules/{id}", s.authed(roleAdmin, s.deleteRule))
+	mux.HandleFunc("POST /api/notifications/rules/{id}/send-now", s.authed(roleAdmin, s.sendRuleNow))
+	mux.HandleFunc("GET /api/notifications/log", s.authed(roleAdmin, s.notifyLog))
+	mux.HandleFunc("GET /api/notifications/settings", s.authed(roleAdmin, s.getNotifySettings))
+	mux.HandleFunc("PUT /api/notifications/settings", s.authed(roleAdmin, s.saveNotifySettings))
+	mux.HandleFunc("GET /api/reports/daily.pdf", s.authed(roleOperator, s.dailyPDF))
 	mux.HandleFunc("GET /api/clouds", s.authed(roleAny, s.listClouds))
 	mux.HandleFunc("POST /api/clouds", s.authed(roleAdmin, s.createCloud))
 	mux.HandleFunc("POST /api/clouds/{id}/poll", s.authed(roleAdmin, s.pollCloud))

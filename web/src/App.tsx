@@ -12,6 +12,7 @@ import Users from './pages/Users'
 import Audit from './pages/Audit'
 import Account from './pages/Account'
 import Appearance from './pages/Appearance'
+import Notifications from './pages/Notifications'
 
 type Me = { user: User; recovery_codes_left: number; version: string }
 type Phase = 'loading' | 'setup' | 'login' | 'app'
@@ -28,7 +29,7 @@ export default function App() {
   const [theme, setTheme] = useState('coruja')
   const [phase, setPhase] = useState<Phase>('loading')
   const [me, setMe] = useState<Me | null>(null)
-  const [version, setVersion] = useState('0.0.6')
+  const [version, setVersion] = useState('0.0.7')
   const route = useRoute()
 
   const loadBrand = useCallback(() => {
@@ -77,6 +78,7 @@ export default function App() {
               <NavLink to="historico" cur={route}>Histórico</NavLink>
               {me.user.role === 'admin' && <NavLink to="usuarios" cur={route}>Usuários</NavLink>}
               {me.user.role === 'admin' && <NavLink to="auditoria" cur={route}>Auditoria</NavLink>}
+              {me.user.role === 'admin' && <NavLink to="notificacoes" cur={route}>Notificações</NavLink>}
               {me.user.role === 'admin' && <NavLink to="aparencia" cur={route}>Aparência</NavLink>}
             </nav>
           )}
@@ -106,9 +108,10 @@ export default function App() {
           : route.split('?')[0] === 'historico' ? <Runs me={me.user} jobFilter={Number(new URLSearchParams(route.split('?')[1] ?? '').get('job') ?? 0)} />
           : route === 'usuarios' && me.user.role === 'admin' ? <Users me={me.user} />
           : route === 'auditoria' && me.user.role === 'admin' ? <Audit />
+          : route === 'notificacoes' && me.user.role === 'admin' ? <Notifications />
           : route === 'aparencia' && me.user.role === 'admin' ? <Appearance />
           : route === 'conta' ? <Account me={me.user} recoveryLeft={me.recovery_codes_left} reload={refresh} />
-          : <Dashboard name={brand.name} />
+          : <Dashboard name={brand.name} canReport={me.user.role !== 'viewer'} />
         )}
       </main>
 
@@ -128,7 +131,7 @@ function NavLink({ to, cur, children }: { to: string; cur: string; children: Rea
 
 type Health = { status: string; database: boolean }
 
-function Dashboard({ name }: { name: string }) {
+function Dashboard({ name, canReport }: { name: string; canReport: boolean }) {
   const [health, setHealth] = useState<Health | null>(null)
   const [agents, setAgents] = useState<Agent[] | null>(null)
   const [stats, setStats] = useState<{ last_24h: Record<string, number>; jobs: number } | null>(null)
@@ -145,7 +148,7 @@ function Dashboard({ name }: { name: string }) {
   return (
     <div>
       <h1 className="text-2xl font-semibold">Painel</h1>
-      <p className="mt-1 text-muted">Visão geral do {name}.</p>
+      <p className="mt-1 text-muted">Visão geral do {name}.{canReport && <> <a className="text-primary underline" href="/api/reports/daily.pdf" target="_blank" rel="noopener noreferrer">Baixar o relatório de hoje (PDF)</a></>}</p>
       <section className="mt-6 grid gap-4 sm:grid-cols-3" aria-label="Estado do sistema">
         <Stat title="Server" value={health ? (health.status === 'ok' ? 'Online' : 'Degradado') : 'Sem resposta'} ok={health?.status === 'ok'} />
         <Stat title="Banco de dados" value={health ? (health.database ? 'Conectado' : 'Indisponível') : '…'} ok={!!health?.database} />

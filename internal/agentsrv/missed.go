@@ -57,8 +57,11 @@ func (s *Server) CheckMissed(ctx context.Context, now time.Time) {
 		if _, on := s.Online()[j.AgentID]; !on {
 			reason = "o agente estava offline no horário previsto"
 		}
-		if err := s.Store.MarkMissed(ctx, auth.NewUUID(), j.ID, j.AgentID, last, reason); err == nil {
+		if id, err := s.Store.MarkMissed(ctx, auth.NewUUID(), j.ID, j.AgentID, last, reason); err == nil && id > 0 {
 			slog.Warn("backup perdido", "job", j.Name, "previsto", last.Format(time.RFC3339))
+			if s.Notify != nil {
+				s.Notify.OnRunFinished(ctx, id)
+			}
 		}
 	}
 }

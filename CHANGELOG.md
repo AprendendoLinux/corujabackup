@@ -1,6 +1,6 @@
 # Changelog
 
-## [Não publicado] - Fase 9
+## [0.0.10] - Fase 9 · Login com um clique e Dropbox
 - **Dropbox:** novo destino, com login por popup (cliente público, sem segredo) e acesso só à pasta do aplicativo. Envio em partes com retomada, conferência pelo `content_hash` do Dropbox, retenção, download e restauração. Como o Dropbox não tem endereço pré-autorizado para arquivos grandes, o agente recebe um **token de curta duração só de escrita de conteúdo** (exceção à regra "o agente não recebe tokens"); cada envio precisa terminar antes de o token vencer (cerca de 4 horas).
 - **Correção (todas as nuvens):** quando o agente detectava que o arquivo na nuvem não conferia, ele desistia sem avisar o Server e o arquivo corrompido ficava com nome de backup. Agora o Server confere de novo e o apaga, preservando as cópias boas.
 - **Login por popup** para Google Drive, OneDrive e Dropbox (e "Reautorizar" usa o popup nessas contas); tela de escolha de destino com ícones.

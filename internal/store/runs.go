@@ -113,21 +113,28 @@ type Report struct {
 }
 
 // ApplyReport grava (de forma idempotente) o que o agente informou. Nunca tira uma execução do estado final.
+// ApplyReport grava o relatório e ignora o detalhe de término (veja ApplyReportX).
 func (s *Store) ApplyReport(ctx context.Context, r Report) error {
+	_, _, err := s.ApplyReportX(ctx, r)
+	return err
+}
+
+// ApplyReportX grava o relatório e informa se esta chamada fez a execução terminar (e qual é o id dela), para disparar notificações.
+func (s *Store) ApplyReportX(ctx context.Context, r Report) (finished bool, runID int64, err error) {
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return false, 0, err
 	}
 	defer tx.Rollback()
 	var jobAgent int64
 	if err := tx.QueryRowContext(ctx, "SELECT agent_id FROM jobs WHERE id=?", r.JobID).Scan(&jobAgent); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return ErrNotFound
+			return false, 0, ErrNotFound
 		}
-		return err
+		return false, 0, err
 	}
 	if jobAgent != r.AgentID {
-		return ErrNotFound // um agente só relata jobs que são dele
+		return false, 0, ErrNotFound // um agente só relata jobs que são dele
 	}
 	var id int64
 	var cur string
@@ -141,7 +148,7 @@ func (s *Store) ApplyReport(ctx context.Context, r Report) error {
 			e := tx.QueryRowContext(ctx, "SELECT id FROM runs WHERE job_id=? AND scheduled_for=? AND status='missed' FOR UPDATE", r.JobID, r.ScheduledFor.UTC()).Scan(&mid)
 			if e == nil {
 				if _, err := tx.ExecContext(ctx, "UPDATE runs SET uid=?, status='running', error=NULL WHERE id=?", r.UID, mid); err != nil {
-					return err
+					return false, 0, err
 				}
 				id, cur = mid, "running"
 			}
@@ -154,42 +161,42 @@ func (s *Store) ApplyReport(ctx context.Context, r Report) error {
 			res, err := tx.ExecContext(ctx, "INSERT INTO runs (uid, job_id, agent_id, trigger_kind, scheduled_for, status) VALUES (?,?,?,?,?, 'queued')", r.UID, r.JobID, r.AgentID, trig, sched)
 			if err != nil {
 				if isDup(err) { // outra execução do mesmo horário já existe: ignora o duplicado
-					return nil
+					return false, 0, nil
 				}
-				return err
+				return false, 0, err
 			}
 			id, _ = res.LastInsertId()
 			cur = "queued"
 		}
 	} else if err != nil {
-		return err
+		return false, 0, err
 	}
 	if IsFinal(cur) && cur != "missed" {
-		return tx.Commit() // já finalizada: relatórios repetidos não alteram nada
+		return false, id, tx.Commit() // já finalizada: relatórios repetidos não alteram nada
 	}
 	if r.Started && !r.StartedAt.IsZero() {
 		if _, err := tx.ExecContext(ctx, "UPDATE runs SET status='running', started_at=? WHERE id=? AND status IN ('queued','running','missed')", r.StartedAt.UTC(), id); err != nil {
-			return err
+			return false, 0, err
 		}
 	}
 	if r.Final {
 		if _, err := tx.ExecContext(ctx, `UPDATE runs SET status=?, started_at=COALESCE(started_at, ?), finished_at=?, bytes_source=?, bytes_output=?, files=?, sha256=?, output_name=?, error=? WHERE id=?`,
 			r.Status, nullTime(r.StartedAt), nullTime(r.FinishedAt), r.BytesSource, r.BytesOutput, r.Files, r.SHA256, r.OutputName, nullStr(r.Error), id); err != nil {
-			return err
+			return false, 0, err
 		}
 		if _, err := tx.ExecContext(ctx, "UPDATE runs SET phase='', progress_pct=?, cloud_status=?, cloud_path=?, cloud_hash=?, cloud_verified_by=? WHERE id=?",
 			r.ProgressPct, cloudStatusOrNone(r.CloudStatus), r.CloudPath, r.CloudHash, r.CloudVerifiedBy, id); err != nil {
-			return err
+			return false, 0, err
 		}
 	} else {
 		if r.BytesSource > 0 || r.Files > 0 {
 			if _, err := tx.ExecContext(ctx, "UPDATE runs SET bytes_source=?, bytes_output=?, files=? WHERE id=?", r.BytesSource, r.BytesOutput, r.Files, id); err != nil {
-				return err
+				return false, 0, err
 			}
 		}
 		if r.Phase != "" {
 			if _, err := tx.ExecContext(ctx, "UPDATE runs SET phase=?, progress_pct=? WHERE id=? AND status IN ('queued','running')", r.Phase, r.ProgressPct, id); err != nil {
-				return err
+				return false, 0, err
 			}
 		}
 	}
@@ -199,10 +206,10 @@ func (s *Store) ApplyReport(ctx context.Context, r Report) error {
 			txt = txt[:1000]
 		}
 		if _, err := tx.ExecContext(ctx, "INSERT IGNORE INTO run_logs (run_id, seq, at, level, text) VALUES (?,?,?,?,?)", id, l.Seq, l.At.UTC(), l.Level, txt); err != nil {
-			return err
+			return false, 0, err
 		}
 	}
-	return tx.Commit()
+	return r.Final, id, tx.Commit()
 }
 
 func nullTime(t time.Time) any {
@@ -220,10 +227,16 @@ func nullStr(s string) any {
 }
 
 // MarkMissed registra um horário previsto que o agente não cumpriu (ignora se já existir execução desse horário).
-func (s *Store) MarkMissed(ctx context.Context, uid string, jobID, agentID int64, scheduledFor time.Time, reason string) error {
-	_, err := s.DB.ExecContext(ctx, "INSERT IGNORE INTO runs (uid, job_id, agent_id, trigger_kind, scheduled_for, status, error) VALUES (?,?,?, 'schedule', ?, 'missed', ?)",
+func (s *Store) MarkMissed(ctx context.Context, uid string, jobID, agentID int64, scheduledFor time.Time, reason string) (int64, error) {
+	res, err := s.DB.ExecContext(ctx, "INSERT IGNORE INTO runs (uid, job_id, agent_id, trigger_kind, scheduled_for, status, error) VALUES (?,?,?, 'schedule', ?, 'missed', ?)",
 		uid, jobID, agentID, scheduledFor.UTC(), reason)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return 0, nil // já existia uma execução desse horário
+	}
+	return res.LastInsertId()
 }
 
 func (s *Store) HasRunAt(ctx context.Context, jobID int64, scheduledFor time.Time) (bool, error) {

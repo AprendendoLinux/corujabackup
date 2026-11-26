@@ -11,7 +11,7 @@ RUN mkdir -p /src/internal/webui && npm run build
 
 # --- binários Go -----------------------------------------------------------------------------------------------------
 FROM golang:1.24-alpine AS gobuild
-ARG VERSION=0.0.6
+ARG VERSION=0.0.7
 WORKDIR /src
 COPY go.mod go.sum* ./
 RUN go mod download
@@ -24,7 +24,7 @@ RUN go build -trimpath -ldflags "-s -w -X github.com/AprendendoLinux/corujabacku
 
 # --- Server ------------------------------------------------------------------------------------------------------------
 FROM alpine:3.21 AS server
-ARG VERSION=0.0.6
+ARG VERSION=0.0.7
 LABEL org.opencontainers.image.title="Coruja Backup Server" \
       org.opencontainers.image.description="Backup centralizado: orquestração, agendamentos, nuvem e interface web" \
       org.opencontainers.image.source="https://github.com/AprendendoLinux/corujabackup" \
@@ -40,7 +40,7 @@ ENTRYPOINT ["/usr/local/bin/coruja-server"]
 
 # --- Agente ------------------------------------------------------------------------------------------------------------
 FROM alpine:3.21 AS agent
-ARG VERSION=0.0.6
+ARG VERSION=0.0.7
 LABEL org.opencontainers.image.title="Coruja Backup Agent" \
       org.opencontainers.image.description="Agente leve do Coruja Backup (conecta ao Server por IP:porta)" \
       org.opencontainers.image.source="https://github.com/AprendendoLinux/corujabackup" \

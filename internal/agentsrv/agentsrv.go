@@ -50,8 +50,14 @@ type CloudService interface {
 	VerifyAndRetain(ctx context.Context, j *store.Job, fileName string, size int64, h cloudmgr.Hashes, now time.Time) cloudmgr.Verdict
 }
 
+// Notifier recebe o aviso de que uma execução terminou (para enviar notificações).
+type Notifier interface {
+	OnRunFinished(ctx context.Context, runID int64)
+}
+
 type Server struct {
 	pb.UnimplementedAgentServiceServer
+	Notify        Notifier
 	Box           *secrets.Box
 	Cloud         CloudService
 	Store         *store.Store
@@ -390,7 +396,10 @@ func (s *Server) Connect(stream pb.AgentService_ConnectServer) error {
 			}
 			idle.Reset(idleTimeout)
 			if rr := m.GetRunReport(); rr != nil {
-				err := s.Store.ApplyReport(ctx, reportFrom(a.ID, rr))
+				finished, runID, err := s.Store.ApplyReportX(ctx, reportFrom(a.ID, rr))
+				if err == nil && finished && s.Notify != nil {
+					go s.Notify.OnRunFinished(context.WithoutCancel(ctx), runID)
+				}
 				if err != nil {
 					slog.Warn("relatório de execução não gravado", "agente", a.ID, "execução", rr.RunUid, "erro", err.Error())
 				}

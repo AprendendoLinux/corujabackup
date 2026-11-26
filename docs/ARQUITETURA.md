@@ -69,3 +69,12 @@
 - **Download:** `Provider.Open`; no OneDrive o redirecionamento do `/content` é seguido sem o token.
 - **Branding:** configurações em `settings` (nome, tema padrão, temas JSON, logo em base64); `GET /api/branding` e `/logo` são
   públicos (a tela de login precisa deles); alterar exige administrador.
+
+## Notificações e relatórios (Fase 6)
+- **Eventos -> fila -> envio:** `ApplyReportX` informa quando uma execução *termina de verdade* (relatórios repetidos da fila local do
+  agente não disparam de novo); o detector de perdidos também notifica. Regras casam por evento e job; o par (regra, canal, evento)
+  é único, então nada é enviado duas vezes. O despachante roda a cada 15 s; os agendamentos (relatório diário, agente offline) a cada minuto.
+- **Relatório diário:** só sai dentro de 6 h do horário configurado (um Server que voltou tarde não manda relatório velho).
+- **PDF nativo (go-pdf/fpdf):** fonte padrão do PDF com acentos do português (cp1252); logo PNG/JPEG/GIF (SVG/WebP caem para o nome).
+- **Segurança:** configuração dos canais cifrada (AES-GCM); a senha SMTP só é enviada após TLS (ou sem TLS se escolhido); erros passam por
+  um filtro que remove senha/token.

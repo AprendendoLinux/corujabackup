@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.0.7] - Fase 6 · Notificações e relatórios
+- **Canais configurados pela interface:** **e-mail (SMTP)** com STARTTLS, SSL/TLS direto ou sem criptografia (a senha nunca vai sem TLS
+  a menos que você escolha "sem criptografia"; certificado autoassinado é opção explícita) e **Telegram** (bot + vários chats, com
+  reenvio como texto simples se o HTML for recusado). Credenciais cifradas no banco e nunca devolvidas pela API; erros não vazam
+  senha nem token. Botão **Enviar teste** manda um relatório de exemplo com PDF.
+- **Regras:** falha/backup perdido, com avisos, sucesso (por job ou todos), **relatório diário consolidado** (horário e fuso
+  próprios, PDF anexo opcional, "só se houver problemas") e **agente offline** (um alerta por queda). Regras recomendadas com um clique.
+- **Relatório A4 em PDF** gerado pelo próprio Server (sem Chromium): primeira página = resumo executivo (estado geral, contadores,
+  atenção, jobs, nuvem com cota, agentes); demais páginas = execuções do período. Usa nome, **logo** e cores escolhidos em Aparência.
+  E-mail em HTML (tabelas + CSS inline, logo embutida) com versão em texto; mensagem de Telegram dentro do limite de 4096 caracteres.
+- **Fila com novas tentativas:** cada envio é registrado (histórico na interface), com até 5 tentativas (1, 5, 15 e 30 min) e sem
+  duplicar (chave única por regra/canal/evento). Entrega parcial no Telegram não repete para quem já recebeu.
+- Nomes de jobs, nuvens, canais e regras aceitam acentos ("Relatório diário"); o nome do arquivo de backup é gerado sem acentos.
+
 ## [0.0.6] - Fase 5 · Interface completa
 - **Logs ao vivo:** o agente envia as linhas do log a cada 2 s durante o backup e o Histórico as mostra em tempo real (SSE,
   com selo "ao vivo", rolagem automática e barra de progresso); cai para atualização comum se a transmissão falhar.

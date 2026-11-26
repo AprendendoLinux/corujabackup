@@ -21,7 +21,7 @@ import (
 )
 
 var (
-	jobNameRE = regexp.MustCompile(`^[A-Za-z0-9._][A-Za-z0-9._ -]{1,99}$`)
+	jobNameRE = regexp.MustCompile(`^[\p{L}\p{N}._(][\p{L}\p{N}._ ()&,'-]{1,99}$`)
 	subdirRE  = regexp.MustCompile(`^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$`)
 )
 

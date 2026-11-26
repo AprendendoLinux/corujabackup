@@ -12,7 +12,7 @@ import (
 	"github.com/AprendendoLinux/corujabackup/internal/store"
 )
 
-var cloudNameRE = regexp.MustCompile(`^[A-Za-z0-9._][A-Za-z0-9._ -]{1,99}$`)
+var cloudNameRE = regexp.MustCompile(`^[\p{L}\p{N}._(][\p{L}\p{N}._ ()&,'-]{1,99}$`)
 
 type cloudView struct {
 	store.CloudAccount

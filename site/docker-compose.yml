@@ -1,0 +1,13 @@
+services:
+  coruja-site:
+    image: coruja-site:1.0.0
+    container_name: coruja-site
+    restart: always
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp", "/var/cache/nginx"]
+    networks: [echelon]
+networks:
+  echelon:
+    external: true

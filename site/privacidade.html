@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Política de privacidade · Coruja Backup</title><meta name="description" content="Política de privacidade do Coruja Backup."><link rel="icon" href="/logo-120.png">
+<style>body{margin:0;font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#f6f5fb;color:#1e1b2e}
+main{max-width:760px;margin:0 auto;padding:32px 20px 64px}header{display:flex;align-items:center;gap:14px;margin-bottom:28px}
+header img{width:48px;height:48px}header b{font-size:20px;color:#3b2a6b}nav{margin-left:auto;font-size:14px;display:flex;gap:16px;flex-wrap:wrap}
+a{color:#3b2a6b}h1{font-size:28px;line-height:1.2;margin:0 0 8px}h2{font-size:19px;margin:28px 0 6px;color:#3b2a6b}p,li{margin:8px 0}
+.card{background:#fff;border:1px solid #e3e0f0;border-radius:12px;padding:22px 24px}footer{margin-top:32px;font-size:14px;color:#6b6784}
+@media (prefers-color-scheme:dark){body{background:#12101c;color:#ece9fa}.card{background:#1c1930;border-color:#2e2a4a}a,h2,header b{color:#a995f5}footer{color:#9a95b8}}</style></head><body><main>
+<header><img src="/logo-120.png" alt="Coruja Backup"><b>Coruja Backup</b><nav><a href="/">Início</a><a href="/privacidade">Privacidade</a><a href="/termos">Termos de serviço</a></nav></header>
+<div class="card"><h1>Política de privacidade</h1><p><i>Atualizada em 26/11/2026.</i></p>
+<h2>Quem trata os seus dados</h2>
+<p>O Coruja Backup é um software <b>auto-hospedado</b>: ele roda nos servidores de quem o instala. Os autores do projeto <b>não operam nenhum serviço que receba, armazene ou processe</b> os seus arquivos, tokens ou dados pessoais.</p>
+<h2>O que o aplicativo acessa na sua conta</h2>
+<ul><li><b>Google Drive:</b> apenas o escopo <code>drive.file</code>, que permite ver e gerenciar somente os arquivos e pastas que o próprio Coruja criou, e o escopo de e-mail, para mostrar qual conta está conectada.</li>
+<li><b>OneDrive/SharePoint:</b> <code>Files.ReadWrite</code>, <code>offline_access</code> e <code>User.Read</code>.</li>
+<li><b>Dropbox:</b> pasta do aplicativo (App folder), com leitura e escrita de arquivos e identificação da conta.</li></ul>
+<h2>Onde ficam os tokens e os arquivos</h2>
+<p>Os tokens de acesso e de renovação ficam <b>cifrados (AES-256-GCM) no servidor Coruja de quem o instalou</b>, nunca em servidores dos autores. Os backups vão do agente direto para a conta de nuvem do próprio usuário.</p>
+<h2>Uso dos dados do Google</h2>
+<p>O uso e a transferência de informações recebidas das APIs do Google seguem a <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer">Política de Dados do Usuário dos Serviços de API do Google</a>, incluindo os requisitos de Uso Limitado. Os dados são usados apenas para realizar e conferir os backups que o usuário configurou; não são vendidos, compartilhados com terceiros nem usados para publicidade.</p>
+<h2>Revogar o acesso</h2>
+<p>Remova a conta de nuvem na interface do Coruja e revogue o acesso em <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer">myaccount.google.com/permissions</a> (Google), <a href="https://account.live.com/consent/Manage" target="_blank" rel="noopener noreferrer">account.live.com/consent/Manage</a> (Microsoft) ou nas configurações de aplicativos do Dropbox.</p>
+<h2>Contato</h2><p>Dúvidas: <a href="https://henrique.tec.br" target="_blank" rel="noopener noreferrer">henrique.tec.br</a> ou as <a href="https://github.com/AprendendoLinux/corujabackup/issues" target="_blank" rel="noopener noreferrer">issues do projeto</a>.</p></div>
+<footer>Coruja Backup · Desenvolvido por <a href="https://henrique.tec.br" target="_blank" rel="noopener noreferrer">Henrique Fagundes</a> · Licença MIT</footer>
+</main></body></html>

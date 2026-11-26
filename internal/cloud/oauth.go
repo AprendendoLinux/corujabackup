@@ -232,3 +232,26 @@ func (o *OAuth) ExchangeCode(ctx context.Context, code, verifier, redirect strin
 	}
 	return t, nil
 }
+
+// RefreshScoped emite um access token de curta duração restrito aos escopos pedidos (usado para o envio ao Dropbox).
+func (o *OAuth) RefreshScoped(ctx context.Context, refresh, scope string, now time.Time) (*Token, error) {
+	form := url.Values{"client_id": {o.ClientID}, "refresh_token": {refresh}, "grant_type": {"refresh_token"}, "scope": {scope}}
+	if o.ClientSecret != "" {
+		form.Set("client_secret", o.ClientSecret)
+	}
+	m, code, err := o.post(ctx, o.TokenURL, form)
+	if err != nil {
+		return nil, err
+	}
+	if code != 200 || str(m, "access_token") == "" {
+		return nil, fmt.Errorf("falha ao emitir o token de envio: %s", errText(m, code))
+	}
+	return tokenFrom(m, refresh, now), nil
+}
+
+// RefreshToken devolve o refresh token atual (para emitir tokens restritos).
+func (ts *TokenSource) RefreshToken() string {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	return ts.tok.Refresh
+}

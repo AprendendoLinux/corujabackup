@@ -1575,11 +1575,13 @@ type UploadSession struct {
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	Ok            bool                   `protobuf:"varint,2,opt,name=ok,proto3" json:"ok,omitempty"`
 	Error         string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
-	Protocol      string                 `protobuf:"bytes,4,opt,name=protocol,proto3" json:"protocol,omitempty"` // "graph" (OneDrive) | "gdrive" (Google Drive)
+	Protocol      string                 `protobuf:"bytes,4,opt,name=protocol,proto3" json:"protocol,omitempty"` // "graph" (OneDrive) | "gdrive" (Google Drive) | "dropbox"
 	Url           string                 `protobuf:"bytes,5,opt,name=url,proto3" json:"url,omitempty"`           // URL da sessão (já autenticada; o agente não recebe tokens)
 	ChunkSize     int64                  `protobuf:"varint,6,opt,name=chunk_size,json=chunkSize,proto3" json:"chunk_size,omitempty"`
 	ExpiresUnixMs int64                  `protobuf:"varint,7,opt,name=expires_unix_ms,json=expiresUnixMs,proto3" json:"expires_unix_ms,omitempty"`
 	RemotePath    string                 `protobuf:"bytes,8,opt,name=remote_path,json=remotePath,proto3" json:"remote_path,omitempty"`
+	Token         string                 `protobuf:"bytes,9,opt,name=token,proto3" json:"token,omitempty"`                              // só "dropbox": token de curta duração, só de escrita de conteúdo, na pasta do aplicativo
+	UploadPath    string                 `protobuf:"bytes,10,opt,name=upload_path,json=uploadPath,proto3" json:"upload_path,omitempty"` // só "dropbox": caminho de destino
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1670,6 +1672,20 @@ func (x *UploadSession) GetRemotePath() string {
 	return ""
 }
 
+func (x *UploadSession) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *UploadSession) GetUploadPath() string {
+	if x != nil {
+		return x.UploadPath
+	}
+	return ""
+}
+
 type UploadDone struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
@@ -1684,6 +1700,7 @@ type UploadDone struct {
 	RemoteId      string                 `protobuf:"bytes,10,opt,name=remote_id,json=remoteId,proto3" json:"remote_id,omitempty"`
 	Ok            bool                   `protobuf:"varint,11,opt,name=ok,proto3" json:"ok,omitempty"`
 	Error         string                 `protobuf:"bytes,12,opt,name=error,proto3" json:"error,omitempty"`
+	DropboxHash   string                 `protobuf:"bytes,13,opt,name=dropbox_hash,json=dropboxHash,proto3" json:"dropbox_hash,omitempty"` // content_hash do Dropbox
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1798,6 +1815,13 @@ func (x *UploadDone) GetOk() bool {
 func (x *UploadDone) GetError() string {
 	if x != nil {
 		return x.Error
+	}
+	return ""
+}
+
+func (x *UploadDone) GetDropboxHash() string {
+	if x != nil {
+		return x.DropboxHash
 	}
 	return ""
 }
@@ -2509,7 +2533,7 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\arun_uid\x18\x02 \x01(\tR\x06runUid\x12\x15\n" +
 	"\x06job_id\x18\x03 \x01(\x03R\x05jobId\x12\x1b\n" +
 	"\tfile_name\x18\x04 \x01(\tR\bfileName\x12\x12\n" +
-	"\x04size\x18\x05 \x01(\x03R\x04size\"\xea\x01\n" +
+	"\x04size\x18\x05 \x01(\x03R\x04size\"\xa1\x02\n" +
 	"\rUploadSession\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x0e\n" +
@@ -2521,7 +2545,11 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"chunk_size\x18\x06 \x01(\x03R\tchunkSize\x12&\n" +
 	"\x0fexpires_unix_ms\x18\a \x01(\x03R\rexpiresUnixMs\x12\x1f\n" +
 	"\vremote_path\x18\b \x01(\tR\n" +
-	"remotePath\"\xa9\x02\n" +
+	"remotePath\x12\x14\n" +
+	"\x05token\x18\t \x01(\tR\x05token\x12\x1f\n" +
+	"\vupload_path\x18\n" +
+	" \x01(\tR\n" +
+	"uploadPath\"\xcc\x02\n" +
 	"\n" +
 	"UploadDone\x12\x1d\n" +
 	"\n" +
@@ -2537,7 +2565,8 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\tremote_id\x18\n" +
 	" \x01(\tR\bremoteId\x12\x0e\n" +
 	"\x02ok\x18\v \x01(\bR\x02ok\x12\x14\n" +
-	"\x05error\x18\f \x01(\tR\x05error\"\xe0\x01\n" +
+	"\x05error\x18\f \x01(\tR\x05error\x12!\n" +
+	"\fdropbox_hash\x18\r \x01(\tR\vdropboxHash\"\xe0\x01\n" +
 	"\rUploadVerdict\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x0e\n" +

@@ -28,6 +28,9 @@ var (
 // Aplicativo da Microsoft (cliente público, sem segredo) para o login por popup do OneDrive. O ID é público.
 var DefaultMicrosoftClientID = "ec0121f5-4ea0-470a-860d-705b6dea180e"
 
+// DefaultDropboxAppKey é a chave (pública) do aplicativo do Dropbox: login por popup com PKCE, sem segredo.
+var DefaultDropboxAppKey = "29ptnyvv0n28wtf"
+
 // HasWebApp informa se o login por popup (aplicativo da Web) está disponível para o tipo de nuvem.
 func HasWebApp(typ string) bool {
 	if OAuthBrokerURL == "" {
@@ -38,6 +41,8 @@ func HasWebApp(typ string) bool {
 		return DefaultGoogleWebClientID != "" && DefaultGoogleWebClientSecret != ""
 	case TypeOneDrive:
 		return DefaultMicrosoftClientID != ""
+	case TypeDropbox:
+		return DefaultDropboxAppKey != ""
 	}
 	return false
 }
@@ -49,6 +54,8 @@ func WebAppCreds(typ string) (id, secret string) {
 		return DefaultGoogleWebClientID, DefaultGoogleWebClientSecret
 	case TypeOneDrive:
 		return DefaultMicrosoftClientID, ""
+	case TypeDropbox:
+		return DefaultDropboxAppKey, ""
 	}
 	return "", ""
 }
@@ -60,6 +67,8 @@ func BrokerRedirect(typ string) string {
 		return strings.TrimRight(OAuthBrokerURL, "/") + "/oauth/google/callback"
 	case TypeOneDrive:
 		return strings.TrimRight(OAuthBrokerURL, "/") + "/oauth/microsoft/callback"
+	case TypeDropbox:
+		return strings.TrimRight(OAuthBrokerURL, "/") + "/oauth/dropbox/callback"
 	}
 	return ""
 }

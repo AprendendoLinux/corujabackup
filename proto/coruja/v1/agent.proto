@@ -144,11 +144,13 @@ message UploadSession {
   string request_id = 1;
   bool ok = 2;
   string error = 3;
-  string protocol = 4;             // "graph" (OneDrive) | "gdrive" (Google Drive)
+  string protocol = 4;             // "graph" (OneDrive) | "gdrive" (Google Drive) | "dropbox"
   string url = 5;                  // URL da sessão (já autenticada; o agente não recebe tokens)
   int64 chunk_size = 6;
   int64 expires_unix_ms = 7;
   string remote_path = 8;
+  string token = 9;                // só "dropbox": token de curta duração, só de escrita de conteúdo, na pasta do aplicativo
+  string upload_path = 10;         // só "dropbox": caminho de destino
 }
 
 message UploadDone {
@@ -164,6 +166,7 @@ message UploadDone {
   string remote_id = 10;
   bool ok = 11;
   string error = 12;
+  string dropbox_hash = 13;        // content_hash do Dropbox
 }
 
 message UploadVerdict {

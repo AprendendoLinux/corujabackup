@@ -9,7 +9,7 @@ const PROVIDERS: { group: string; items: Prov[] }[] = [
   { group: 'Nuvem', items: [
     { id: 'gdrive', label: 'Google Drive', hint: 'Entre com a sua conta Google', state: 'ok' },
     { id: 'onedrive', label: 'OneDrive', hint: 'Microsoft pessoal ou corporativo', state: 'ok' },
-    { id: 'dropbox', label: 'Dropbox', hint: 'Entre com a sua conta Dropbox', state: 'soon' },
+    { id: 'dropbox', label: 'Dropbox', hint: 'Entre com a sua conta Dropbox', state: 'ok' },
     { id: 's3', label: 'Amazon S3', hint: 'AWS, MinIO, Wasabi…', state: 'off' },
     { id: 'b2', label: 'Backblaze B2', hint: 'Armazenamento econômico', state: 'off' },
     { id: 'box', label: 'Box', hint: 'Armazenamento corporativo', state: 'off' },
@@ -21,7 +21,7 @@ const PROVIDERS: { group: string; items: Prov[] }[] = [
     { id: 'smb', label: 'Pasta de rede', hint: 'SMB, NFS, iSCSI', state: 'off' },
   ] },
 ]
-type Defs = { gdrive?: boolean; gdrive_web?: boolean; onedrive_web?: boolean; broker?: string }
+type Defs = { gdrive?: boolean; gdrive_web?: boolean; onedrive_web?: boolean; dropbox_web?: boolean; broker?: string }
 const PROV_BY_ID = Object.fromEntries(PROVIDERS.flatMap((g) => g.items).map((p) => [p.id, p]))
 
 function ProviderIcon({ id, size = 40 }: { id: string; size?: number }) {
@@ -57,6 +57,28 @@ function ProviderGrid({ onPick }: { onPick: (id: string) => void }) {
   )
 }
 
+// Login por popup: abre a janela já no clique (senão o navegador bloqueia), pede o endereço ao Server, espera o código que
+// a página de retorno entrega por postMessage (só aceita a origem do intermediário) e conclui no Server.
+async function popupLogin(body: Record<string, unknown>, broker: string) {
+  const pop = window.open('', 'coruja-oauth', 'width=520,height=700')
+  if (!pop) throw new Error('O navegador bloqueou a janela. Libere pop-ups para este endereço e tente de novo.')
+  try {
+    const r = await api<{ url: string; state: string }>('POST', '/api/clouds/oauth/begin', { ...body, origin: window.location.origin })
+    pop.location.href = r.url
+    await new Promise<void>((resolve, reject) => {
+      let settled = false
+      const end = (fn: () => void) => { if (settled) return; settled = true; window.removeEventListener('message', onMsg); clearInterval(timer); fn() }
+      const onMsg = (ev: MessageEvent) => {
+        if (ev.origin !== broker || ev.data?.type !== 'coruja-oauth' || ev.data.state !== r.state) return
+        if (ev.data.error) return end(() => reject(new Error(ev.data.error === 'access_denied' ? 'Você não autorizou o acesso.' : `O provedor recusou: ${ev.data.error}`)))
+        api('POST', '/api/clouds/oauth/finish', { state: r.state, code: ev.data.code }).then(() => end(resolve), (x) => end(() => reject(x)))
+      }
+      window.addEventListener('message', onMsg)
+      const timer = window.setInterval(() => { if (pop.closed) setTimeout(() => end(() => reject(new Error('A janela foi fechada antes de terminar.'))), 1500) }, 500)
+    })
+  } finally { try { pop.close() } catch { /* já fechou */ } }
+}
+
 export default function Clouds({ me }: { me: User }) {
   const [accounts, setAccounts] = useState<CloudAccount[]>([])
   const [err, setErr] = useState('')
@@ -81,6 +103,10 @@ export default function Clouds({ me }: { me: User }) {
     } catch (x) { setErr((x as ApiError).message) }
   }
   async function reauth(a: CloudAccount) {
+    if (a.popup) {
+      try { await popupLogin({ account_id: a.id, type: a.type }, defs.broker ?? ''); setErr(''); setInfo(`"${a.name}" reautorizada.`); load() } catch (x) { setInfo(''); setErr((x as Error).message) }
+      return
+    }
     try { const r = await api<{ device: DeviceInfo }>('POST', `/api/clouds/${a.id}/reauthorize`); setWizard({ id: a.id, device: r.device, name: a.name }) } catch (x) { setErr((x as ApiError).message) }
   }
 
@@ -147,31 +173,14 @@ function NewAccount({ type, onBack, onCreated, onConnected, defs }: { type: stri
   const [busy, setBusy] = useState(false)
   const gd = f.type === 'gdrive'
   const od0 = f.type === 'onedrive'
-  const web = ((gd && !!defs.gdrive_web) || (od0 && !!defs.onedrive_web)) && mode === 'auto' // botão único: popup do provedor
-  const who = od0 ? 'a Microsoft' : 'o Google' // com artigo: "com a Microsoft", "com o Google"
+  const dbx = f.type === 'dropbox' // só existe pelo popup
+  const web = dbx || (((gd && !!defs.gdrive_web) || (od0 && !!defs.onedrive_web)) && mode === 'auto') // botão único: popup do provedor
+  const who = dbx ? 'o Dropbox' : od0 ? 'a Microsoft' : 'o Google' // com artigo: "com a Microsoft", "com o Google"
   const std = gd && !web && !!defs.gdrive && mode !== 'own' // aplicativo padrão com código de dispositivo
   const noCreds = web || std // nada de ID/segredo para preencher
   async function viaPopup() {
-    // abre o popup já no clique (senão o navegador bloqueia) e só depois descobre o endereço
-    const pop = window.open('', 'coruja-oauth', 'width=520,height=700')
-    if (!pop) { setErr('O navegador bloqueou a janela. Libere pop-ups para este endereço ou use o código.'); return }
-    try {
-      const r = await api<{ url: string; state: string }>('POST', '/api/clouds/oauth/begin', { name: f.name, type: f.type, origin: window.location.origin })
-      pop.location.href = r.url
-      await new Promise<void>((resolve, reject) => {
-        let settled = false
-        const end = (fn: () => void) => { if (settled) return; settled = true; window.removeEventListener('message', onMsg); clearInterval(timer); fn() }
-        const onMsg = (ev: MessageEvent) => {
-          if (ev.origin !== defs.broker || ev.data?.type !== 'coruja-oauth' || ev.data.state !== r.state) return
-          if (ev.data.error) return end(() => reject(new Error(ev.data.error === 'access_denied' ? 'Você não autorizou o acesso.' : `O provedor recusou: ${ev.data.error}`)))
-          api('POST', '/api/clouds/oauth/finish', { state: r.state, code: ev.data.code }).then(() => end(resolve), (x) => end(() => reject(x)))
-        }
-        window.addEventListener('message', onMsg)
-        const timer = window.setInterval(() => { if (pop.closed) setTimeout(() => end(() => reject(new Error('A janela foi fechada antes de terminar.'))), 1500) }, 500)
-      })
-      try { pop.close() } catch { /* já fechou */ }
-      onConnected()
-    } catch (x) { try { pop.close() } catch { /* ok */ } throw x }
+    await popupLogin({ name: f.name, type: f.type }, defs.broker ?? '')
+    onConnected()
   }
   async function submit(e: FormEvent) {
     e.preventDefault(); setErr(''); setBusy(true)
@@ -179,7 +188,7 @@ function NewAccount({ type, onBack, onCreated, onConnected, defs }: { type: stri
       if (web) { await viaPopup(); return }
       const r = await api<{ id: number; device: DeviceInfo }>('POST', '/api/clouds', std ? { ...f, client_id: '', client_secret: '' } : f)
       onCreated(r.id, r.device, f.name)
-    } catch (x) { setErr((x as ApiError).message) } finally { setBusy(false) }
+    } catch (x) { setErr((x as Error).message) } finally { setBusy(false) }
   }
   const sel = 'w-full rounded-lg border border-border bg-surface px-3 py-2'
   const od = f.type === 'onedrive'
@@ -193,9 +202,9 @@ function NewAccount({ type, onBack, onCreated, onConnected, defs }: { type: stri
       <Field label="Nome da conta" hint="Como aparece nos jobs. Ex.: Backups da empresa"><Input autoFocus value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required /></Field>
       {web && (
         <div className="rounded-lg border border-border bg-bg p-3 text-muted">
-          Uma janela {od0 ? 'da Microsoft' : 'do Google'} vai abrir para você entrar e autorizar.{od0 ? '' : ' O Coruja só enxerga os arquivos que ele mesmo criar.'}{' '}
+          Uma janela {dbx ? 'do Dropbox' : od0 ? 'da Microsoft' : 'do Google'} vai abrir para você entrar e autorizar.{od0 ? '' : dbx ? ' O Coruja só enxerga a própria pasta dentro do seu Dropbox (Aplicativos › Coruja Backup).' : ' O Coruja só enxerga os arquivos que ele mesmo criar.'}{' '}
           {gd && defs.gdrive && <><button type="button" className="text-primary hover:underline" onClick={() => setMode('code')}>Prefiro usar um código</button>{' · '}</>}
-          <button type="button" className="text-primary hover:underline" onClick={() => setMode('own')}>Usar o meu próprio aplicativo (avançado)</button>
+          {!dbx && <button type="button" className="text-primary hover:underline" onClick={() => setMode('own')}>Usar o meu próprio aplicativo (avançado)</button>}
         </div>
       )}
       {std && (

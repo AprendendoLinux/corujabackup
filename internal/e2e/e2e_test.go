@@ -681,3 +681,80 @@ func TestOneDriveLoginPorPopup(t *testing.T) {
 		t.Fatalf("execução: %+v\n%s", run, r.logs(run))
 	}
 }
+
+// Dropbox de ponta a ponta: popup (cliente público), envio em partes com token só de escrita, retomada, conferência por
+// content_hash, retenção, download e detecção de arquivo corrompido na nuvem.
+func TestDropboxDePontaAPonta(t *testing.T) {
+	oKey, oBroker := cloud.DefaultDropboxAppKey, cloud.OAuthBrokerURL
+	defer func() { cloud.DefaultDropboxAppKey, cloud.OAuthBrokerURL = oKey, oBroker }()
+	cloud.DefaultDropboxAppKey, cloud.OAuthBrokerURL = "dbxkey", "https://broker.exemplo.test"
+
+	fake := cloudtest.NewDropbox("dbxkey")
+	defer fake.Close()
+	r := newRig(t, cloudmgr.Endpoints{DBXToken: fake.URL + "/oauth2/token", DBXAPI: fake.URL + "/2", DBXContent: fake.URL + "/2"})
+	ctx := context.Background()
+
+	loginURL, state, err := r.mgr.BeginWeb(ctx, "dbx", cloud.TypeDropbox, "http://187.110.161.52:8081")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := mustParse(t, loginURL)
+	q := u.Query()
+	if u.Host != "www.dropbox.com" || q.Get("client_id") != "dbxkey" || q.Get("token_access_type") != "offline" ||
+		q.Get("redirect_uri") != "https://broker.exemplo.test/oauth/dropbox/callback" || q.Get("code_challenge_method") != "S256" ||
+		strings.Contains(q.Get("scope"), "account_info.write") {
+		t.Fatalf("endereço de login: %s", loginURL)
+	}
+	id, err := r.mgr.FinishWeb(ctx, state, "codigo-ok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.LastSecret != "" || fake.LastVerifier == "" {
+		t.Fatalf("cliente público: segredo=%q verificador=%q", fake.LastSecret, fake.LastVerifier)
+	}
+	acc, _ := r.st.GetCloud(ctx, id)
+	if acc.Status != "connected" || acc.AccountLabel != "dono@dropbox.test" {
+		t.Fatalf("conta: %+v", acc)
+	}
+
+	jid := r.newJob("dbx-job", id, 2, 2)
+	fake.LoseAppendReply = true // arquivo pequeno não tem append; o teste de retomada em partes está no uploader
+	run := r.runNow(jid)
+	if run.Status != "ok" || run.CloudStatus != "ok" || run.CloudVerifiedBy != "dropbox" {
+		t.Fatalf("execução: %+v\n%s", run, r.logs(run))
+	}
+	if len(fake.ScopesIssued) == 0 || fake.ScopesIssued[0] != "files.content.write" {
+		t.Fatalf("o token do agente deve ser só de escrita: %v", fake.ScopesIssued)
+	}
+	time.Sleep(1100 * time.Millisecond)
+	r.runNow(jid)
+	time.Sleep(1100 * time.Millisecond)
+	if run = r.runNow(jid); run.Status != "ok" {
+		t.Fatalf("terceira execução: %+v\n%s", run, r.logs(run))
+	}
+	folder := "Coruja Backup/srv-e2e/dbx-job"
+	if n := fake.Names(folder); len(n) != 2 {
+		t.Fatalf("retenção na nuvem deve manter 2: %v (%v)", n, r.logs(run))
+	}
+	rc, _, err := r.mgr.Open(ctx, id, folder, fake.Names(folder)[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := io.ReadAll(rc)
+	rc.Close()
+	if !bytes.HasPrefix(got, []byte{0x1f, 0x8b}) {
+		t.Fatal("o download deveria ser um gzip")
+	}
+
+	// arquivo corrompido na nuvem: a execução falha e as cópias boas são preservadas
+	before := fake.Names(folder)
+	fake.CorruptUpload = true
+	time.Sleep(1100 * time.Millisecond)
+	bad := r.runNow(jid)
+	if bad.Status != "failed" || !strings.Contains(bad.Error, "content_hash") {
+		t.Fatalf("corrompido: %+v\n%s", bad, r.logs(bad))
+	}
+	if after := fake.Names(folder); len(after) != len(before) {
+		t.Fatalf("as cópias antigas deveriam ficar: antes %v depois %v", before, after)
+	}
+}

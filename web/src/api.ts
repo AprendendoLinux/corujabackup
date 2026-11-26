@@ -67,11 +67,11 @@ export const ENGINE_LABEL: Record<string, string> = { mysql: 'MySQL', mariadb: '
 export const ENGINE_PORT: Record<string, number> = { mysql: 3306, mariadb: 3306, postgres: 5432, mongodb: 27017 }
 
 export type CloudAccount = {
-  id: number; name: string; type: 'onedrive' | 'gdrive'; status: 'pending' | 'connected' | 'error'; account_label: string
+  id: number; name: string; type: 'onedrive' | 'gdrive' | 'dropbox'; popup?: boolean; status: 'pending' | 'connected' | 'error'; account_label: string
   quota_total: number; quota_used: number; quota_checked_at: string | null; last_error: string; created_at: string; jobs: number
 }
 export type DeviceInfo = { user_code: string; verification_uri: string; expires_at: string; interval: number }
-export const CLOUD_LABEL = { onedrive: 'OneDrive', gdrive: 'Google Drive' } as const
+export const CLOUD_LABEL = { onedrive: 'OneDrive', gdrive: 'Google Drive', dropbox: 'Dropbox' } as const
 export const PHASE: Record<string, string> = { archiving: 'Compactando', uploading: 'Enviando para a nuvem', verifying: 'Conferindo' }
 
 export const CRON_PRESETS: { label: string; cron: string }[] = [

@@ -57,10 +57,11 @@ var _ hash.Hash = (*QuickXor)(nil)
 type Sums struct {
 	size                  int64
 	sha256, sha1, md5, qx hash.Hash
+	dbx                   *DropboxHash
 }
 
 func NewSums() *Sums {
-	return &Sums{sha256: sha256.New(), sha1: sha1.New(), md5: md5.New(), qx: NewQuickXor()} //nolint:gosec
+	return &Sums{sha256: sha256.New(), sha1: sha1.New(), md5: md5.New(), qx: NewQuickXor(), dbx: NewDropboxHash()} //nolint:gosec
 }
 
 func (s *Sums) Write(p []byte) (int, error) {
@@ -69,6 +70,7 @@ func (s *Sums) Write(p []byte) (int, error) {
 	s.sha1.Write(p)
 	s.md5.Write(p)
 	s.qx.Write(p)
+	s.dbx.Write(p)
 	return len(p), nil
 }
 
@@ -78,9 +80,10 @@ type Digest struct {
 	SHA1     string // hex
 	MD5      string // hex
 	QuickXor string // base64 (formato do OneDrive)
+	Dropbox  string // hex (content_hash do Dropbox)
 }
 
 func (s *Sums) Digest() Digest {
 	return Digest{Size: s.size, SHA256: hex.EncodeToString(s.sha256.Sum(nil)), SHA1: hex.EncodeToString(s.sha1.Sum(nil)),
-		MD5: hex.EncodeToString(s.md5.Sum(nil)), QuickXor: base64.StdEncoding.EncodeToString(s.qx.Sum(nil))}
+		MD5: hex.EncodeToString(s.md5.Sum(nil)), QuickXor: base64.StdEncoding.EncodeToString(s.qx.Sum(nil)), Dropbox: s.dbx.Hex()}
 }

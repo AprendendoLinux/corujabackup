@@ -46,6 +46,8 @@ type CloudAdmin interface {
 	Test(ctx context.Context, id int64) (string, cloud.Quota, error)
 	Invalidate(id int64)
 	BeginWeb(ctx context.Context, name, typ, origin string) (loginURL, state string, err error)
+	BeginWebReauth(ctx context.Context, id int64, origin string) (loginURL, state string, err error)
+	UsesPopup(ctx context.Context, id int64) bool
 	FinishWeb(ctx context.Context, state, code string) (int64, error)
 	Open(ctx context.Context, accountID int64, folder, name string) (io.ReadCloser, int64, error)
 }

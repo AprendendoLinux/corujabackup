@@ -30,6 +30,9 @@ type Endpoints struct {
 	Graph             string
 	GDevice, GToken   string
 	GAuth             string
+	DBXToken          string
+	DBXAPI            string
+	DBXContent        string
 	GAPI, GUpload     string
 }
 
@@ -60,6 +63,7 @@ type Manager struct {
 
 type pendingWeb struct {
 	Name, Typ, Origin, Verifier string
+	AccountID                   int64 // != 0: reautorização de uma conta existente
 	Expires                     time.Time
 }
 
@@ -95,6 +99,11 @@ func (m *Manager) oauth(typ string, cfg AccountConfig) (*cloud.OAuth, error) {
 		}
 		if m.EP.GAuth != "" {
 			o.AuthURL = m.EP.GAuth
+		}
+	case cloud.TypeDropbox:
+		o = cloud.DropboxOAuth(cfg.ClientID, cfg.ClientSecret)
+		if m.EP.DBXToken != "" {
+			o.TokenURL = m.EP.DBXToken
 		}
 	default:
 		return nil, fmt.Errorf("tipo de nuvem desconhecido: %q", typ)
@@ -314,6 +323,15 @@ func (m *Manager) Provider(ctx context.Context, id int64) (cloud.Provider, error
 		p = &cloud.OneDrive{TS: guard{m, id, ts}, HTTP: m.HTTP, Graph: m.EP.Graph, DriveID: cfg.DriveID, HardDelete: cfg.HardDelete}
 	case cloud.TypeGDrive:
 		p = &cloud.GDrive{TS: guard{m, id, ts}, HTTP: m.HTTP, API: m.EP.GAPI, Upload: m.EP.GUpload}
+	case cloud.TypeDropbox:
+		p = &cloud.Dropbox{TS: guard{m, id, ts}, HTTP: m.HTTP, API: m.EP.DBXAPI, Content: m.EP.DBXContent,
+			UploadToken: func(ctx context.Context) (string, time.Time, error) {
+				t, err := o.RefreshScoped(ctx, ts.RefreshToken(), cloud.DropboxAgentScope, m.Now())
+				if err != nil {
+					return "", time.Time{}, err
+				}
+				return t.Access, t.Expiry, nil
+			}}
 	default:
 		return nil, fmt.Errorf("tipo de nuvem desconhecido: %q", a.Type)
 	}
@@ -374,7 +392,7 @@ func (m *Manager) OpenUpload(ctx context.Context, j *store.Job, fileName string,
 	return &Upload{Session: s, RemotePath: folder + "/" + fileName}, nil
 }
 
-type Hashes struct{ QuickXor, SHA1, MD5 string }
+type Hashes struct{ QuickXor, SHA1, MD5, Dropbox string }
 
 type Verdict struct {
 	OK         bool
@@ -412,6 +430,11 @@ func (m *Manager) VerifyAndRetain(ctx context.Context, j *store.Job, fileName st
 	switch {
 	case rf.Size != size:
 		v.Message = fmt.Sprintf("tamanho na nuvem (%d) diferente do enviado (%d)", rf.Size, size)
+	case rf.ContentHash != "" && h.Dropbox != "":
+		v.RemoteHash, v.VerifiedBy = rf.ContentHash, "dropbox"
+		if rf.ContentHash != h.Dropbox {
+			v.Message = "o content_hash do Dropbox difere do arquivo enviado"
+		}
 	case rf.QuickXor != "" && h.QuickXor != "":
 		v.RemoteHash, v.VerifiedBy = rf.QuickXor, "quickxor"
 		if rf.QuickXor != h.QuickXor {
@@ -477,13 +500,39 @@ func b64(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
 // BeginWeb prepara o login por popup: devolve o endereço do provedor (que o navegador abre) e o "state" a conferir na volta.
 // origin é a origem da interface do Coruja (a janela que abriu o popup): só ela recebe o código.
 func (m *Manager) BeginWeb(ctx context.Context, name, typ, origin string) (loginURL, state string, err error) {
+	return m.beginWeb(ctx, name, typ, origin, 0)
+}
+
+// BeginWebReauth refaz o login por popup de uma conta já existente (token revogado, por exemplo).
+func (m *Manager) BeginWebReauth(ctx context.Context, id int64, origin string) (loginURL, state string, err error) {
+	a, err := m.Store.GetCloud(ctx, id)
+	if err != nil {
+		return "", "", err
+	}
+	if !m.UsesPopup(ctx, id) {
+		return "", "", errors.New("esta conta não foi conectada pelo login por popup")
+	}
+	return m.beginWeb(ctx, a.Name, a.Type, origin, id)
+}
+
+// UsesPopup informa se a conta foi conectada pelo login por popup (aplicativo padrão "da Web").
+func (m *Manager) UsesPopup(ctx context.Context, id int64) bool {
+	a, err := m.Store.GetCloud(ctx, id)
+	if err != nil {
+		return false
+	}
+	cfg, err := m.openConfig(a)
+	return err == nil && cfg.UseDefault && cfg.Web
+}
+
+func (m *Manager) beginWeb(ctx context.Context, name, typ, origin string, accountID int64) (loginURL, state string, err error) {
 	if !cloud.HasWebApp(typ) {
 		return "", "", errors.New("login por popup indisponível neste Server")
 	}
 	if !originRE.MatchString(origin) {
 		return "", "", errors.New("origem da interface inválida")
 	}
-	if accs, e := m.Store.ListClouds(ctx); e == nil {
+	if accs, e := m.Store.ListClouds(ctx); e == nil && accountID == 0 {
 		for _, a := range accs {
 			if a.Name == name {
 				return "", "", store.ErrDuplicate
@@ -515,7 +564,7 @@ func (m *Manager) BeginWeb(ctx context.Context, name, typ, origin string) (login
 		m.mu.Unlock()
 		return "", "", errors.New("muitos logins em andamento: tente de novo em instantes")
 	}
-	m.pending[b64(nonce)] = pendingWeb{Name: name, Typ: typ, Origin: origin, Verifier: b64(ver), Expires: now.Add(10 * time.Minute)}
+	m.pending[b64(nonce)] = pendingWeb{Name: name, Typ: typ, Origin: origin, Verifier: b64(ver), AccountID: accountID, Expires: now.Add(10 * time.Minute)}
 	m.mu.Unlock()
 	return o.AuthCodeURL(cloud.BrokerRedirect(typ), state, b64(ch[:])), state, nil
 }
@@ -546,14 +595,16 @@ func (m *Manager) FinishWeb(ctx context.Context, state, code string) (int64, err
 	if err != nil {
 		return 0, err
 	}
-	cj, _ := json.Marshal(cfg)
-	sc, err := m.Box.Seal(string(cj))
-	if err != nil {
-		return 0, err
-	}
-	id, err := m.Store.CreateCloud(ctx, p.Name, p.Typ, sc, "")
-	if err != nil {
-		return 0, err
+	id := p.AccountID
+	if id == 0 {
+		cj, _ := json.Marshal(cfg)
+		sc, err := m.Box.Seal(string(cj))
+		if err != nil {
+			return 0, err
+		}
+		if id, err = m.Store.CreateCloud(ctx, p.Name, p.Typ, sc, ""); err != nil {
+			return 0, err
+		}
 	}
 	tj, _ := json.Marshal(tok)
 	st, err := m.Box.Seal(string(tj))

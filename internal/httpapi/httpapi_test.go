@@ -564,6 +564,10 @@ func (f *fakeClouds) Invalidate(int64) {}
 func (f *fakeClouds) BeginWeb(_ context.Context, name, typ, origin string) (string, string, error) {
 	return "https://login.test/?o=" + origin, "nonce." + name, nil
 }
+func (f *fakeClouds) BeginWebReauth(_ context.Context, id int64, origin string) (string, string, error) {
+	return "https://login.test/?re=1", "nonce.re", nil
+}
+func (f *fakeClouds) UsesPopup(context.Context, int64) bool { return false }
 func (f *fakeClouds) FinishWeb(_ context.Context, state, code string) (int64, error) {
 	if code != "ok" {
 		return 0, errors.New("código inválido")

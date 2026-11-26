@@ -38,7 +38,7 @@ func newRig(t *testing.T) *rig {
 	r.svc.Log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	ctx := context.Background()
 	h := auth.SHA256Hex("tok")
-	st.CreateEnrollToken(ctx, h, "srv-n", 0, r.now.Add(time.Hour))
+	st.CreateEnrollToken(ctx, h, "srv-n", 0, time.Now().UTC().Add(time.Hour)) // o banco compara com o relógio real
 	a, err := st.Enroll(ctx, h, "host", "linux", "amd64", "0.0.7", "10.0.0.1", auth.SHA256Hex("c"))
 	if err != nil {
 		t.Fatal(err)

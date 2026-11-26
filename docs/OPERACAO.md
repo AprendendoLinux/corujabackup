@@ -16,6 +16,12 @@ O Coruja Backup guarda tudo no MySQL e em **um volume** (`/data`). Faça backup 
 1. Suba o MySQL e restaure o dump. 2. Restaure o volume `/data` (ou ao menos `secret.key` e `tls/`). 3. Suba o Server (mesma versão ou mais nova).
 Os agentes reconectam sozinhos e entregam o que ficou na fila local.
 
+## Aplicativo OAuth padrão (mantenedores e forks)
+
+As imagens oficiais embutem o aplicativo do Google do projeto: o ID do cliente é público (`internal/cloud/defaults.go`) e o **segredo é injetado só na compilação**, a partir do segredo `GOOGLE_CLIENT_SECRET` do GitHub Actions (ou `GOOGLE_CLIENT_SECRET_FILE` no `scripts/release.sh`). Esse segredo é o de um aplicativo do tipo "TVs e dispositivos de entrada limitada", que o Google documenta como não confidencial, mas ele **fica visível no binário**. Compilações sem o segredo (desenvolvimento, forks) simplesmente não oferecem o modo padrão e pedem o Client ID, como antes. Contas conectadas no modo padrão não gravam credenciais; se o segredo mudar, basta atualizar a imagem.
+
+Enquanto a marca do aplicativo não estiver verificada pelo Google, o app aceita até 100 usuários no total.
+
 ## Atualização
 ```bash
 docker compose -f docker-compose.server.yml pull && docker compose -f docker-compose.server.yml up -d

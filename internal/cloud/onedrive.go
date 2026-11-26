@@ -41,7 +41,9 @@ func OneDriveOAuth(clientID, clientSecret, tenant string) *OAuth {
 	}
 	return &OAuth{ClientID: clientID, ClientSecret: clientSecret, Scope: oneDriveScope,
 		DeviceURL: fmt.Sprintf("%s/%s/oauth2/v2.0/devicecode", msLoginBase, tenant),
-		TokenURL:  fmt.Sprintf("%s/%s/oauth2/v2.0/token", msLoginBase, tenant)}
+		AuthURL:   fmt.Sprintf("%s/%s/oauth2/v2.0/authorize", msLoginBase, tenant),
+		TokenURL:  fmt.Sprintf("%s/%s/oauth2/v2.0/token", msLoginBase, tenant),
+		AuthExtra: url.Values{"prompt": {"select_account"}, "response_mode": {"query"}}}
 }
 
 func (o *OneDrive) Type() string { return TypeOneDrive }

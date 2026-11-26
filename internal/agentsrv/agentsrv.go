@@ -506,7 +506,7 @@ func (s *Server) handleUploadRequest(ctx context.Context, a *store.Agent, r *pb.
 		return deny(err.Error())
 	}
 	return &pb.ServerMessage{Body: &pb.ServerMessage_UploadSession{UploadSession: &pb.UploadSession{RequestId: r.RequestId, Ok: true,
-		Protocol: up.Session.Protocol, Url: up.Session.URL, ChunkSize: up.Session.ChunkSize, ExpiresUnixMs: up.Session.ExpiresAt.UnixMilli(), RemotePath: up.RemotePath}}}
+		Protocol: up.Session.Protocol, Token: up.Session.Token, UploadPath: up.Session.Path, Url: up.Session.URL, ChunkSize: up.Session.ChunkSize, ExpiresUnixMs: up.Session.ExpiresAt.UnixMilli(), RemotePath: up.RemotePath}}}
 }
 
 func (s *Server) handleUploadDone(ctx context.Context, a *store.Agent, d *pb.UploadDone) *pb.ServerMessage {
@@ -521,7 +521,7 @@ func (s *Server) handleUploadDone(ctx context.Context, a *store.Agent, d *pb.Upl
 	if !d.Ok {
 		return reply(&pb.UploadVerdict{Ok: false, Message: "o agente relatou falha no envio: " + clip(d.Error, 500)})
 	}
-	v := s.Cloud.VerifyAndRetain(ctx, j, d.FileName, d.Size, cloudmgr.Hashes{QuickXor: d.Quickxor, SHA1: d.Sha1, MD5: d.Md5}, time.Now().UTC())
+	v := s.Cloud.VerifyAndRetain(ctx, j, d.FileName, d.Size, cloudmgr.Hashes{QuickXor: d.Quickxor, SHA1: d.Sha1, MD5: d.Md5, Dropbox: d.DropboxHash}, time.Now().UTC())
 	if !v.OK {
 		slog.Warn("envio à nuvem não conferiu", "job", j.Name, "motivo", v.Message)
 	}

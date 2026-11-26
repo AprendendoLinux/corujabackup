@@ -45,6 +45,10 @@ type CloudAdmin interface {
 	PollDevice(ctx context.Context, id int64) (string, *cloud.Device, error)
 	Test(ctx context.Context, id int64) (string, cloud.Quota, error)
 	Invalidate(id int64)
+	BeginWeb(ctx context.Context, name, typ, origin string) (loginURL, state string, err error)
+	BeginWebReauth(ctx context.Context, id int64, origin string) (loginURL, state string, err error)
+	UsesPopup(ctx context.Context, id int64) bool
+	FinishWeb(ctx context.Context, state, code string) (int64, error)
 	Open(ctx context.Context, accountID int64, folder, name string) (io.ReadCloser, int64, error)
 }
 
@@ -142,6 +146,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/reports/daily.pdf", s.authed(roleOperator, s.dailyPDF))
 	mux.HandleFunc("GET /api/clouds", s.authed(roleAny, s.listClouds))
 	mux.HandleFunc("POST /api/clouds", s.authed(roleAdmin, s.createCloud))
+	mux.HandleFunc("POST /api/clouds/oauth/begin", s.authed(roleAdmin, s.beginCloudWeb))
+	mux.HandleFunc("POST /api/clouds/oauth/finish", s.authed(roleAdmin, s.finishCloudWeb))
 	mux.HandleFunc("POST /api/clouds/{id}/poll", s.authed(roleAdmin, s.pollCloud))
 	mux.HandleFunc("POST /api/clouds/{id}/reauthorize", s.authed(roleAdmin, s.reauthCloud))
 	mux.HandleFunc("POST /api/clouds/{id}/test", s.authed(roleOperator, s.testCloud))

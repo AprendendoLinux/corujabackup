@@ -6,9 +6,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -514,5 +518,243 @@ func TestReenvioParaNuvemExtracaoEDownload(t *testing.T) {
 	}
 	if !strings.Contains(r.logs(fixed), "já existe") {
 		t.Fatalf("deveria recusar sobrescrever:\n%s", r.logs(fixed))
+	}
+}
+
+// Com o aplicativo padrão compilado, a conta não guarda credenciais e funciona de ponta a ponta; sem ele, o modo some.
+func TestGoogleDriveComAplicativoPadrao(t *testing.T) {
+	oldID, oldSec := cloud.DefaultGoogleClientID, cloud.DefaultGoogleClientSecret
+	defer func() { cloud.DefaultGoogleClientID, cloud.DefaultGoogleClientSecret = oldID, oldSec }()
+	cloud.DefaultGoogleClientID, cloud.DefaultGoogleClientSecret = "gid", "segredo-compilado"
+
+	fake := cloudtest.NewDrive("gid")
+	defer fake.Close()
+	r := newRig(t, cloudmgr.Endpoints{GDevice: fake.URL + "/device/code", GToken: fake.URL + "/token", GAPI: fake.APIURL(), GUpload: fake.UploadURL()})
+	cid := r.connectCloud(cloud.TypeGDrive, cloudmgr.AccountConfig{}) // sem ID nem segredo
+	acc, err := r.st.GetCloud(context.Background(), cid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := r.mgr.OpenConfigForTest(acc)
+	if !cfg.UseDefault || cfg.ClientID != "" || cfg.ClientSecret != "" {
+		t.Fatalf("a conta não deve gravar credenciais: %+v", cfg)
+	}
+	jid := r.newJob("gd-padrao", cid, 2, 3)
+	if run := r.runNow(jid); run.Status != "ok" || run.CloudStatus != "ok" || run.CloudVerifiedBy != "md5" {
+		t.Fatalf("execução: %+v\n%s", run, r.logs(run))
+	}
+
+	// sem aplicativo padrão compilado: pedir conta sem credenciais é recusado com mensagem clara
+	cloud.DefaultGoogleClientSecret = ""
+	if _, _, err := r.mgr.Create(context.Background(), "sem-padrao", cloud.TypeGDrive, cloudmgr.AccountConfig{}); err == nil || !strings.Contains(err.Error(), "Client ID") {
+		t.Fatalf("esperava erro pedindo o Client ID: %v", err)
+	}
+	// uma conta criada no modo padrão não consegue renovar sem o aplicativo compilado
+	r.mgr.Invalidate(cid)
+	if _, err := r.mgr.Provider(context.Background(), cid); err == nil {
+		t.Fatal("sem o aplicativo padrão a conta deveria falhar de forma explícita")
+	}
+}
+
+// Login por popup: o Server gera o endereço do provedor (PKCE, state ligado à origem), recebe o código entregue pela página
+// de retorno e cria a conta já conectada, usando o aplicativo "da Web" compilado e sem gravar credenciais.
+func TestGoogleDriveLoginPorPopup(t *testing.T) {
+	oID, oSec, oBroker := cloud.DefaultGoogleWebClientID, cloud.DefaultGoogleWebClientSecret, cloud.OAuthBrokerURL
+	defer func() {
+		cloud.DefaultGoogleWebClientID, cloud.DefaultGoogleWebClientSecret, cloud.OAuthBrokerURL = oID, oSec, oBroker
+	}()
+	cloud.DefaultGoogleWebClientID, cloud.DefaultGoogleWebClientSecret, cloud.OAuthBrokerURL = "gid", "seg-web", "https://broker.exemplo.test"
+
+	fake := cloudtest.NewDrive("gid")
+	defer fake.Close()
+	r := newRig(t, cloudmgr.Endpoints{GDevice: fake.URL + "/device/code", GToken: fake.URL + "/token", GAPI: fake.APIURL(), GUpload: fake.UploadURL()})
+	ctx := context.Background()
+
+	for _, bad := range []string{"javascript:alert(1)", "http://evil.test/caminho", "ftp://x", "http://a b", ""} {
+		if _, _, err := r.mgr.BeginWeb(ctx, "gd-web", cloud.TypeGDrive, bad); err == nil {
+			t.Fatalf("origem %q deveria ser recusada", bad)
+		}
+	}
+	const origin = "http://187.110.161.52:8081"
+	loginURL, state, err := r.mgr.BeginWeb(ctx, "gd-web", cloud.TypeGDrive, origin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, _ := url.Parse(loginURL)
+	q := u.Query()
+	if u.Host != "accounts.google.com" || q.Get("client_id") != "gid" || q.Get("redirect_uri") != "https://broker.exemplo.test/oauth/google/callback" ||
+		q.Get("code_challenge_method") != "S256" || q.Get("access_type") != "offline" || q.Get("state") != state || strings.Contains(loginURL, "seg-web") {
+		t.Fatalf("endereço de login: %s", loginURL)
+	}
+	if o, _ := base64.RawURLEncoding.DecodeString(state[strings.IndexByte(state, '.')+1:]); string(o) != origin {
+		t.Fatalf("o state deve carregar a origem: %q", o)
+	}
+
+	// state adulterado (outra origem) e código errado não criam nada; o state é de uso único
+	forged := state[:strings.IndexByte(state, '.')+1] + base64.RawURLEncoding.EncodeToString([]byte("http://evil.test"))
+	if _, err := r.mgr.FinishWeb(ctx, forged, "codigo-ok"); err == nil {
+		t.Fatal("origem diferente da registrada deveria falhar")
+	}
+	if _, err := r.mgr.FinishWeb(ctx, state, "codigo-ok"); err == nil {
+		t.Fatal("o state já foi consumido pela tentativa anterior")
+	}
+	_, state, _ = r.mgr.BeginWeb(ctx, "gd-web", cloud.TypeGDrive, origin)
+	if _, err := r.mgr.FinishWeb(ctx, state, "codigo-errado"); err == nil {
+		t.Fatal("código recusado pelo provedor deveria falhar")
+	}
+	if accs, _ := r.st.ListClouds(ctx); len(accs) != 0 {
+		t.Fatalf("nenhuma conta deveria existir ainda: %d", len(accs))
+	}
+
+	loginURL, state, _ = r.mgr.BeginWeb(ctx, "gd-web", cloud.TypeGDrive, origin)
+	q = mustParse(t, loginURL).Query()
+	id, err := r.mgr.FinishWeb(ctx, state, "codigo-ok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte(fake.LastVerifier))
+	if base64.RawURLEncoding.EncodeToString(sum[:]) != q.Get("code_challenge") || fake.LastSecret != "seg-web" || fake.LastRedirect != "https://broker.exemplo.test/oauth/google/callback" {
+		t.Fatalf("troca do código: verificador=%q segredo=%q redirect=%q", fake.LastVerifier, fake.LastSecret, fake.LastRedirect)
+	}
+	acc, _ := r.st.GetCloud(ctx, id)
+	cfg, _ := r.mgr.OpenConfigForTest(acc)
+	if acc.Status != "connected" || !cfg.UseDefault || !cfg.Web || cfg.ClientID != "" || cfg.ClientSecret != "" {
+		t.Fatalf("conta: status=%s cfg=%+v", acc.Status, cfg)
+	}
+	if _, err := r.mgr.FinishWeb(ctx, state, "codigo-ok"); err == nil {
+		t.Fatal("reutilizar o state deveria falhar")
+	}
+	// nome repetido é recusado antes de abrir o popup
+	if _, _, err := r.mgr.BeginWeb(ctx, "gd-web", cloud.TypeGDrive, origin); !errors.Is(err, store.ErrDuplicate) {
+		t.Fatalf("nome repetido: %v", err)
+	}
+	// e a conta funciona de ponta a ponta
+	jid := r.newJob("gd-web-job", id, 2, 3)
+	if run := r.runNow(jid); run.Status != "ok" || run.CloudStatus != "ok" {
+		t.Fatalf("execução: %+v\n%s", run, r.logs(run))
+	}
+}
+
+func mustParse(t *testing.T, s string) *url.URL {
+	t.Helper()
+	u, err := url.Parse(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return u
+}
+
+// OneDrive pelo popup: cliente público (sem segredo), retorno em /oauth/microsoft/callback e conta funcionando.
+func TestOneDriveLoginPorPopup(t *testing.T) {
+	oID, oBroker := cloud.DefaultMicrosoftClientID, cloud.OAuthBrokerURL
+	defer func() { cloud.DefaultMicrosoftClientID, cloud.OAuthBrokerURL = oID, oBroker }()
+	cloud.DefaultMicrosoftClientID, cloud.OAuthBrokerURL = "cid", "https://broker.exemplo.test"
+
+	fake := cloudtest.NewGraph("cid")
+	defer fake.Close()
+	r := newRig(t, cloudmgr.Endpoints{MSDevice: fake.URL + "/devicecode", MSToken: fake.URL + "/token", Graph: fake.GraphURL()})
+	ctx := context.Background()
+	loginURL, state, err := r.mgr.BeginWeb(ctx, "od-web", cloud.TypeOneDrive, "http://187.110.161.52:8081")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := mustParse(t, loginURL)
+	q := u.Query()
+	if u.Host != "login.microsoftonline.com" || !strings.HasSuffix(u.Path, "/common/oauth2/v2.0/authorize") || q.Get("client_id") != "cid" ||
+		q.Get("redirect_uri") != "https://broker.exemplo.test/oauth/microsoft/callback" || !strings.Contains(q.Get("scope"), "offline_access") || q.Get("code_challenge_method") != "S256" {
+		t.Fatalf("endereço de login: %s", loginURL)
+	}
+	id, err := r.mgr.FinishWeb(ctx, state, "codigo-ok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.LastSecret != "" || fake.LastRedirect != "https://broker.exemplo.test/oauth/microsoft/callback" || fake.LastVerifier == "" {
+		t.Fatalf("troca do código: segredo=%q redirect=%q verificador=%q", fake.LastSecret, fake.LastRedirect, fake.LastVerifier)
+	}
+	acc, _ := r.st.GetCloud(ctx, id)
+	cfg, _ := r.mgr.OpenConfigForTest(acc)
+	if acc.Status != "connected" || !cfg.UseDefault || !cfg.Web || cfg.ClientID != "" {
+		t.Fatalf("conta: %s %+v", acc.Status, cfg)
+	}
+	jid := r.newJob("od-web-job", id, 2, 3)
+	if run := r.runNow(jid); run.Status != "ok" || run.CloudStatus != "ok" {
+		t.Fatalf("execução: %+v\n%s", run, r.logs(run))
+	}
+}
+
+// Dropbox de ponta a ponta: popup (cliente público), envio em partes com token só de escrita, retomada, conferência por
+// content_hash, retenção, download e detecção de arquivo corrompido na nuvem.
+func TestDropboxDePontaAPonta(t *testing.T) {
+	oKey, oBroker := cloud.DefaultDropboxAppKey, cloud.OAuthBrokerURL
+	defer func() { cloud.DefaultDropboxAppKey, cloud.OAuthBrokerURL = oKey, oBroker }()
+	cloud.DefaultDropboxAppKey, cloud.OAuthBrokerURL = "dbxkey", "https://broker.exemplo.test"
+
+	fake := cloudtest.NewDropbox("dbxkey")
+	defer fake.Close()
+	r := newRig(t, cloudmgr.Endpoints{DBXToken: fake.URL + "/oauth2/token", DBXAPI: fake.URL + "/2", DBXContent: fake.URL + "/2"})
+	ctx := context.Background()
+
+	loginURL, state, err := r.mgr.BeginWeb(ctx, "dbx", cloud.TypeDropbox, "http://187.110.161.52:8081")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := mustParse(t, loginURL)
+	q := u.Query()
+	if u.Host != "www.dropbox.com" || q.Get("client_id") != "dbxkey" || q.Get("token_access_type") != "offline" ||
+		q.Get("redirect_uri") != "https://broker.exemplo.test/oauth/dropbox/callback" || q.Get("code_challenge_method") != "S256" ||
+		strings.Contains(q.Get("scope"), "account_info.write") {
+		t.Fatalf("endereço de login: %s", loginURL)
+	}
+	id, err := r.mgr.FinishWeb(ctx, state, "codigo-ok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.LastSecret != "" || fake.LastVerifier == "" {
+		t.Fatalf("cliente público: segredo=%q verificador=%q", fake.LastSecret, fake.LastVerifier)
+	}
+	acc, _ := r.st.GetCloud(ctx, id)
+	if acc.Status != "connected" || acc.AccountLabel != "dono@dropbox.test" {
+		t.Fatalf("conta: %+v", acc)
+	}
+
+	jid := r.newJob("dbx-job", id, 2, 2)
+	fake.LoseAppendReply = true // arquivo pequeno não tem append; o teste de retomada em partes está no uploader
+	run := r.runNow(jid)
+	if run.Status != "ok" || run.CloudStatus != "ok" || run.CloudVerifiedBy != "dropbox" {
+		t.Fatalf("execução: %+v\n%s", run, r.logs(run))
+	}
+	if len(fake.ScopesIssued) == 0 || fake.ScopesIssued[0] != "files.content.write" {
+		t.Fatalf("o token do agente deve ser só de escrita: %v", fake.ScopesIssued)
+	}
+	time.Sleep(1100 * time.Millisecond)
+	r.runNow(jid)
+	time.Sleep(1100 * time.Millisecond)
+	if run = r.runNow(jid); run.Status != "ok" {
+		t.Fatalf("terceira execução: %+v\n%s", run, r.logs(run))
+	}
+	folder := "Coruja Backup/srv-e2e/dbx-job"
+	if n := fake.Names(folder); len(n) != 2 {
+		t.Fatalf("retenção na nuvem deve manter 2: %v (%v)", n, r.logs(run))
+	}
+	rc, _, err := r.mgr.Open(ctx, id, folder, fake.Names(folder)[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := io.ReadAll(rc)
+	rc.Close()
+	if !bytes.HasPrefix(got, []byte{0x1f, 0x8b}) {
+		t.Fatal("o download deveria ser um gzip")
+	}
+
+	// arquivo corrompido na nuvem: a execução falha e as cópias boas são preservadas
+	before := fake.Names(folder)
+	fake.CorruptUpload = true
+	time.Sleep(1100 * time.Millisecond)
+	bad := r.runNow(jid)
+	if bad.Status != "failed" || !strings.Contains(bad.Error, "content_hash") {
+		t.Fatalf("corrompido: %+v\n%s", bad, r.logs(bad))
+	}
+	if after := fake.Names(folder); len(after) != len(before) {
+		t.Fatalf("as cópias antigas deveriam ficar: antes %v depois %v", before, after)
 	}
 }

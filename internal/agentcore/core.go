@@ -555,8 +555,12 @@ func (c *Core) uploadToCloud(ctx context.Context, spec *pb.JobSpec, runUID strin
 		h.log("info", "sessão de upload aberta; enviando %s", HumanBytes(res.BytesOutput))
 		opt := c.httpc.opt
 		opt.Progress = func(sent, total int64) { progress(int(sent * 100 / total)) }
-		up, err = uploader.Upload(ctx, uploader.Session{Protocol: sess.Protocol, URL: sess.Url, ChunkSize: sess.ChunkSize}, res.OutputPath, opt)
+		up, err = uploader.Upload(ctx, uploader.Session{Protocol: sess.Protocol, URL: sess.Url, ChunkSize: sess.ChunkSize, Token: sess.Token, Path: sess.UploadPath}, res.OutputPath, opt)
 		if err == nil {
+			break
+		}
+		if errors.Is(err, uploader.ErrMismatch) { // segue para o Server, que confere de novo e apaga o arquivo ruim
+			h.log("error", "%v; pedindo ao Server para conferir e descartar", err)
 			break
 		}
 		if errors.Is(err, uploader.ErrSessionExpired) && attempt == 0 {
@@ -568,7 +572,7 @@ func (c *Core) uploadToCloud(ctx context.Context, spec *pb.JobSpec, runUID strin
 	h.log("info", "envio concluído; aguardando a conferência do Server")
 	m, err := c.ask(ctx, 10*time.Minute, func(id string) *pb.AgentMessage {
 		return &pb.AgentMessage{Body: &pb.AgentMessage_UploadDone{UploadDone: &pb.UploadDone{RequestId: id, RunUid: runUID, JobId: spec.JobId, FileName: res.OutputName,
-			Size: up.Digest.Size, Md5: up.Digest.MD5, Sha1: up.Digest.SHA1, Quickxor: up.Digest.QuickXor, Sha256: up.Digest.SHA256, RemoteId: up.RemoteID, Ok: true}}}
+			Size: up.Digest.Size, Md5: up.Digest.MD5, Sha1: up.Digest.SHA1, Quickxor: up.Digest.QuickXor, Sha256: up.Digest.SHA256, DropboxHash: up.Digest.Dropbox, RemoteId: up.RemoteID, Ok: true}}}
 	})
 	if err != nil {
 		return info, err

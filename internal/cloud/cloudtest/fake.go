@@ -42,13 +42,14 @@ type Common struct {
 	seq      int
 
 	// OAuth
-	ClientID     string
-	PollsUntilOK int
-	polls        int
-	RefreshCount int
-	valid        map[string]bool
-	RefreshToken string
-	IssuedTokens int
+	ClientID                                         string
+	PollsUntilOK                                     int
+	LastCode, LastVerifier, LastRedirect, LastSecret string // do último authorization_code recebido (login por popup)
+	polls                                            int
+	RefreshCount                                     int
+	valid                                            map[string]bool
+	RefreshToken                                     string
+	IssuedTokens                                     int
 
 	// Falhas injetáveis
 	FailPuts          int  // próximos N PUTs de bloco respondem 503
@@ -154,6 +155,14 @@ func (c *Common) handleOAuth(w http.ResponseWriter, r *http.Request) bool {
 			}
 			if c.polls++; c.polls <= c.PollsUntilOK {
 				writeJSON(w, 400, map[string]any{"error": "authorization_pending"})
+				return true
+			}
+			acc, ref := c.newToken()
+			writeJSON(w, 200, map[string]any{"access_token": acc, "refresh_token": ref, "expires_in": 3600, "token_type": "Bearer"})
+		case "authorization_code": // login por popup (PKCE): guarda o que recebeu para o teste conferir
+			c.LastCode, c.LastVerifier, c.LastRedirect, c.LastSecret = r.Form.Get("code"), r.Form.Get("code_verifier"), r.Form.Get("redirect_uri"), r.Form.Get("client_secret")
+			if c.LastCode != "codigo-ok" {
+				writeJSON(w, 400, map[string]any{"error": "invalid_grant", "error_description": "código inválido"})
 				return true
 			}
 			acc, ref := c.newToken()

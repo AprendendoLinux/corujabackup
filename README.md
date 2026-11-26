@@ -3,7 +3,7 @@
 Sistema de backup **centralizado**, em Docker, gerenciado por **interface web**. Um **Server** orquestra tudo; **Agentes** leves rodam
 nos servidores de destino e se conectam a ele informando só **IP:porta + token**.
 
-> **Versão 0.0.9** · [Changelog](CHANGELOG.md) · [Instalação](docs/INSTALACAO.md) · [Operação](docs/OPERACAO.md) · [Segurança](docs/SEGURANCA.md) · [FAQ](docs/FAQ.md)
+> **Versão 0.0.10** · [Changelog](CHANGELOG.md) · [Instalação](docs/INSTALACAO.md) · [Operação](docs/OPERACAO.md) · [Segurança](docs/SEGURANCA.md) · [FAQ](docs/FAQ.md)
 
 ## O que faz
 
@@ -11,7 +11,7 @@ nos servidores de destino e se conectam a ele informando só **IP:porta + token*
 | :--- | :--- |
 | **Backups** | Pastas/arquivos (`.tar.gz` com exclusões) e **bancos de dados** (MySQL, MariaDB, PostgreSQL, MongoDB). Agenda cron com fuso; o **agente agenda sozinho** e roda mesmo com o Server fora do ar. |
 | **Confiança** | Cada arquivo é conferido (SHA-256, gzip, estrutura) e há **teste de restauração real** de bancos num servidor descartável. A retenção só roda depois de verificar. Horários perdidos viram alerta. |
-| **Nuvem** | **OneDrive** e **Google Drive**: o agente envia **direto** (sessão retomável), conferência por hash do agente **e** do Server, retenção por quantidade/dias, exclusão definitiva (sem lixeira). |
+| **Nuvem** | **Google Drive**, **OneDrive** e **Dropbox**, conectados com um clique (login por popup): o agente envia **direto** (envio retomável), conferência por hash do agente **e** do Server, retenção por quantidade/dias, exclusão definitiva (sem lixeira). |
 | **Restauração** | Baixar da nuvem, reenviar, extrair no agente (extração segura) e guia manual por tipo de backup. |
 | **Avisos** | E-mail (SMTP) e Telegram; falha, aviso, sucesso, agente offline e **relatório diário consolidado em PDF A4**. |
 | **Interface** | Painel, agentes, jobs, histórico com **log ao vivo**, nuvem, notificações, **white-label** (nome, logo, temas e **pacotes de tema `.zip`** para interface, e-mail e PDF), usuários e perfis, 2FA, auditoria. |
@@ -26,7 +26,7 @@ nos servidores de destino e se conectam a ele informando só **IP:porta + token*
  └─────┬──────┘                                   └──────────┬────────────┘
        │ envio direto (sessão emitida pelo Server)            │ credenciais da nuvem ficam só aqui (cifradas)
        ▼                                                      ▼
-   OneDrive · Google Drive                            e-mail · Telegram · Prometheus
+   Drive · OneDrive · Dropbox                         e-mail · Telegram · Prometheus
 ```
 
 - O **Server** guarda configuração, histórico e credenciais (cifradas) e expõe duas portas: `8080` (interface/API) e `8443` (agentes).
@@ -67,4 +67,4 @@ docker run --rm --network SUA_REDE -e CORUJA_TEST_DSN='usuario:senha@tcp(db:3306
 ```
 
 ---
-Coruja Backup - Versão 0.0.9 - Desenvolvido por [Henrique Fagundes](https://henrique.tec.br) · Licença MIT
+Coruja Backup - Versão 0.0.10 - Desenvolvido por [Henrique Fagundes](https://henrique.tec.br) · Licença MIT

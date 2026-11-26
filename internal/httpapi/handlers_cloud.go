@@ -16,7 +16,8 @@ var cloudNameRE = regexp.MustCompile(`^[\p{L}\p{N}._(][\p{L}\p{N}._ ()&,'-]{1,99
 
 type cloudView struct {
 	store.CloudAccount
-	Jobs int `json:"jobs"`
+	Jobs  int  `json:"jobs"`
+	Popup bool `json:"popup"`
 }
 
 func (s *Server) listClouds(w http.ResponseWriter, r *http.Request, _ *ctxUser) {
@@ -28,9 +29,9 @@ func (s *Server) listClouds(w http.ResponseWriter, r *http.Request, _ *ctxUser) 
 	out := make([]cloudView, 0, len(accs))
 	for _, a := range accs {
 		n, _ := s.Store.JobsUsingCloud(r.Context(), a.ID)
-		out = append(out, cloudView{a, n})
+		out = append(out, cloudView{a, n, s.Clouds != nil && s.Clouds.UsesPopup(r.Context(), a.ID)})
 	}
-	writeJSON(w, 200, map[string]any{"accounts": out})
+	writeJSON(w, 200, map[string]any{"accounts": out, "defaults": map[string]any{"gdrive": cloud.HasDefaultApp(cloud.TypeGDrive), "gdrive_web": cloud.HasWebApp(cloud.TypeGDrive), "onedrive_web": cloud.HasWebApp(cloud.TypeOneDrive), "dropbox_web": cloud.HasWebApp(cloud.TypeDropbox), "broker": strings.TrimRight(cloud.OAuthBrokerURL, "/")}})
 }
 
 func deviceView(d *cloud.Device) map[string]any {
@@ -162,3 +163,63 @@ func (s *Server) deleteCloud(w http.ResponseWriter, r *http.Request, cu *ctxUser
 }
 
 func itoa64(i int64) string { return strconv.FormatInt(i, 10) }
+
+// beginCloudWeb inicia o login por popup: devolve o endereço do provedor para o navegador abrir.
+func (s *Server) beginCloudWeb(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
+	if s.Clouds == nil {
+		writeErr(w, 503, "nuvem indisponível")
+		return
+	}
+	var in struct {
+		Name      string `json:"name"`
+		Type      string `json:"type"`
+		Origin    string `json:"origin"`
+		AccountID int64  `json:"account_id"` // reautorização de uma conta existente
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	var u, state string
+	var err error
+	if in.AccountID > 0 {
+		u, state, err = s.Clouds.BeginWebReauth(r.Context(), in.AccountID, in.Origin)
+	} else {
+		in.Name = strings.TrimSpace(in.Name)
+		if !cloudNameRE.MatchString(in.Name) {
+			writeErr(w, 400, "nome inválido: use 2 a 100 caracteres (letras, números, espaço, ponto, hífen ou sublinhado)")
+			return
+		}
+		u, state, err = s.Clouds.BeginWeb(r.Context(), in.Name, in.Type, in.Origin)
+	}
+	if errors.Is(err, store.ErrDuplicate) {
+		writeErr(w, 409, "já existe uma conta de nuvem com esse nome")
+		return
+	}
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"url": u, "state": state})
+}
+
+// finishCloudWeb recebe o código entregue pela janela do popup e conclui a conexão.
+func (s *Server) finishCloudWeb(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
+	if s.Clouds == nil {
+		writeErr(w, 503, "nuvem indisponível")
+		return
+	}
+	var in struct {
+		State string `json:"state"`
+		Code  string `json:"code"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	id, err := s.Clouds.FinishWeb(r.Context(), in.State, in.Code)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	s.Store.Audit(r.Context(), cu.User.ID, cu.User.Username, "cloud.connected", itoa64(id), s.clientIP(r))
+	writeJSON(w, 201, map[string]any{"id": id})
+}

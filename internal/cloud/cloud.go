@@ -27,12 +27,16 @@ type RemoteFile struct {
 	QuickXor string // base64 (OneDrive)
 	SHA1     string // hex (OneDrive pessoal)
 	MD5      string // hex (Google Drive)
-	Modified time.Time
+	// ContentHash é o hash próprio do Dropbox (hex).
+	ContentHash string
+	Modified    time.Time
 }
 
 // UploadSession é uma sessão de upload retomável já autenticada (o agente não recebe nenhum token).
 type UploadSession struct {
-	Protocol  string // "graph" | "gdrive"
+	Protocol  string // "graph" | "gdrive" | "dropbox"
+	Token     string // só no Dropbox: token de curta duração para o envio
+	Path      string // só no Dropbox: caminho de destino
 	URL       string
 	ChunkSize int64
 	ExpiresAt time.Time

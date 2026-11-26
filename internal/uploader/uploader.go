@@ -19,9 +19,11 @@ import (
 )
 
 type Session struct {
-	Protocol  string // "graph" | "gdrive"
+	Protocol  string // "graph" | "gdrive" | "dropbox"
 	URL       string
 	ChunkSize int64
+	Token     string // só "dropbox"
+	Path      string // só "dropbox"
 }
 
 type Result struct {
@@ -30,13 +32,16 @@ type Result struct {
 	RemoteMD5      string
 	RemoteSHA1     string
 	RemoteQuickXor string
+	RemoteDropbox  string
 	Digest         cloud.Digest
-	VerifiedBy     string // quickxor | sha1 | md5 | size
+	VerifiedBy     string // quickxor | sha1 | md5 | dropbox | size
 }
 
 var (
 	ErrSessionExpired = errors.New("a sessão de upload expirou")
-	errRetry          = errors.New("tentar de novo")
+	// ErrMismatch: o envio terminou, mas o que a nuvem guardou não confere. O Server precisa ser avisado para apagar o arquivo.
+	ErrMismatch = errors.New("o arquivo na nuvem não confere")
+	errRetry    = errors.New("tentar de novo")
 )
 
 type Options struct {
@@ -107,6 +112,13 @@ func Upload(ctx context.Context, sess Session, path string, opt Options) (Result
 	}
 	if res.Digest, err = HashFile(ctx, path); err != nil {
 		return res, err
+	}
+	switch sess.Protocol {
+	case "graph", "gdrive":
+	case "dropbox":
+		return uploadDropbox(ctx, sess, f, res, total, opt)
+	default:
+		return res, fmt.Errorf("protocolo de envio desconhecido (%q): atualize o agente", sess.Protocol)
 	}
 	chunk := sess.ChunkSize
 	if chunk <= 0 {
@@ -332,22 +344,22 @@ func finish(s Session, body []byte, res Result, total int64) (Result, error) {
 		}
 	}
 	if res.RemoteSize != 0 && res.RemoteSize != total {
-		return res, fmt.Errorf("a nuvem guardou %d bytes, esperado %d", res.RemoteSize, total)
+		return res, fmt.Errorf("%w: a nuvem guardou %d bytes, esperado %d", ErrMismatch, res.RemoteSize, total)
 	}
 	switch {
 	case res.RemoteQuickXor != "":
 		if res.RemoteQuickXor != res.Digest.QuickXor {
-			return res, errors.New("o hash quickXor da nuvem difere do arquivo enviado")
+			return res, fmt.Errorf("%w: o hash quickXor da nuvem difere do arquivo enviado", ErrMismatch)
 		}
 		res.VerifiedBy = "quickxor"
 	case res.RemoteSHA1 != "":
 		if res.RemoteSHA1 != res.Digest.SHA1 {
-			return res, errors.New("o hash SHA-1 da nuvem difere do arquivo enviado")
+			return res, fmt.Errorf("%w: o hash SHA-1 da nuvem difere do arquivo enviado", ErrMismatch)
 		}
 		res.VerifiedBy = "sha1"
 	case res.RemoteMD5 != "":
 		if res.RemoteMD5 != res.Digest.MD5 {
-			return res, errors.New("o hash MD5 da nuvem difere do arquivo enviado")
+			return res, fmt.Errorf("%w: o hash MD5 da nuvem difere do arquivo enviado", ErrMismatch)
 		}
 		res.VerifiedBy = "md5"
 	case res.RemoteSize == total:

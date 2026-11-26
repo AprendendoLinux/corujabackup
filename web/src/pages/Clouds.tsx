@@ -1,16 +1,98 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { CLOUD_LABEL, CloudAccount, DeviceInfo, User, api, ApiError, fmtBytes, fmtDate } from '../api'
 import { Badge, Button, Card, CopyBox, ErrorBox, Field, Input, Modal } from '../ui'
+import { CLOUD_ICON } from '../icons'
+
+// Catálogo de destinos. ok = disponível; soon = em construção (colorido); off = previsto (cinza).
+type Prov = { id: string; label: string; hint: string; state: 'ok' | 'soon' | 'off' }
+const PROVIDERS: { group: string; items: Prov[] }[] = [
+  { group: 'Nuvem', items: [
+    { id: 'gdrive', label: 'Google Drive', hint: 'Entre com a sua conta Google', state: 'ok' },
+    { id: 'onedrive', label: 'OneDrive', hint: 'Microsoft pessoal ou corporativo', state: 'ok' },
+    { id: 'dropbox', label: 'Dropbox', hint: 'Entre com a sua conta Dropbox', state: 'ok' },
+    { id: 's3', label: 'Amazon S3', hint: 'AWS, MinIO, Wasabi…', state: 'off' },
+    { id: 'b2', label: 'Backblaze B2', hint: 'Armazenamento econômico', state: 'off' },
+    { id: 'box', label: 'Box', hint: 'Armazenamento corporativo', state: 'off' },
+    { id: 'mega', label: 'MEGA', hint: 'Armazenamento cifrado', state: 'off' },
+    { id: 'pcloud', label: 'pCloud', hint: 'Armazenamento europeu', state: 'off' },
+  ] },
+  { group: 'Servidores e rede', items: [
+    { id: 'sftp', label: 'SFTP', hint: 'Servidor por SSH', state: 'off' },
+    { id: 'smb', label: 'Pasta de rede', hint: 'SMB, NFS, iSCSI', state: 'off' },
+  ] },
+]
+type Defs = { gdrive?: boolean; gdrive_web?: boolean; onedrive_web?: boolean; dropbox_web?: boolean; broker?: string }
+const PROV_BY_ID = Object.fromEntries(PROVIDERS.flatMap((g) => g.items).map((p) => [p.id, p]))
+
+function ProviderIcon({ id, size = 40 }: { id: string; size?: number }) {
+  const I = CLOUD_ICON[id]
+  return I ? I({ size }) : null
+}
+
+function ProviderGrid({ onPick }: { onPick: (id: string) => void }) {
+  return (
+    <div className="space-y-5">
+      <p className="text-sm text-muted">Escolha onde guardar os backups.</p>
+      {PROVIDERS.map((g) => (
+        <section key={g.group} aria-label={g.group}>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">{g.group}</h3>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {g.items.map((p) => {
+              const on = p.state === 'ok'
+              return (
+                <button key={p.id} type="button" disabled={!on} aria-disabled={!on} onClick={() => on && onPick(p.id)}
+                  title={on ? p.label : 'Em breve'}
+                  className={`group relative flex flex-col items-center gap-2 rounded-xl border px-3 py-4 text-center transition ${on ? 'border-border bg-surface hover:-translate-y-0.5 hover:border-primary hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary' : 'cursor-not-allowed border-border/70 bg-bg'}`}>
+                  <span className={on || p.state === 'soon' ? '' : 'opacity-60 grayscale'}><ProviderIcon id={p.id} size={44} /></span>
+                  <span className={`text-sm font-semibold ${on ? '' : 'text-muted'}`}>{p.label}</span>
+                  <span className="text-xs leading-snug text-muted">{p.hint}</span>
+                  {!on && <span className="absolute right-2 top-2 rounded-full bg-border/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">Em breve</span>}
+                </button>
+              )
+            })}
+          </div>
+        </section>
+      ))}
+    </div>
+  )
+}
+
+// Login por popup: abre a janela já no clique (senão o navegador bloqueia), pede o endereço ao Server, espera o código que
+// a página de retorno entrega por postMessage (só aceita a origem do intermediário) e conclui no Server.
+async function popupLogin(body: Record<string, unknown>, broker: string) {
+  const pop = window.open('', 'coruja-oauth', 'width=520,height=700')
+  if (!pop) throw new Error('O navegador bloqueou a janela. Libere pop-ups para este endereço e tente de novo.')
+  try {
+    const r = await api<{ url: string; state: string }>('POST', '/api/clouds/oauth/begin', { ...body, origin: window.location.origin })
+    pop.location.href = r.url
+    await new Promise<void>((resolve, reject) => {
+      let settled = false
+      let received = false // o código já chegou: a janela pode fechar, só falta o Server concluir
+      const end = (fn: () => void) => { if (settled) return; settled = true; window.removeEventListener('message', onMsg); clearInterval(timer); fn() }
+      const onMsg = (ev: MessageEvent) => {
+        if (ev.origin !== broker || ev.data?.type !== 'coruja-oauth' || ev.data.state !== r.state) return
+        if (received) return
+        received = true
+        clearInterval(timer)
+        if (ev.data.error) return end(() => reject(new Error(ev.data.error === 'access_denied' ? 'Você não autorizou o acesso.' : `O provedor recusou: ${ev.data.error}`)))
+        api('POST', '/api/clouds/oauth/finish', { state: r.state, code: ev.data.code }).then(() => end(resolve), (x) => end(() => reject(x)))
+      }
+      window.addEventListener('message', onMsg)
+      const timer = window.setInterval(() => { if (pop.closed) setTimeout(() => { if (!received) end(() => reject(new Error('A janela foi fechada antes de terminar.'))) }, 1500) }, 500)
+    })
+  } finally { try { pop.close() } catch { /* já fechou */ } }
+}
 
 export default function Clouds({ me }: { me: User }) {
   const [accounts, setAccounts] = useState<CloudAccount[]>([])
   const [err, setErr] = useState('')
   const [info, setInfo] = useState('')
-  const [wizard, setWizard] = useState<{ id?: number; device?: DeviceInfo; name?: string } | null>(null)
+  const [defs, setDefs] = useState<Defs>({})
+  const [wizard, setWizard] = useState<{ id?: number; device?: DeviceInfo; name?: string; type?: string } | null>(null)
   const isAdmin = me.role === 'admin'
 
   const load = useCallback(() => {
-    api<{ accounts: CloudAccount[] }>('GET', '/api/clouds').then((r) => { setAccounts(r.accounts); setErr('') }).catch((x) => setErr((x as ApiError).message))
+    api<{ accounts: CloudAccount[]; defaults?: Defs }>('GET', '/api/clouds').then((r) => { setAccounts(r.accounts); setDefs(r.defaults ?? {}); setErr('') }).catch((x) => setErr((x as ApiError).message))
   }, [])
   useEffect(() => { load() }, [load])
 
@@ -25,6 +107,10 @@ export default function Clouds({ me }: { me: User }) {
     } catch (x) { setErr((x as ApiError).message) }
   }
   async function reauth(a: CloudAccount) {
+    if (a.popup) {
+      try { await popupLogin({ account_id: a.id, type: a.type }, defs.broker ?? ''); setErr(''); setInfo(`"${a.name}" reautorizada.`); load() } catch (x) { setInfo(''); setErr((x as Error).message) }
+      return
+    }
     try { const r = await api<{ device: DeviceInfo }>('POST', `/api/clouds/${a.id}/reauthorize`); setWizard({ id: a.id, device: r.device, name: a.name }) } catch (x) { setErr((x as ApiError).message) }
   }
 
@@ -47,9 +133,12 @@ export default function Clouds({ me }: { me: User }) {
           return (
             <Card key={a.id}>
               <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className="font-semibold">{a.name}</div>
-                  <div className="text-sm text-muted">{CLOUD_LABEL[a.type]}{a.account_label && ` · ${a.account_label}`}</div>
+                <div className="flex min-w-0 items-center gap-3">
+                  <ProviderIcon id={a.type} size={36} />
+                  <div className="min-w-0">
+                    <div className="truncate font-semibold">{a.name}</div>
+                    <div className="truncate text-sm text-muted">{CLOUD_LABEL[a.type]}{a.account_label && ` · ${a.account_label}`}</div>
+                  </div>
                 </div>
                 {a.status === 'connected' ? <Badge tone="ok">Conectada</Badge> : a.status === 'error' ? <Badge tone="danger">Erro</Badge> : <Badge tone="warn">Aguardando autorização</Badge>}
               </div>
@@ -71,34 +160,66 @@ export default function Clouds({ me }: { me: User }) {
         })}
       </div>
 
-      {wizard && <Modal title={wizard.device ? 'Autorizar o acesso' : 'Conectar nuvem'} onClose={() => { setWizard(null); load() }}>
+      {wizard && <Modal title={wizard.device ? 'Autorizar o acesso' : wizard.type ? `Conectar ${PROV_BY_ID[wizard.type]?.label ?? 'nuvem'}` : 'Conectar nuvem'} onClose={() => { setWizard(null); load() }}>
         {wizard.device && wizard.id
           ? <Authorize id={wizard.id} name={wizard.name ?? ''} device={wizard.device} onDone={() => { setWizard(null); setInfo('Conta conectada com sucesso.'); load() }} />
-          : <NewAccount onCreated={(id, device, name) => { setWizard({ id, device, name }); load() }} />}
+          : !wizard.type ? <ProviderGrid onPick={(type) => setWizard({ type })} />
+          : <NewAccount type={wizard.type} onBack={() => setWizard({})} defs={defs} onCreated={(id, device, name) => { setWizard({ id, device, name }); load() }} onConnected={() => { setWizard(null); setInfo('Conta conectada com sucesso.'); load() }} />}
       </Modal>}
     </div>
   )
 }
 
-function NewAccount({ onCreated }: { onCreated: (id: number, device: DeviceInfo, name: string) => void }) {
-  const [f, setF] = useState({ type: 'onedrive', name: '', client_id: '', client_secret: '', tenant: '' })
+function NewAccount({ type, onBack, onCreated, onConnected, defs }: { type: string; onBack: () => void; onCreated: (id: number, device: DeviceInfo, name: string) => void; onConnected: () => void; defs: Defs }) {
+  const [f, setF] = useState({ type, name: '', client_id: '', client_secret: '', tenant: '' })
+  const [mode, setMode] = useState<'auto' | 'code' | 'own'>('auto')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
+  const gd = f.type === 'gdrive'
+  const od0 = f.type === 'onedrive'
+  const dbx = f.type === 'dropbox' // só existe pelo popup
+  const web = dbx || (((gd && !!defs.gdrive_web) || (od0 && !!defs.onedrive_web)) && mode === 'auto') // botão único: popup do provedor
+  const who = dbx ? 'o Dropbox' : od0 ? 'a Microsoft' : 'o Google' // com artigo: "com a Microsoft", "com o Google"
+  const std = gd && !web && !!defs.gdrive && mode !== 'own' // aplicativo padrão com código de dispositivo
+  const noCreds = web || std // nada de ID/segredo para preencher
+  async function viaPopup() {
+    await popupLogin({ name: f.name, type: f.type }, defs.broker ?? '')
+    onConnected()
+  }
   async function submit(e: FormEvent) {
     e.preventDefault(); setErr(''); setBusy(true)
-    try { const r = await api<{ id: number; device: DeviceInfo }>('POST', '/api/clouds', f); onCreated(r.id, r.device, f.name) }
-    catch (x) { setErr((x as ApiError).message) } finally { setBusy(false) }
+    try {
+      if (web) { await viaPopup(); return }
+      const r = await api<{ id: number; device: DeviceInfo }>('POST', '/api/clouds', std ? { ...f, client_id: '', client_secret: '' } : f)
+      onCreated(r.id, r.device, f.name)
+    } catch (x) { setErr((x as Error).message) } finally { setBusy(false) }
   }
   const sel = 'w-full rounded-lg border border-border bg-surface px-3 py-2'
   const od = f.type === 'onedrive'
   return (
     <form onSubmit={submit} className="space-y-4 text-sm">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Provedor"><select className={sel} value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })}><option value="onedrive">OneDrive (Microsoft)</option><option value="gdrive">Google Drive</option></select></Field>
-        <Field label="Nome da conta" hint="Como aparece nos jobs. Ex.: OneDrive da empresa"><Input autoFocus value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required /></Field>
+      <div className="flex items-center gap-3 rounded-xl border border-border bg-bg px-4 py-3">
+        <ProviderIcon id={type} size={40} />
+        <div className="min-w-0 flex-1"><div className="font-semibold">{PROV_BY_ID[type]?.label}</div><div className="text-xs text-muted">{PROV_BY_ID[type]?.hint}</div></div>
+        <button type="button" className="text-sm text-primary hover:underline" onClick={onBack}>← Trocar</button>
       </div>
-      <Field label="Client ID (ID do aplicativo)"><Input className="font-mono" value={f.client_id} onChange={(e) => setF({ ...f, client_id: e.target.value })} required /></Field>
-      {od ? (
+      <Field label="Nome da conta" hint="Como aparece nos jobs. Ex.: Backups da empresa"><Input autoFocus value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required /></Field>
+      {web && (
+        <div className="rounded-lg border border-border bg-bg p-3 text-muted">
+          Uma janela {dbx ? 'do Dropbox' : od0 ? 'da Microsoft' : 'do Google'} vai abrir para você entrar e autorizar.{od0 ? '' : dbx ? ' O Coruja só enxerga a própria pasta dentro do seu Dropbox (Aplicativos › Coruja Backup).' : ' O Coruja só enxerga os arquivos que ele mesmo criar.'}{' '}
+          {gd && defs.gdrive && <><button type="button" className="text-primary hover:underline" onClick={() => setMode('code')}>Prefiro usar um código</button>{' · '}</>}
+          {!dbx && <button type="button" className="text-primary hover:underline" onClick={() => setMode('own')}>Usar o meu próprio aplicativo (avançado)</button>}
+        </div>
+      )}
+      {std && (
+        <div className="rounded-lg border border-border bg-bg p-3 text-muted">
+          Vamos mostrar um <b>código</b> e um link do Google. Abra o link, digite o código e autorize a sua conta: não é preciso registrar aplicativo nem colar credenciais. O Coruja só enxerga os arquivos que ele mesmo criar.{' '}
+          <button type="button" className="text-primary hover:underline" onClick={() => setMode('own')}>Usar o meu próprio aplicativo (avançado)</button>
+        </div>
+      )}
+      {((gd && (defs.gdrive || defs.gdrive_web)) || (od0 && defs.onedrive_web)) && mode !== 'auto' && <button type="button" className="text-sm text-primary hover:underline" onClick={() => setMode('auto')}>← Voltar ao login com {who}</button>}
+      {!noCreds && <Field label="Client ID (ID do aplicativo)"><Input className="font-mono" value={f.client_id} onChange={(e) => setF({ ...f, client_id: e.target.value })} required /></Field>}
+      {noCreds ? null : od ? (
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Locatário (tenant)" hint="common = contas pessoais e corporativas. Ou o ID/domínio do seu locatário."><Input placeholder="common" value={f.tenant} onChange={(e) => setF({ ...f, tenant: e.target.value })} /></Field>
           <Field label="Client Secret (opcional)" hint="Só se o aplicativo for “confidencial”."><Input type="password" autoComplete="off" value={f.client_secret} onChange={(e) => setF({ ...f, client_secret: e.target.value })} /></Field>
@@ -106,7 +227,7 @@ function NewAccount({ onCreated }: { onCreated: (id: number, device: DeviceInfo,
       ) : (
         <Field label="Client Secret"><Input type="password" autoComplete="off" value={f.client_secret} onChange={(e) => setF({ ...f, client_secret: e.target.value })} required /></Field>
       )}
-      <details className="rounded-lg border border-border bg-bg p-3">
+      {!noCreds && <details className="rounded-lg border border-border bg-bg p-3">
         <summary className="cursor-pointer font-medium">Como obter o Client ID{od ? '' : ' e o Secret'}</summary>
         {od ? (
           <ol className="mt-2 list-decimal space-y-1 pl-5 text-muted">
@@ -124,9 +245,9 @@ function NewAccount({ onCreated }: { onCreated: (id: number, device: DeviceInfo,
             <li>Copie o <b>ID do cliente</b> e a <b>chave secreta</b>. O acesso pedido é só <b>drive.file</b>: o Coruja Backup enxerga apenas os arquivos que ele mesmo cria.</li>
           </ol>
         )}
-      </details>
+      </details>}
       <ErrorBox message={err} />
-      <Button disabled={busy}>Continuar</Button>
+      <Button disabled={busy}>{web ? (busy ? `Aguardando ${who}…` : `Entrar com ${who}`) : 'Continuar'}</Button>
     </form>
   )
 }

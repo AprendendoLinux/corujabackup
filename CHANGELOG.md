@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.10] - Fase 9 · Login com um clique e Dropbox
+- **Dropbox:** novo destino, com login por popup (cliente público, sem segredo) e acesso só à pasta do aplicativo. Envio em partes com retomada, conferência pelo `content_hash` do Dropbox, retenção, download e restauração. Como o Dropbox não tem endereço pré-autorizado para arquivos grandes, o agente recebe um **token de curta duração só de escrita de conteúdo** (exceção à regra "o agente não recebe tokens"); cada envio precisa terminar antes de o token vencer (cerca de 4 horas).
+- **Correção (todas as nuvens):** quando o agente detectava que o arquivo na nuvem não conferia, ele desistia sem avisar o Server e o arquivo corrompido ficava com nome de backup. Agora o Server confere de novo e o apaga, preservando as cópias boas.
+- **Login por popup** para Google Drive, OneDrive e Dropbox (e "Reautorizar" usa o popup nessas contas); tela de escolha de destino com ícones.
+- **Aplicativo OAuth padrão do Google Drive** nas imagens oficiais: o usuário só abre o link e digita o código, sem registrar aplicativo (o modo manual continua disponível).
+
 ## [0.0.9] - Fase 8 · Pacotes de temas
 - **Pacotes de tema (`.zip`):** importados em Aparência; o tema vale para a **interface**, os **e-mails** e os **PDFs** (cores, logo de interface e logo de documento). Importar o mesmo `id` atualiza o tema.
 - **Validação rígida:** `.zip` plano e limitado, nomes e tipos verificados, imagens identificadas pelo conteúdo, SVG com script/referência externa recusado, sem CSS livre; auditoria de importação.

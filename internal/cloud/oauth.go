@@ -33,6 +33,8 @@ type OAuth struct {
 	ClientID     string
 	ClientSecret string
 	DeviceURL    string
+	AuthURL      string     // fluxo com retorno (popup)
+	AuthExtra    url.Values // parâmetros próprios do provedor no endereço de login
 	TokenURL     string
 	Scope        string
 	HTTP         *http.Client
@@ -199,4 +201,57 @@ func (ts *TokenSource) Access(ctx context.Context) (string, error) {
 		}
 	}
 	return nt.Access, nil
+}
+
+// AuthCodeURL monta o endereço de login do fluxo "código de autorização" com PKCE (S256).
+func (o *OAuth) AuthCodeURL(redirect, state, challenge string) string {
+	q := url.Values{"client_id": {o.ClientID}, "redirect_uri": {redirect}, "response_type": {"code"}, "scope": {o.Scope},
+		"state": {state}, "code_challenge": {challenge}, "code_challenge_method": {"S256"}}
+	for k, v := range o.AuthExtra {
+		q[k] = v
+	}
+	return o.AuthURL + "?" + q.Encode()
+}
+
+// ExchangeCode troca o código recebido na volta do login pelos tokens (com o verificador do PKCE).
+func (o *OAuth) ExchangeCode(ctx context.Context, code, verifier, redirect string, now time.Time) (*Token, error) {
+	form := url.Values{"client_id": {o.ClientID}, "code": {code}, "code_verifier": {verifier}, "redirect_uri": {redirect}, "grant_type": {"authorization_code"}}
+	if o.ClientSecret != "" {
+		form.Set("client_secret", o.ClientSecret)
+	}
+	m, status, err := o.post(ctx, o.TokenURL, form)
+	if err != nil {
+		return nil, err
+	}
+	if status != 200 || str(m, "access_token") == "" {
+		return nil, fmt.Errorf("o provedor recusou o código de autorização: %s", errText(m, status))
+	}
+	t := tokenFrom(m, "", now)
+	if t.Refresh == "" {
+		return nil, errors.New("o provedor não devolveu a renovação de acesso (refresh token): revogue o acesso do Coruja na sua conta e tente de novo")
+	}
+	return t, nil
+}
+
+// RefreshScoped emite um access token de curta duração restrito aos escopos pedidos (usado para o envio ao Dropbox).
+func (o *OAuth) RefreshScoped(ctx context.Context, refresh, scope string, now time.Time) (*Token, error) {
+	form := url.Values{"client_id": {o.ClientID}, "refresh_token": {refresh}, "grant_type": {"refresh_token"}, "scope": {scope}}
+	if o.ClientSecret != "" {
+		form.Set("client_secret", o.ClientSecret)
+	}
+	m, code, err := o.post(ctx, o.TokenURL, form)
+	if err != nil {
+		return nil, err
+	}
+	if code != 200 || str(m, "access_token") == "" {
+		return nil, fmt.Errorf("falha ao emitir o token de envio: %s", errText(m, code))
+	}
+	return tokenFrom(m, refresh, now), nil
+}
+
+// RefreshToken devolve o refresh token atual (para emitir tokens restritos).
+func (ts *TokenSource) RefreshToken() string {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	return ts.tok.Refresh
 }

@@ -1,48 +1,66 @@
+// Temas: os embutidos da Coruja e os instalados por pacote (.zip). Todos têm modo claro e escuro; o administrador escolhe
+// o tema e o modo em Aparência (Automático segue a preferência do sistema operacional de cada pessoa).
+
+export type ThemeMode = 'auto' | 'light' | 'dark'
+
+/** Temas embutidos: id do tema e o bloco de CSS (index.css) de cada modo. */
 export const THEMES = [
-  { id: 'coruja', label: 'Coruja' },
-  { id: 'noturno', label: 'Noturno' },
-  { id: 'floresta', label: 'Floresta' },
+  { id: 'coruja', label: 'Coruja', light: 'coruja', dark: 'noturno' },
+  { id: 'floresta', label: 'Floresta', light: 'floresta', dark: 'floresta-escuro' },
 ] as const
 
-export type ThemeId = (typeof THEMES)[number]['id']
-
-export type ThemePkg = { version?: string; author?: string; description?: string; logo_ui?: string; logo_doc?: string; asset_ver?: string; doc?: Record<string, string> }
-export type CustomTheme = { id: string; label: string; vars: Record<string, string>; pkg?: ThemePkg }
-
-export const VAR_KEYS: { key: string; label: string }[] = [
-  { key: 'bg', label: 'Fundo da página' }, { key: 'surface', label: 'Cartões e janelas' }, { key: 'text', label: 'Texto' },
-  { key: 'muted', label: 'Texto secundário' }, { key: 'border', label: 'Bordas' }, { key: 'primary', label: 'Cor principal' },
-  { key: 'primary_contrast', label: 'Texto sobre a cor principal' }, { key: 'accent', label: 'Destaque' }, { key: 'ok', label: 'Sucesso' }, { key: 'danger', label: 'Erro' },
+export const MODES: { id: ThemeMode; label: string }[] = [
+  { id: 'auto', label: 'Automático (segue o sistema de cada pessoa)' }, { id: 'light', label: 'Claro' }, { id: 'dark', label: 'Escuro' },
 ]
 
-// Espelha os temas embutidos de index.css (usado para "duplicar" um tema como ponto de partida).
-export const BUILTIN_VARS: Record<string, Record<string, string>> = {
-  coruja: { bg: '#f6f5fb', surface: '#ffffff', text: '#1e1b2e', muted: '#6b6784', border: '#e3e0f0', primary: '#3b2a6b', primary_contrast: '#ffffff', accent: '#f5a524', ok: '#1f9d55', danger: '#d64545' },
-  noturno: { bg: '#12101c', surface: '#1c1930', text: '#ece9fa', muted: '#9a95b8', border: '#2e2a4a', primary: '#8b73e8', primary_contrast: '#12101c', accent: '#f5a524', ok: '#3ccf7b', danger: '#ff6b6b' },
-  floresta: { bg: '#f1f6f2', surface: '#ffffff', text: '#16251b', muted: '#5c7364', border: '#d9e6dc', primary: '#1f6b45', primary_contrast: '#ffffff', accent: '#e0a526', ok: '#1f9d55', danger: '#c93c3c' },
+export type ThemePkg = { version?: string; author?: string; description?: string; logo_ui?: string; logo_doc?: string; asset_ver?: string; doc?: Record<string, string> }
+export type CustomTheme = { id: string; label: string; vars: Record<string, string>; vars_dark?: Record<string, string>; pkg?: ThemePkg }
+
+export const VAR_KEYS = ['bg', 'surface', 'text', 'muted', 'border', 'primary', 'primary_contrast', 'accent', 'ok', 'danger']
+
+// Cores dos embutidos (só para as amostras na tela de Aparência; as de verdade estão em index.css).
+export const BUILTIN_SWATCH: Record<string, { light: string[]; dark: string[] }> = {
+  coruja: { light: ['#f6f5fb', '#3b2a6b', '#f5a524'], dark: ['#12101c', '#8b73e8', '#f5a524'] },
+  floresta: { light: ['#f1f6f2', '#1f6b45', '#e0a526'], dark: ['#0f1712', '#4fbf86', '#e8b648'] },
 }
 
 const cssName = (k: string) => '--' + k.replace(/_/g, '-')
+const darkQuery = () => window.matchMedia?.('(prefers-color-scheme: dark)')
 
-export function clearCustom() {
-  const st = document.documentElement.style
-  VAR_KEYS.forEach(({ key }) => st.removeProperty(cssName(key)))
+export function effectiveMode(mode: ThemeMode): 'light' | 'dark' {
+  if (mode === 'light' || mode === 'dark') return mode
+  return darkQuery()?.matches ? 'dark' : 'light'
 }
 
-// Aplica um tema embutido ou personalizado. Os personalizados definem as variáveis CSS direto no <html>.
-export function applyTheme(id: string, custom: CustomTheme[] = []) {
+// Aplica um tema e um modo. Os instalados por pacote definem as variáveis CSS direto no <html>.
+export function applyTheme(id: string, custom: CustomTheme[] = [], mode: ThemeMode = 'auto') {
   const ct = custom.find((t) => t.id === id)
-  const builtin = THEMES.some((t) => t.id === id)
-  const ok = ct || builtin ? id : 'coruja'
-  clearCustom()
-  document.documentElement.setAttribute('data-theme', ct ? 'coruja' : ok)
-  document.documentElement.setAttribute('data-theme-id', ok)
+  const bt = THEMES.find((t) => t.id === id)
+  const ok = ct || bt ? id : 'coruja'
+  const m = effectiveMode(mode)
+  const root = document.documentElement
+  VAR_KEYS.forEach((k) => root.style.removeProperty(cssName(k)))
+  const builtin = THEMES.find((t) => t.id === ok) ?? THEMES[0]
+  root.setAttribute('data-theme', ct ? (m === 'dark' ? 'noturno' : 'coruja') : builtin[m])
+  root.setAttribute('data-theme-id', ok)
+  root.setAttribute('data-mode', m)
+  if (ct) {
+    const vars = m === 'dark' && ct.vars_dark ? ct.vars_dark : ct.vars
+    VAR_KEYS.forEach((k) => vars[k] && root.style.setProperty(cssName(k), vars[k]))
+  }
   window.dispatchEvent(new Event('coruja-theme'))
-  if (ct) VAR_KEYS.forEach(({ key }) => document.documentElement.style.setProperty(cssName(key), ct.vars[key]))
-  try { localStorage.setItem('coruja.theme', ok) } catch { /* sem armazenamento: tudo bem */ }
   return ok
 }
 
-export function savedTheme(): string | null {
-  try { return localStorage.getItem('coruja.theme') } catch { return null }
+/** Avisa quando a preferência clara/escura do sistema muda (para o modo Automático). */
+export function onSystemModeChange(fn: () => void) {
+  const q = darkQuery()
+  q?.addEventListener?.('change', fn)
+  return () => q?.removeEventListener?.('change', fn)
+}
+
+// O tema é um só para todo o sistema, definido pelo administrador em Aparência. Versões antigas guardavam uma escolha
+// por navegador, que podia sobrepor a do administrador; ela é descartada.
+export function forgetLocalTheme() {
+  try { localStorage.removeItem('coruja.theme') } catch { /* sem armazenamento: tudo bem */ }
 }

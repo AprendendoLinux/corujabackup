@@ -1,46 +1,36 @@
-import { ChangeEvent, useState } from 'react'
-import { Branding, api, ApiError } from '../api'
+import { ChangeEvent, useEffect, useRef, useState } from 'react'
+import { Credit, api, ApiError } from '../api'
 import Logo, { useBrand } from '../Logo'
-import { BUILTIN_VARS, CustomTheme, THEMES, VAR_KEYS, applyTheme } from '../themes'
-import { Button, Card, ErrorBox, Field, Input } from '../ui'
+import { BUILTIN_SWATCH, CustomTheme, MODES, THEMES, ThemeMode, applyTheme, effectiveMode } from '../themes'
+import { Button, Card, ErrorBox, Field, IconButton, Input } from '../ui'
+import { confirmar } from '../Dialogs'
+import Icon from '../Icon'
+
+const DEFAULT_CREDIT: Credit = { label: 'Desenvolvido por', name: 'Henrique Fagundes', url: 'https://henrique.tec.br' }
 
 export default function Appearance() {
   const { brand, reload } = useBrand()
   const [name, setName] = useState(brand.name)
   const [theme, setTheme] = useState(brand.theme)
+  const [mode, setMode] = useState<ThemeMode>(brand.mode ?? 'auto')
   const [themes, setThemes] = useState<CustomTheme[]>(brand.themes)
-  const [editing, setEditing] = useState<string | null>(null)
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
+  const [credit, setCredit] = useState<Credit>(brand.credit ?? DEFAULT_CREDIT)
+  // a pré-visualização vale só nesta página: ao sair sem salvar, volta o tema do sistema
+  const saved = useRef(brand)
+  saved.current = brand
+  useEffect(() => () => { applyTheme(saved.current.theme, saved.current.themes, saved.current.mode ?? 'auto') }, [])
+  useEffect(() => { applyTheme(theme, themes, mode) }, [theme, themes, mode])
 
-  const cur = themes.find((t) => t.id === editing) ?? null
-  const preview = (id: string, list = themes) => applyTheme(id, list)
-
-  function addTheme(from: string) {
-    const base = BUILTIN_VARS[from] ?? themes.find((t) => t.id === from)?.vars ?? BUILTIN_VARS.coruja
-    let n = themes.length + 1, id = `tema-${n}`
-    while (themes.some((t) => t.id === id)) id = `tema-${++n}`
-    const t: CustomTheme = { id, label: `Meu tema ${n}`, vars: { ...base } }
-    const list = [...themes, t]
-    setThemes(list); setEditing(id); preview(id, list)
-  }
-  function patch(p: Partial<CustomTheme>, vars?: Record<string, string>) {
-    if (!cur) return
-    const next = { ...cur, ...p, vars: { ...cur.vars, ...(vars ?? {}) } }
-    const list = themes.map((t) => (t.id === cur.id ? next : t))
-    setThemes(list); preview(cur.id, list)
-  }
   function remove(id: string) {
-    const list = themes.filter((t) => t.id !== id)
-    setThemes(list); if (editing === id) setEditing(null)
-    const fallback = theme === id ? 'coruja' : theme
-    setTheme(fallback); preview(fallback, list)
+    setThemes(themes.filter((t) => t.id !== id))
+    if (theme === id) setTheme('coruja')
   }
-
   async function save() {
     setErr(''); setMsg(''); setBusy(true)
-    try { await api('PUT', '/api/branding', { name, theme, themes }); setMsg('Aparência salva.'); reload() }
+    try { await api('PUT', '/api/branding', { name, theme, mode, themes: themes.map((t) => ({ id: t.id })), credit }); setMsg('Aparência salva. Vale para todos os usuários.'); reload() }
     catch (x) { setErr((x as ApiError).message) } finally { setBusy(false) }
   }
   async function upload(e: ChangeEvent<HTMLInputElement>) {
@@ -62,20 +52,30 @@ export default function Appearance() {
       const j = await res.json().catch(() => ({}))
       if (!res.ok) throw new ApiError(res.status, j.error ?? 'Falha ao importar o pacote')
       const t = j.theme as CustomTheme
-      const list = j.replaced ? themes.map((x) => (x.id === t.id ? t : x)) : [...themes, t]
-      setThemes(list); preview(t.id, list)
-      setMsg(`Tema "${t.label}" ${j.replaced ? 'atualizado' : 'importado'}. Use "Usar como padrão" e salve para aplicá-lo ao e-mail e ao PDF.`); reload()
+      setThemes(j.replaced ? themes.map((x) => (x.id === t.id ? t : x)) : [...themes, t])
+      setTheme(t.id)
+      setMsg(`Tema "${t.label}" ${j.replaced ? 'atualizado' : 'instalado'}. Ele já aparece selecionado: salve para aplicá-lo a todos.`); reload()
     } catch (x) { setErr((x as ApiError).message) }
   }
   async function removeLogo() {
     try { await api('DELETE', '/api/branding/logo'); setMsg('Logo removida (volta a coruja padrão).'); reload() } catch (x) { setErr((x as ApiError).message) }
   }
 
+  const m = effectiveMode(mode)
+  const swatches = (t: CustomTheme, which: 'light' | 'dark') => {
+    const v = which === 'dark' && t.vars_dark ? t.vars_dark : t.vars
+    return [v.bg, v.primary, v.accent]
+  }
+  const cards = [
+    ...THEMES.map((t) => ({ id: t.id, label: t.label, tag: 'Coruja', sw: BUILTIN_SWATCH[t.id], pkg: false, desc: '' })),
+    ...themes.map((t) => ({ id: t.id, label: t.label, tag: `pacote${t.pkg?.version ? ` ${t.pkg.version}` : ''}`, sw: { light: swatches(t, 'light'), dark: swatches(t, 'dark') }, pkg: true, desc: t.pkg?.description ?? '' })),
+  ]
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Aparência</h1>
-        <p className="text-sm text-muted">Nome, logo e cores do sistema (white-label). O rodapé padrão com a versão é mantido.</p>
+        <p className="text-sm text-muted">Nome, logo, tema e créditos do sistema (white-label). Valem para todos os usuários e também para os e-mails e o PDF.</p>
       </div>
       <ErrorBox message={err} />
       {msg && <div className="rounded-lg border border-ok/40 bg-ok/10 px-3 py-2 text-sm text-ok">{msg}</div>}
@@ -83,77 +83,89 @@ export default function Appearance() {
       <Card>
         <h2 className="mb-3 font-semibold">Identidade</h2>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Nome do sistema" hint="Aparece no topo, no login, na aba do navegador e no rodapé."><Input value={name} maxLength={60} onChange={(e) => setName(e.target.value)} /></Field>
-          <Field label="Tema padrão" hint="Cada pessoa pode escolher o seu no topo da página; este vale para quem ainda não escolheu.">
-            <select className="w-full rounded-lg border border-border bg-surface px-3 py-2" value={theme} onChange={(e) => { setTheme(e.target.value); preview(e.target.value) }}>
-              {THEMES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-              {themes.map((t) => <option key={t.id} value={t.id}>{t.label} (personalizado)</option>)}
-            </select>
-          </Field>
-        </div>
-        <div className="mt-4 flex flex-wrap items-center gap-4">
-          <div className="flex h-16 min-w-32 items-center justify-center rounded-lg border border-border bg-bg px-4"><Logo size={44} /></div>
-          <div className="space-y-1 text-sm">
-            <label className="inline-flex cursor-pointer items-center rounded-lg border border-border bg-surface px-3.5 py-2 font-medium hover:bg-bg">
-              {brand.has_logo ? 'Trocar logo' : 'Enviar logo'}
-              <input type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" className="sr-only" onChange={upload} />
-            </label>
-            {brand.has_logo && <button className="ml-3 text-danger hover:underline" onClick={removeLogo}>Remover</button>}
-            <p className="text-xs text-muted">PNG, JPEG, GIF, WebP ou SVG (sem scripts), até 1 MiB. Altura recomendada: 40 a 80 px, fundo transparente.</p>
+          <Field label="Nome do sistema" hint="Aparece no menu, no login, na aba do navegador e no rodapé."><Input value={name} maxLength={60} onChange={(e) => setName(e.target.value)} /></Field>
+          <div className="flex items-center gap-4">
+            <div className="flex h-16 min-w-32 items-center justify-center rounded-xl border border-border bg-bg px-4"><Logo size={44} /></div>
+            <div className="space-y-1 text-sm">
+              <div className="flex items-center gap-1">
+                <label className="inline-flex cursor-pointer items-center rounded-lg border border-border bg-surface px-3.5 py-2 font-medium hover:bg-bg">
+                  {brand.has_logo ? 'Trocar logo' : 'Enviar logo'}
+                  <input type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" className="sr-only" onChange={upload} />
+                </label>
+                {brand.has_logo && <IconButton icon="excluir" tone="danger" label="Remover a logo" onClick={removeLogo} />}
+              </div>
+              <p className="text-xs text-muted">PNG, JPEG, GIF, WebP ou SVG, até 1 MiB. Temas de pacote podem trazer a própria logo.</p>
+            </div>
           </div>
         </div>
       </Card>
 
       <Card>
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 className="font-semibold">Temas personalizados</h2>
-          <label className="cursor-pointer rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm font-medium hover:bg-bg">
-            Importar pacote (.zip)
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-semibold">Tema</h2>
+            <p className="text-sm text-muted">Escolha um tema da Coruja ou instale um pacote. Ao clicar, a página mostra a prévia; vale para todos depois de salvar.</p>
+          </div>
+          <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-medium hover:bg-bg">
+            <Icon name="mais" size={16} /> Instalar pacote (.zip)
             <input type="file" accept=".zip,application/zip" className="sr-only" onChange={importPkg} />
           </label>
-          {themes.length < 10 && (
-            <select aria-label="Novo tema a partir de" className="rounded-md border border-border bg-surface px-2 py-1.5 text-sm" value="" onChange={(e) => e.target.value && addTheme(e.target.value)}>
-              <option value="">+ Novo tema a partir de…</option>
-              {THEMES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-              {themes.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-            </select>
-          )}
         </div>
-        {themes.length === 0 && <p className="text-sm text-muted">Nenhum tema personalizado. Crie um a partir de um dos temas existentes e ajuste as cores; a página muda na hora para você ver o resultado.</p>}
-        <ul className="divide-y divide-border text-sm">
-          {themes.map((t) => (
-            <li key={t.id} className="flex items-center gap-3 py-2">
-              <span className="flex gap-1" aria-hidden>{['bg', 'primary', 'accent'].map((k) => <span key={k} className="inline-block h-4 w-4 rounded-full border border-border" style={{ background: t.vars[k] }} />)}</span>
-              <b>{t.label}</b>{t.pkg && <span className="rounded bg-bg px-1.5 text-xs text-muted" title={t.pkg.description}>pacote{t.pkg.version ? ` ${t.pkg.version}` : ''}</span>} {theme === t.id && <span className="text-xs text-muted">(padrão)</span>}
-              <span className="ml-auto flex gap-3">
-                <button className="text-primary hover:underline" onClick={() => { setEditing(t.id); preview(t.id) }}>{t.pkg ? 'Ver cores' : 'Editar'}</button>
-                <button className="text-danger hover:underline" onClick={() => confirm(`Excluir o tema "${t.label}"?`) && remove(t.id)}>Excluir</button>
-              </span>
-            </li>
-          ))}
-        </ul>
-        {cur && (
-          <div className="mt-4 space-y-3 rounded-lg border border-border bg-bg p-4">
-            <Field label="Nome do tema"><Input value={cur.label} maxLength={40} onChange={(e) => patch({ label: e.target.value })} /></Field>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {VAR_KEYS.map(({ key, label }) => (
-                <label key={key} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface px-3 py-2 text-sm">
-                  <span>{label}</span>
-                  <span className="flex items-center gap-2">
-                    <code className="text-xs text-muted">{cur.vars[key]}</code>
-                    <input type="color" aria-label={label} value={cur.vars[key]} onChange={(e) => patch({}, { [key]: e.target.value })} className="h-8 w-10 cursor-pointer rounded border border-border bg-transparent p-0" />
-                  </span>
-                </label>
-              ))}
-            </div>
-            <div className="flex gap-2"><Button type="button" variant="ghost" onClick={() => { setTheme(cur.id); preview(cur.id) }}>Usar como padrão</Button><Button type="button" variant="ghost" onClick={() => setEditing(null)}>Fechar editor</Button></div>
+        <div role="radiogroup" aria-label="Tema do sistema" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {cards.map((c) => {
+            const on = theme === c.id
+            return (
+              <div key={c.id} role="radio" aria-checked={on} tabIndex={0} title={c.desc || undefined}
+                onClick={() => setTheme(c.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTheme(c.id) } }}
+                className={`relative cursor-pointer rounded-xl border p-3 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${on ? 'border-primary ring-2 ring-primary/40' : 'border-border hover:border-primary/50'}`}>
+                <div className="mb-3 flex gap-1.5" aria-hidden="true">
+                  {(['light', 'dark'] as const).map((k) => (
+                    <div key={k} className={`flex h-10 flex-1 items-center justify-center gap-1 rounded-lg border border-border ${m === k ? '' : 'opacity-60'}`} style={{ background: c.sw[k][0] }}>
+                      {c.sw[k].slice(1).map((x, i) => <span key={i} className="h-4 w-4 rounded-full" style={{ background: x }} />)}
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 ${on ? 'border-primary' : 'border-border'}`}>{on && <span className="h-2 w-2 rounded-full bg-primary" />}</span>
+                  <b className="truncate text-sm">{c.label}</b>
+                  <span className="rounded bg-bg px-1.5 text-[11px] text-muted">{c.tag}</span>
+                  {c.pkg && <span className="ml-auto" onClick={(e) => e.stopPropagation()}>
+                    <IconButton icon="excluir" tone="danger" label={`Excluir ${c.label}`} onClick={async () => await confirmar({ title: `Excluir o tema "${c.label}"?`, message: 'O pacote e as logos dele são removidos quando você salvar a aparência.', danger: true }) && remove(c.id)} />
+                  </span>}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <div className="mt-5">
+          <span className="mb-1.5 block text-sm font-medium">Modo</span>
+          <div role="radiogroup" aria-label="Modo claro ou escuro" className="inline-flex flex-wrap gap-1 rounded-xl border border-border bg-bg p-1">
+            {MODES.map((o) => (
+              <button key={o.id} type="button" role="radio" aria-checked={mode === o.id} onClick={() => setMode(o.id)}
+                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${mode === o.id ? 'bg-surface text-text shadow-sm' : 'text-muted hover:text-text'}`}>
+                {o.id === 'auto' ? 'Automático' : o.label}
+              </button>
+            ))}
           </div>
-        )}
+          <p className="mt-1 text-xs text-muted">Automático segue o modo claro ou escuro do sistema de cada pessoa. E-mails e PDF usam sempre o modo claro.</p>
+        </div>
+      </Card>
+
+      <Card>
+        <h2 className="mb-1 font-semibold">Créditos do rodapé</h2>
+        <p className="mb-3 text-sm text-muted">Aparecem depois do nome e da versão, no rodapé das páginas, dos e-mails e do PDF. Deixe o nome vazio para não mostrar créditos.</p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Field label="Texto antes do nome"><Input value={credit.label} maxLength={40} placeholder="Desenvolvido por" onChange={(e) => setCredit({ ...credit, label: e.target.value })} /></Field>
+          <Field label="Nome"><Input value={credit.name} maxLength={80} onChange={(e) => setCredit({ ...credit, name: e.target.value })} /></Field>
+          <Field label="Link (opcional)" hint="https://… abre em nova aba"><Input type="url" value={credit.url} maxLength={200} placeholder="https://" onChange={(e) => setCredit({ ...credit, url: e.target.value })} /></Field>
+        </div>
+        <p className="mt-3 rounded-lg bg-bg px-3 py-2 text-sm text-muted">Prévia: {name} - Versão X.X.X{credit.name.trim() && <> - {credit.label.trim() && `${credit.label.trim()} `}{credit.url.trim() ? <span className="text-primary underline">{credit.name.trim()}</span> : credit.name.trim()}</>}</p>
+        <button type="button" className="mt-2 text-xs text-primary hover:underline" onClick={() => setCredit(DEFAULT_CREDIT)}>Voltar ao padrão</button>
       </Card>
 
       <div className="flex gap-3">
         <Button onClick={save} disabled={busy}>Salvar aparência</Button>
-        <Button variant="ghost" onClick={() => { reload(); preview(brand.theme, brand.themes); setName(brand.name); setTheme(brand.theme); setThemes(brand.themes); setEditing(null) }}>Descartar alterações</Button>
+        <Button variant="ghost" onClick={() => { setName(brand.name); setTheme(brand.theme); setMode(brand.mode ?? 'auto'); setThemes(brand.themes); setCredit(brand.credit ?? DEFAULT_CREDIT); setMsg(''); setErr('') }}>Descartar alterações</Button>
       </div>
     </div>
   )

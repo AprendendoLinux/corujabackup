@@ -29,8 +29,8 @@ func shell(b Brand, title, banner, bannerColor, body string, hasLogo bool) strin
 		fmt.Fprintf(&sb, `<tr><td style="padding:20px 24px 4px"><div style="display:inline-block;background:%s;color:#ffffff;border-radius:999px;padding:6px 14px;font-size:14px;font-weight:600">%s</div></td></tr>`, bannerColor, esc(banner))
 	}
 	fmt.Fprintf(&sb, `<tr><td style="padding:12px 24px 24px;font-size:14px;line-height:1.5">%s</td></tr>`, body)
-	fmt.Fprintf(&sb, `<tr><td style="padding:14px 24px;background:%s;border-top:1px solid %s;font-size:12px;color:%s;text-align:center">%s - Versão %s - Desenvolvido por <a href="https://henrique.tec.br" style="color:%s">Henrique Fagundes</a></td></tr>`,
-		b.Bg, b.Border, b.Muted, esc(b.Name), esc(b.Version), b.Primary)
+	fmt.Fprintf(&sb, `<tr><td style="padding:14px 24px;background:%s;border-top:1px solid %s;font-size:12px;color:%s;text-align:center">%s - Versão %s%s</td></tr>`,
+		b.Bg, b.Border, b.Muted, esc(b.Name), esc(b.Version), creditHTML(b))
 	sb.WriteString(`</table></td></tr></table></body></html>`)
 	return sb.String()
 }
@@ -200,4 +200,16 @@ func (e AgentEvent) HTML() string {
 	body := fmt.Sprintf(`<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="font-size:14px">%s%s%s</table><p style="color:%s">O agente não dá sinal há mais de %d minutos. Se a máquina dele estiver desligada ou sem rede, os backups agendados não vão rodar.</p>`,
 		kv(b, "Agente", "<b>"+esc(e.Agent.Name)+"</b>"), kv(b, "Visto por último", esc(fmtTime(e.Agent.LastSeen, loc))), kv(b, "Versão do agente", esc(e.Agent.Version)), b.Muted, e.Minutes)
 	return shell(b, e.Subject(), "Agente offline", b.Danger, body, len(b.LogoPNG) > 0)
+}
+
+// creditHTML monta os créditos do rodapé do e-mail (com link, se houver).
+func creditHTML(b Brand) string {
+	if b.CreditName == "" {
+		return ""
+	}
+	name := esc(b.CreditName)
+	if b.CreditURL != "" {
+		name = fmt.Sprintf(`<a href="%s" style="color:%s">%s</a>`, esc(b.CreditURL), b.Primary, name)
+	}
+	return " - " + strings.TrimSpace(esc(b.CreditLabel)+" "+name)
 }

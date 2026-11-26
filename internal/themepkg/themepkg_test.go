@@ -88,3 +88,24 @@ func TestPacotesDoRepositorio(t *testing.T) {
 		}
 	}
 }
+
+func TestModoEscuroGeradoELegivel(t *testing.T) {
+	light := map[string]string{"bg": "#f5f6f8", "surface": "#ffffff", "text": "#262a33", "muted": "#5f6673", "border": "#dfe3ea",
+		"primary": "#aa3335", "primary_contrast": "#ffffff", "accent": "#be904e", "ok": "#1f7a4d", "danger": "#c2410c"}
+	d := DeriveDark(light)
+	for _, k := range UIKeys {
+		if !colorRE.MatchString(d[k]) {
+			t.Fatalf("%s: %q", k, d[k])
+		}
+	}
+	ratio := func(a, b string) float64 {
+		la, lb := luminance(a)+0.05, luminance(b)+0.05
+		if la < lb {
+			la, lb = lb, la
+		}
+		return la / lb
+	}
+	if luminance(d["bg"]) > 0.05 || ratio(d["text"], d["bg"]) < 7 || ratio(d["primary"], d["bg"]) < 3 || ratio(d["primary_contrast"], d["primary"]) < 3 {
+		t.Fatalf("modo escuro pouco legível: %v", d)
+	}
+}

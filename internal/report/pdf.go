@@ -89,7 +89,7 @@ func (d *doc) footer() {
 	mr, mg, mb := rgb(d.b.Muted)
 	p.SetTextColor(mr, mg, mb)
 	p.SetFont("Helvetica", "", 8)
-	p.CellFormat(150, 5, d.tr(fmt.Sprintf("%s - Versão %s - Desenvolvido por Henrique Fagundes", d.b.Name, d.b.Version)), "", 0, "L", false, 0, "")
+	p.CellFormat(150, 5, d.tr(fmt.Sprintf("%s - Versão %s%s", d.b.Name, d.b.Version, d.b.Credit())), "", 0, "L", false, 0, "")
 	p.CellFormat(30, 5, d.tr(fmt.Sprintf("Página %d/{nb}", p.PageNo())), "", 0, "R", false, 0, "")
 }
 

@@ -37,15 +37,16 @@ type User struct {
 	Disabled        bool       `json:"disabled"`
 	CreatedAt       time.Time  `json:"created_at"`
 	LastLoginAt     *time.Time `json:"last_login_at"`
+	AvatarVersion   string     `json:"avatar_version"` // vazio = sem foto
 }
 
-const userCols = "id, username, display_name, password_hash, role, COALESCE(totp_secret,''), totp_enabled, totp_last_counter, COALESCE(recovery_codes,''), disabled, created_at, last_login_at"
+const userCols = "id, username, display_name, password_hash, role, COALESCE(totp_secret,''), totp_enabled, totp_last_counter, COALESCE(recovery_codes,''), disabled, created_at, last_login_at, avatar_version"
 
 func scanUser(r interface{ Scan(...any) error }) (*User, error) {
 	var u User
 	var ll sql.NullTime
 	if err := r.Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.Role, &u.TOTPSecret, &u.TOTPEnabled,
-		&u.TOTPLastCounter, &u.RecoveryCodes, &u.Disabled, &u.CreatedAt, &ll); err != nil {
+		&u.TOTPLastCounter, &u.RecoveryCodes, &u.Disabled, &u.CreatedAt, &ll, &u.AvatarVersion); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -339,4 +340,24 @@ func (s *Store) SealedSamples(ctx context.Context) []string {
 		rows.Close()
 	}
 	return out
+}
+
+// SetAvatar grava a foto do usuário (nil apaga).
+func (s *Store) SetAvatar(ctx context.Context, id int64, data []byte, typ, ver string) error {
+	if data == nil {
+		typ, ver = "", ""
+	}
+	_, err := s.DB.ExecContext(ctx, "UPDATE users SET avatar=?, avatar_type=?, avatar_version=? WHERE id=?", data, typ, ver, id)
+	return err
+}
+
+// Avatar devolve a foto do usuário; ErrNotFound se ele não tiver uma.
+func (s *Store) Avatar(ctx context.Context, id int64) ([]byte, string, error) {
+	var b []byte
+	var typ string
+	err := s.DB.QueryRowContext(ctx, "SELECT avatar, avatar_type FROM users WHERE id=?", id).Scan(&b, &typ)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && len(b) == 0) {
+		return nil, "", ErrNotFound
+	}
+	return b, typ, err
 }

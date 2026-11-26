@@ -1,7 +1,8 @@
 import { ReactNode, useEffect, useRef, useState } from 'react'
+import Icon, { IconName } from './Icon'
 
 export function Button({ variant = 'primary', className = '', ...p }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'ghost' | 'danger' }) {
-  const base = 'inline-flex items-center justify-center rounded-lg px-3.5 py-2 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-accent'
+  const base = 'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3.5 py-2 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-accent'
   const v = {
     primary: 'bg-primary text-primary-contrast hover:opacity-90',
     ghost: 'border border-border bg-surface text-text hover:bg-bg',
@@ -27,7 +28,7 @@ export function Input({ className = '', ...p }: React.InputHTMLAttributes<HTMLIn
 }
 
 export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <section className={`rounded-xl border border-border bg-surface p-5 shadow-sm ${className}`}>{children}</section>
+  return <section className={`rounded-2xl border border-border bg-surface p-5 shadow-sm ${className}`}>{children}</section>
 }
 
 export function ErrorBox({ message }: { message: string }) {
@@ -107,5 +108,30 @@ export function CopyBox({ text }: { text: string }) {
         {state === 'ok' ? 'Copiado ✓' : state === 'manual' ? 'Use Ctrl+C' : 'Copiar'}
       </button>
     </div>
+  )
+}
+
+/** Botão de ação só com ícone. O texto vai na dica (ao passar o mouse ou focar) e no leitor de tela. */
+export function IconButton({ icon, label, tone = 'default', onClick, disabled, href }: {
+  icon: IconName; label: string; tone?: 'default' | 'danger'; onClick?: () => void; disabled?: boolean; href?: string
+}) {
+  const cls = `inline-flex h-8 w-8 items-center justify-center rounded-lg transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-40 ${
+    tone === 'danger' ? 'text-danger hover:bg-danger/10' : 'text-muted hover:bg-primary/10 hover:text-primary'}`
+  if (href) return <a href={href} aria-label={label} data-tip={label} className={cls}><Icon name={icon} /></a>
+  return <button type="button" aria-label={label} data-tip={label} className={cls} onClick={onClick} disabled={disabled}><Icon name={icon} /></button>
+}
+
+/** Grupo de ações de uma linha de tabela. */
+export function Actions({ children }: { children: ReactNode }) {
+  return <div className="flex items-center justify-end gap-0.5">{children}</div>
+}
+
+/** Indicador girando (execução em andamento). */
+export function Spinner({ className = 'h-3.5 w-3.5' }: { className?: string }) {
+  return (
+    <svg className={`animate-spin ${className}`} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity=".25" strokeWidth="3" />
+      <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+    </svg>
   )
 }

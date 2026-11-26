@@ -22,11 +22,30 @@ type Brand struct {
 	LogoMIME string
 	Version  string
 	BaseURL  string // endereço público do sistema (para links); vazio = sem links
+	// Créditos do rodapé (configuráveis em Aparência). CreditName vazio = sem créditos; CreditURL vazio = sem link.
+	CreditLabel string
+	CreditName  string
+	CreditURL   string
+}
+
+// Credit devolve " - <rótulo> <nome>" (texto puro) ou "" quando os créditos estão desligados.
+func (b Brand) Credit() string {
+	if b.CreditName == "" {
+		return ""
+	}
+	return " - " + strings.TrimSpace(b.CreditLabel+" "+b.CreditName)
 }
 
 func DefaultBrand() Brand {
-	return Brand{Name: "Coruja Backup", Primary: "#3b2a6b", Accent: "#f5a524", Bg: "#f6f5fb", Text: "#1e1b2e", Muted: "#6b6784", Border: "#e3e0f0", Ok: "#1f9d55", Danger: "#d64545", Version: "0.0.8"}
+	return Brand{Name: "Coruja Backup", Primary: "#3b2a6b", Accent: "#f5a524", Bg: "#f6f5fb", Text: "#1e1b2e", Muted: "#6b6784", Border: "#e3e0f0", Ok: "#1f9d55", Danger: "#d64545", Version: "0.0.8",
+		CreditLabel: DefaultCreditLabel, CreditName: DefaultCreditName, CreditURL: DefaultCreditURL}
 }
+
+const (
+	DefaultCreditLabel = "Desenvolvido por"
+	DefaultCreditName  = "Henrique Fagundes"
+	DefaultCreditURL   = "https://henrique.tec.br"
+)
 
 type RunRow struct {
 	ID          int64

@@ -1,16 +1,18 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { api, ApiError } from '../api'
-import Logo from '../Logo'
+import Logo, { useBrand } from '../Logo'
 import { Button, Card, ErrorBox, Field, Input } from '../ui'
 
 function Shell({ title, children }: { title: string; children: React.ReactNode }) {
+  const { brand } = useBrand()
   return (
-    <div className="flex min-h-[70vh] items-center justify-center px-4">
-      <Card className="w-full max-w-sm">
-        <div className="mb-5 flex flex-col items-center gap-2 text-center">
-          <Logo size={48} />
-          <h1 className="text-xl font-semibold">{title}</h1>
-        </div>
+    <div className="w-full max-w-sm">
+      <div className="mb-6 flex flex-col items-center gap-3 text-center">
+        <Logo size={56} />
+        <span className="text-2xl font-semibold">{brand.name}</span>
+      </div>
+      <Card className="rounded-2xl p-6 shadow-lg">
+        <h1 className="mb-4 text-center text-lg font-semibold">{title}</h1>
         {children}
       </Card>
     </div>

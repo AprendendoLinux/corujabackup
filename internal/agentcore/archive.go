@@ -31,6 +31,12 @@ type FilesJob struct {
 	Keep     int
 	// SkipRetention: quem chama aplica a retenção depois (por exemplo, só após o envio à nuvem ser verificado).
 	SkipRetention bool
+	// OwnDirs são outras pastas onde o agente grava (além da pasta de backups) e que também ficam fora da origem.
+	OwnDirs []string
+	// DestPath, quando informado, é a pasta real onde gravar (escolhida na interface); senão, Subdir dentro da pasta de backups.
+	DestPath string
+	// Artifacts são as pastas de backup local escolhidas (deste e dos outros jobs): os arquivos gerados nelas ficam fora.
+	Artifacts []ArtifactDir
 	// DB != nil: job de banco de dados (o executor padrão usa RunDatabase em vez de RunFiles).
 	DB *pb.DbSpec
 }
@@ -90,9 +96,12 @@ func (c *countingWriter) Write(p []byte) (int, error) {
 // então aplica a retenção. Em qualquer falha não deixa arquivo parcial.
 func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc *time.Location, now time.Time, h Hooks) (Result, error) {
 	var res Result
-	dest, err := SafeSubdir(backupDir, job.Subdir)
-	if err != nil {
-		return res, err
+	dest := job.DestPath
+	if dest == "" {
+		var err error
+		if dest, err = SafeSubdir(backupDir, job.Subdir); err != nil {
+			return res, err
+		}
 	}
 	if err := os.MkdirAll(dest, 0o750); err != nil {
 		return res, fmt.Errorf("não foi possível criar a pasta de destino: %w", err)
@@ -102,6 +111,9 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 		h.log("info", "espaço livre no destino: %s", HumanBytes(int64(st.Bavail)*int64(st.Bsize)))
 	}
 	prefix := Slug(job.Name)
+	generated := newArtifacts(append([]ArtifactDir{{Path: dest, Prefix: prefix}}, job.Artifacts...))
+	skipInDir := map[string][]*regexp.Regexp{} // por pasta percorrida: o que o agente gerou nela
+	virtual := readVirtualMounts()
 	name := fmt.Sprintf("%s-%s.tar.gz", prefix, now.In(loc).Format("20060102-150405"))
 	for i := 0; i < 120; i++ { // duas execuções no mesmo segundo não podem sobrescrever uma à outra
 		if _, err := os.Lstat(filepath.Join(dest, name)); err != nil {
@@ -123,6 +135,7 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 	gz := gzip.NewWriter(cw)
 	tw := tar.NewWriter(gz)
 	ex := NewExcluder(job.Excludes)
+	own := findOwnDirs(append([]string{backupDir}, job.OwnDirs...)...)
 	var entries int64
 	last := time.Now()
 
@@ -135,6 +148,16 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 		real := filepath.Join(hostRoot, p)
 		if _, err := os.Lstat(real); err != nil {
 			h.log("warn", "origem não encontrada, ignorada: %s", p)
+			res.Warnings++
+			continue
+		}
+		// a origem escolhida está dentro de uma pasta do agente: avisa, em vez de simplesmente não salvar nada
+		top := hostRoot
+		if top == "" {
+			top = "/"
+		}
+		if own.contains(real, top) {
+			h.log("warn", "origem ignorada: %s fica dentro de uma pasta do próprio agente (o que é do agente não entra no backup)", p)
 			res.Warnings++
 			continue
 		}
@@ -166,6 +189,29 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 				h.log("warn", "não foi possível ler %s: %v", logical, err)
 				res.Warnings++
 				return nil
+			}
+			if d.IsDir() && own.is(info) {
+				h.log("info", "pasta do próprio agente deixada de fora: %s", logical)
+				return fs.SkipDir
+			}
+			for _, re := range skipInDir[filepath.Dir(cur)] {
+				if cur != real && re.MatchString(d.Name()) {
+					if d.IsDir() {
+						return fs.SkipDir
+					}
+					return nil
+				}
+			}
+			// a pasta virtual entra vazia (para a restauração ter o ponto de montagem), sem o conteúdo
+			var after error
+			if d.IsDir() {
+				if p := generated.patterns(info); p != nil {
+					skipInDir[cur] = p
+				}
+				if typ, ok := virtual[cur]; ok {
+					h.log("info", "sistema de arquivos virtual deixado de fora: %s (%s)", logical, typ)
+					after = fs.SkipDir
+				}
 			}
 			mode := info.Mode()
 			if !(mode.IsRegular() || mode.IsDir() || mode&fs.ModeSymlink != 0) {
@@ -233,7 +279,7 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 				r.BytesOutput = cw.n
 				h.Progress(r)
 			}
-			return nil
+			return after
 		})
 		if walkErr != nil {
 			return fail(walkErr)

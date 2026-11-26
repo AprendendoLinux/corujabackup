@@ -105,7 +105,7 @@ func (c *Core) backupPath(act *pb.AgentAction) (dest, file string, err error) {
 	if !backupFileRE.MatchString(act.FileName) {
 		return "", "", errors.New("nome de arquivo de backup inválido")
 	}
-	dest, err = SafeSubdir(c.cfg.BackupDir, act.Subdir)
+	dest, err = c.localDir(act.Subdir)
 	if err != nil {
 		return "", "", err
 	}

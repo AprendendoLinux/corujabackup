@@ -24,6 +24,7 @@ func main() {
 	dataDir := flag.String("data", envOr("CORUJA_DATA_DIR", "/var/lib/coruja-agent"), "pasta onde o agente guarda a própria credencial e a fila local")
 	hostRoot := flag.String("host-root", envOr("CORUJA_HOST_ROOT", "/"), "raiz do servidor vista pelo agente (use /host se montar o host nesse caminho)")
 	backupDir := flag.String("backup-dir", envOr("CORUJA_BACKUP_DIR", "/backups"), "pasta onde os arquivos de backup são gravados")
+	hostWrite := flag.String("host-write", os.Getenv("CORUJA_HOST_WRITE"), "raiz gravável do servidor, só para a pasta de backup local escolhida na interface (padrão: /host-rw no contêiner)")
 	showVersion := flag.Bool("version", false, "mostra a versão e sai")
 	flag.Parse()
 	if *showVersion {
@@ -61,7 +62,14 @@ func main() {
 		log.Error("não foi possível preparar a pasta de dados do agente", "erro", err.Error())
 		os.Exit(1)
 	}
-	core := agentcore.New(agentcore.Config{HostRoot: *hostRoot, BackupDir: *backupDir, AllowedPaths: splitList(os.Getenv("CORUJA_ALLOWED_PATHS")), AllowedContainers: splitList(os.Getenv("CORUJA_ALLOWED_CONTAINERS")), DestDir: envOr("CORUJA_DEST_DIR", "/destinos")}, local, log)
+	if *hostWrite == "" { // fora de contêiner o agente enxerga o próprio "/"; no contêiner, a montagem separada
+		if *hostRoot == "/" {
+			*hostWrite = "/"
+		} else {
+			*hostWrite = "/host-rw"
+		}
+	}
+	core := agentcore.New(agentcore.Config{HostRoot: *hostRoot, HostWriteRoot: *hostWrite, BackupRoots: splitList(os.Getenv("CORUJA_BACKUP_ROOTS")), BackupDir: *backupDir, AllowedPaths: splitList(os.Getenv("CORUJA_ALLOWED_PATHS")), AllowedContainers: splitList(os.Getenv("CORUJA_ALLOWED_CONTAINERS")), DestDir: envOr("CORUJA_DEST_DIR", "/destinos")}, local, log)
 	if err := os.MkdirAll(*backupDir, 0o750); err != nil {
 		log.Warn("a pasta de backups não está disponível (monte um volume gravável)", "pasta", *backupDir, "erro", err.Error())
 	}

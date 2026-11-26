@@ -56,11 +56,12 @@ Na interface: **Agentes > Novo agente** gera o comando pronto (com o token de us
 ```bash
 docker run -d --name corujabackup-agent --restart always \
   -e CORUJA_SERVER=IP_DO_SERVER:8443 -e CORUJA_TOKEN=cb1.... -e CORUJA_HOST_ROOT=/host \
-  -v coruja-agent-data:/var/lib/coruja-agent -v /:/host:ro -v /srv/coruja-backups:/backups \
+  -v coruja-agent-data:/var/lib/coruja-agent -v /:/host:ro -v /:/host-rw -v /srv/coruja-backups:/backups \
   ghcr.io/aprendendolinux/corujabackup-agent:latest
 ```
 
-- `/host` (somente leitura) é o que o agente pode salvar; `/backups` é onde grava. Os caminhos dos jobs são os do **servidor** (ex.: `/etc`).
+- `/host` (somente leitura) é o que o agente pode salvar: por padrão, o `/` inteiro. Os caminhos dos jobs são os do **servidor** (ex.: `/etc`).
+- `/host-rw` permite escolher no painel a **pasta do backup local** em qualquer disco do servidor, vendo o espaço livre. Ele dá ao agente permissão de gravação no servidor (veja [Segurança](SEGURANCA.md)). `/backups` é a pasta padrão do agente.
 - **Docker socket** (`-v /var/run/docker.sock:/var/run/docker.sock`): só para jobs de banco em contêineres. Dá ao agente controle total do Docker do servidor.
 - **Restrinja o agente** (recomendado): `CORUJA_ALLOWED_PATHS=/etc,/srv,/home` e `CORUJA_ALLOWED_CONTAINERS=db-*,mongo`.
 - O arquivo `deploy/docker-compose.agent.yml` traz tudo isso, com `cap_drop: ALL` e só as capacidades necessárias.
@@ -94,5 +95,7 @@ docker run -d --name corujabackup-agent --restart always \
 | `CORUJA_BACKUP_DIR` | `/backups` | Onde os arquivos de backup são gravados |
 | `CORUJA_DATA_DIR` | `/var/lib/coruja-agent` | Credencial, agenda local e fila de resultados |
 | `CORUJA_ALLOWED_PATHS` | vazio (tudo) | Pastas permitidas (lista separada por vírgula) |
+| `CORUJA_BACKUP_ROOTS` | vazio (tudo) | Onde o backup local pode ser gravado quando escolhido no painel |
+| `CORUJA_HOST_WRITE` | `/host-rw` | Raiz gravável do servidor, como o agente a enxerga |
 | `CORUJA_ALLOWED_CONTAINERS` | vazio (todos) | Contêineres de banco permitidos (padrões `*` e `?`) |
 | `CORUJA_DOCKER_SOCKET` | `/var/run/docker.sock` | Caminho do socket do Docker |

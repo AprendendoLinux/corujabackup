@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AprendendoLinux/corujabackup/internal/agentcore"
 	"github.com/AprendendoLinux/corujabackup/internal/agentsrv"
 	"github.com/AprendendoLinux/corujabackup/internal/auth"
 	"github.com/AprendendoLinux/corujabackup/internal/cloud"
@@ -263,17 +264,25 @@ func (s *Server) applyJobIn(ctx context.Context, j *store.Job, in jobIn) string 
 		j.Excludes = e
 	}
 	if in.DestSubdir != nil {
-		d := strings.TrimSpace(*in.DestSubdir)
-		if strings.HasPrefix(d, "/") {
-			return "a pasta de destino deve ser relativa à pasta de backups do agente (sem / no começo)"
-		}
-		j.DestSubdir = strings.TrimRight(d, "/")
+		j.DestSubdir = strings.TrimSpace(*in.DestSubdir)
 	}
 	if j.DestSubdir == "" {
 		j.DestSubdir = slugify(j.Name)
 	}
-	if !subdirRE.MatchString(j.DestSubdir) || strings.Contains(j.DestSubdir, "..") {
-		return "pasta de destino inválida: use um nome relativo (letras, números, ponto, hífen, sublinhado e /), sem .."
+	if strings.HasPrefix(j.DestSubdir, "/") { // pasta do servidor, escolhida na interface
+		clean, err := agentcore.CheckLocalDir(j.DestSubdir)
+		if err != nil {
+			return err.Error()
+		}
+		if len([]rune(clean)) > 255 {
+			return "o caminho da pasta de backup local é longo demais (máximo de 255 caracteres)"
+		}
+		j.DestSubdir = clean
+	} else {
+		j.DestSubdir = strings.TrimRight(j.DestSubdir, "/")
+		if !subdirRE.MatchString(j.DestSubdir) || strings.Contains(j.DestSubdir, "..") {
+			return "pasta de destino inválida: use um caminho completo do servidor ou um nome relativo (letras, números, ponto, hífen, sublinhado e /), sem .."
+		}
 	}
 	if in.Keep != nil {
 		j.Keep = *in.Keep
@@ -599,7 +608,7 @@ func (s *Server) agentCall(w http.ResponseWriter, r *http.Request, agentID int64
 	switch {
 	case errors.Is(err, agentsrv.ErrOffline):
 		writeErr(w, 409, "o agente está offline")
-	case err != nil && strings.HasPrefix(err.Error(), "chamada desconhecida"):
+	case err != nil && (strings.HasPrefix(err.Error(), "chamada desconhecida") || err.Error() == "área de navegação inválida"):
 		writeErr(w, 422, "este agente é de uma versão antiga e não tem esta função: atualize o agente para a versão do Server")
 	case err != nil:
 		writeErr(w, 422, err.Error())

@@ -18,7 +18,8 @@ import (
 	"github.com/AprendendoLinux/corujabackup/internal/netdest"
 )
 
-// agentBrowse lista uma pasta do agente: area=host (o que salvar) ou area=backups (pasta de destino no agente).
+// agentBrowse lista uma pasta do agente: area=host (o que salvar), area=disk (escolher a pasta do backup local, com o
+// espaço disponível) ou area=backups (subpastas da pasta de backups padrão).
 func (s *Server) agentBrowse(w http.ResponseWriter, r *http.Request, _ *ctxUser) {
 	id, ok := pathID(r)
 	if !ok {
@@ -26,7 +27,7 @@ func (s *Server) agentBrowse(w http.ResponseWriter, r *http.Request, _ *ctxUser)
 		return
 	}
 	area, p := r.URL.Query().Get("area"), r.URL.Query().Get("path")
-	if area != agentcore.BrowseHost && area != agentcore.BrowseBackups {
+	if area != agentcore.BrowseHost && area != agentcore.BrowseBackups && area != agentcore.BrowseDiskArea {
 		writeErr(w, 400, "área de navegação inválida")
 		return
 	}

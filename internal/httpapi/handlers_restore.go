@@ -35,6 +35,10 @@ func (s *Server) downloadRun(w http.ResponseWriter, r *http.Request, cu *ctxUser
 		writeErr(w, 409, "esta execução não tem cópia conferida na nuvem")
 		return
 	}
+	if d, err := s.Clouds.DestConfig(r.Context(), *job.CloudAccountID); err == nil && d != nil {
+		writeErr(w, 409, "este backup está num destino de rede, que o Server não acessa: use \"Trazer do destino\" para o agente buscar o arquivo")
+		return
+	}
 	folder, name := path.Split(run.CloudPath)
 	body, size, err := s.Clouds.Open(r.Context(), *job.CloudAccountID, strings.TrimSuffix(folder, "/"), name)
 	if errors.Is(err, cloud.ErrNotFound) {

@@ -16,6 +16,7 @@ import (
 
 	"github.com/AprendendoLinux/corujabackup/internal/cloud"
 	"github.com/AprendendoLinux/corujabackup/internal/cloudmgr"
+	"github.com/AprendendoLinux/corujabackup/internal/netdest"
 	"github.com/AprendendoLinux/corujabackup/internal/pb"
 	"github.com/AprendendoLinux/corujabackup/internal/ratelimit"
 	"github.com/AprendendoLinux/corujabackup/internal/secrets"
@@ -48,6 +49,8 @@ type CloudAdmin interface {
 	BeginWeb(ctx context.Context, name, typ, origin string) (loginURL, state string, err error)
 	BeginWebReauth(ctx context.Context, id int64, origin string) (loginURL, state string, err error)
 	UsesPopup(ctx context.Context, id int64) bool
+	CreateDestination(ctx context.Context, name string, cfg netdest.Config) (int64, error)
+	DestConfig(ctx context.Context, id int64) (*netdest.Config, error)
 	FinishWeb(ctx context.Context, state, code string) (int64, error)
 	Open(ctx context.Context, accountID int64, folder, name string) (io.ReadCloser, int64, error)
 }
@@ -146,6 +149,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/reports/daily.pdf", s.authed(roleOperator, s.dailyPDF))
 	mux.HandleFunc("GET /api/clouds", s.authed(roleAny, s.listClouds))
 	mux.HandleFunc("POST /api/clouds", s.authed(roleAdmin, s.createCloud))
+	mux.HandleFunc("POST /api/destinations/test", s.authed(roleAdmin, s.testDestination))
+	mux.HandleFunc("POST /api/destinations", s.authed(roleAdmin, s.createDestination))
+	mux.HandleFunc("POST /api/runs/{id}/fetch", s.authed(roleOperator, s.fetchRun))
 	mux.HandleFunc("POST /api/clouds/oauth/begin", s.authed(roleAdmin, s.beginCloudWeb))
 	mux.HandleFunc("POST /api/clouds/oauth/finish", s.authed(roleAdmin, s.finishCloudWeb))
 	mux.HandleFunc("POST /api/clouds/{id}/poll", s.authed(roleAdmin, s.pollCloud))

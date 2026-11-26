@@ -87,6 +87,8 @@ func (c *Core) HandleAction(parent context.Context, act *pb.AgentAction) {
 			err = c.reupload(ctx, act, al)
 		case "extract":
 			err = c.extract(ctx, act, al)
+		case "fetch":
+			err = c.fetch(ctx, act, al)
 		default:
 			err = fmt.Errorf("ação desconhecida: %s", act.Kind)
 		}

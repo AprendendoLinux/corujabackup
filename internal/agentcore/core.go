@@ -33,6 +33,8 @@ type Config struct {
 	// peça outra coisa. Vazio = sem restrição.
 	AllowedPaths      []string // pastas que podem ser salvas (e tudo dentro delas)
 	AllowedContainers []string // contêineres de banco em que o dump pode rodar (padrões com * e ?)
+	// DestDir é a única raiz onde destinos "pasta local" podem gravar (volumes montados: NFS, iSCSI, disco externo).
+	DestDir string
 }
 
 // Executor roda um job. Trocável nos testes.
@@ -534,6 +536,9 @@ func (c *Core) uploadToCloud(ctx context.Context, spec *pb.JobSpec, runUID strin
 	var info CloudInfo
 	if res.OutputPath == "" {
 		return info, errors.New("arquivo de backup não encontrado")
+	}
+	if spec.Dest != nil { // destino de rede: quem envia, confere e aplica a retenção é este agente
+		return c.sendToDest(ctx, spec, res, h, progress)
 	}
 	var up uploader.Result
 	var sess *pb.UploadSession

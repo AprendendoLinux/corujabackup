@@ -8,12 +8,15 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"net"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -27,6 +30,7 @@ import (
 	"github.com/AprendendoLinux/corujabackup/internal/cloudmgr"
 	"github.com/AprendendoLinux/corujabackup/internal/dockerapi"
 	"github.com/AprendendoLinux/corujabackup/internal/enroll"
+	"github.com/AprendendoLinux/corujabackup/internal/netdest"
 	"github.com/AprendendoLinux/corujabackup/internal/pb"
 	"github.com/AprendendoLinux/corujabackup/internal/secrets"
 	"github.com/AprendendoLinux/corujabackup/internal/store"
@@ -44,6 +48,7 @@ type rig struct {
 	agent   *store.Agent
 	hostDir string
 	bkDir   string
+	destDir string
 	cancel  context.CancelFunc
 }
 
@@ -88,12 +93,13 @@ func newRig(t *testing.T, ep cloudmgr.Endpoints) *rig {
 		os.WriteFile(p, []byte(content), 0o644)
 	}
 	local, _ := agentcore.NewState(t.TempDir())
-	core := agentcore.New(agentcore.Config{HostRoot: host, BackupDir: bk}, local, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	destDir := t.TempDir()
+	core := agentcore.New(agentcore.Config{HostRoot: host, BackupDir: bk, DestDir: destDir}, local, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	core.SetUploadOptions(uploader.Options{Retries: 2, Sleep: func(context.Context, time.Duration) {}})
 	go core.Run(ctx)
 	go agentcore.Run(ctx, slog.New(slog.NewTextHandler(io.Discard, nil)), cr, core)
 
-	r := &rig{t: t, st: st, srv: srv, mgr: mgr, core: core, agent: a, hostDir: host, bkDir: bk, cancel: cancel}
+	r := &rig{t: t, st: st, srv: srv, mgr: mgr, core: core, agent: a, hostDir: host, bkDir: bk, destDir: destDir, cancel: cancel}
 	r.waitOnline()
 	return r
 }
@@ -756,5 +762,68 @@ func TestDropboxDePontaAPonta(t *testing.T) {
 	}
 	if after := fake.Names(folder); len(after) != len(before) {
 		t.Fatalf("as cópias antigas deveriam ficar: antes %v depois %v", before, after)
+	}
+}
+
+// Destino de rede de ponta a ponta (pasta local do agente): o Server manda a configuração ao agente, que envia, confere
+// relendo, aplica a retenção e relata; depois o arquivo é trazido de volta por uma ação.
+func TestDestinoDeRedeDePontaAPonta(t *testing.T) {
+	r := newRig(t, cloudmgr.Endpoints{})
+	ctx := context.Background()
+	id, err := r.mgr.CreateDestination(ctx, "NAS local", netdest.Config{Type: netdest.TypeLocal, BasePath: "nas"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	acc, _ := r.st.GetCloud(ctx, id)
+	if acc.Status != "connected" || acc.Type != "local" || acc.AccountLabel != "pasta /nas" {
+		t.Fatalf("destino: %+v", acc)
+	}
+	if _, err := r.mgr.Provider(ctx, id); !errors.Is(err, cloudmgr.ErrAgentDestination) {
+		t.Fatalf("o Server não opera destinos de rede: %v", err)
+	}
+	// teste pelo agente (RPC)
+	payload, _ := json.Marshal(netdest.Config{Type: netdest.TypeLocal, BasePath: "nas"})
+	out, err := r.srv.Call(ctx, r.agent.ID, "dest_test", payload, 30*time.Second)
+	if err != nil || !strings.Contains(string(out), "funcionando") {
+		t.Fatalf("teste do destino: %v %s", err, out)
+	}
+
+	jid := r.newJob("rede", id, 3, 2)
+	var run *store.Run
+	for i := 0; i < 3; i++ {
+		if i > 0 {
+			time.Sleep(1100 * time.Millisecond)
+		}
+		x := r.runNow(jid)
+		if x.Status != "ok" || x.CloudStatus != "ok" || x.CloudVerifiedBy != "sha256" {
+			t.Fatalf("execução %d: %+v\n%s", i, x, r.logs(x))
+		}
+		run = x
+	}
+	dir := filepath.Join(r.destDir, "nas", filepath.FromSlash(path.Dir(run.CloudPath)))
+	es, err := os.ReadDir(dir)
+	if err != nil || len(es) != 2 {
+		t.Fatalf("a retenção deveria manter 2 no destino: %v %v (%s)", es, err, run.CloudPath)
+	}
+	// traz de volta o arquivo depois que a cópia local sumiu
+	local := filepath.Join(r.bkDir, "e2e", run.OutputName)
+	if err := os.Remove(local); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.srv.Action(r.agent.ID, &pb.AgentAction{Kind: "fetch", RunUid: run.UID, JobId: jid, FileName: path.Base(run.CloudPath), Subdir: "e2e", Sha256: run.SHA256}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 100; i++ {
+		if _, err := os.Stat(local); err == nil {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	b, err := os.ReadFile(local)
+	if err != nil {
+		t.Fatalf("o arquivo deveria ter voltado: %v", err)
+	}
+	if sum := sha256.Sum256(b); hex.EncodeToString(sum[:]) != run.SHA256 {
+		t.Fatal("o arquivo trazido difere do backup")
 	}
 }

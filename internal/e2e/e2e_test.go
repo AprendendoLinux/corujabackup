@@ -23,6 +23,7 @@ import (
 	"github.com/AprendendoLinux/corujabackup/internal/cloudmgr"
 	"github.com/AprendendoLinux/corujabackup/internal/dockerapi"
 	"github.com/AprendendoLinux/corujabackup/internal/enroll"
+	"github.com/AprendendoLinux/corujabackup/internal/pb"
 	"github.com/AprendendoLinux/corujabackup/internal/secrets"
 	"github.com/AprendendoLinux/corujabackup/internal/store"
 	"github.com/AprendendoLinux/corujabackup/internal/testutil"
@@ -413,5 +414,105 @@ func TestJobDeBancoDeBuildAFimComRestauracaoRealENuvem(t *testing.T) {
 	}
 	if lf := localFiles(t, r.bkDir); len(lf) != 0 {
 		t.Fatalf("keep=0: sem cópia local: %v", lf)
+	}
+}
+
+func (r *rig) waitRun(uid string, cond func(*store.Run) bool, what string) *store.Run {
+	r.t.Helper()
+	deadline := time.Now().Add(40 * time.Second)
+	for time.Now().Before(deadline) {
+		if run, err := r.st.RunByUID(context.Background(), uid); err == nil && cond(run) {
+			return run
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+	r.t.Fatalf("tempo esgotado esperando: %s", what)
+	return nil
+}
+
+func TestReenvioParaNuvemExtracaoEDownload(t *testing.T) {
+	fake := cloudtest.NewGraph("cid")
+	defer fake.Close()
+	r := newRig(t, cloudmgr.Endpoints{MSDevice: fake.URL + "/devicecode", MSToken: fake.URL + "/token", Graph: fake.GraphURL()})
+	cid := r.connectCloud(cloud.TypeOneDrive, cloudmgr.AccountConfig{ClientID: "cid", HardDelete: true})
+	jid := r.newJob("reenvio", cid, 2, 3)
+	ctx := context.Background()
+
+	fake.FailPuts = 1000 // a nuvem recusa o envio
+	run := r.runNow(jid)
+	if run.Status != "failed" || run.CloudStatus != "failed" || run.OutputName == "" {
+		t.Fatalf("o envio deveria falhar: %+v\n%s", run, r.logs(run))
+	}
+	fake.FailPuts = 0
+
+	// reenviar o arquivo local que ficou preservado
+	if err := r.srv.Action(r.agent.ID, &pb.AgentAction{Kind: "reupload", RunUid: run.UID, JobId: jid, FileName: run.OutputName, Subdir: "e2e"}); err != nil {
+		t.Fatal(err)
+	}
+	fixed := r.waitRun(run.UID, func(x *store.Run) bool { return x.CloudStatus == "ok" }, "reenvio concluído")
+	if fixed.Status != "ok" || fixed.Error != "" || fixed.CloudVerifiedBy != "quickxor" {
+		t.Fatalf("execução corrigida: %+v", fixed)
+	}
+	logs := r.logs(fixed)
+	if !strings.Contains(logs, "reenviando "+run.OutputName) || !strings.Contains(logs, "verificado por quickxor") {
+		t.Fatalf("log do reenvio:\n%s", logs)
+	}
+	ls, _ := r.st.RunLogs(ctx, fixed.ID)
+	if last := ls[len(ls)-1]; last.Seq < 10000 {
+		t.Fatalf("as linhas das ações ficam a partir de 10000: %d", last.Seq)
+	}
+	folder := "Coruja Backup/srv-e2e/reenvio"
+	if len(fake.Names(folder)) != 1 {
+		t.Fatalf("nuvem: %v", fake.Names(folder))
+	}
+
+	// download pela nuvem = o mesmo conteúdo do arquivo local
+	body, size, err := r.mgr.Open(ctx, cid, folder, run.OutputName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote, _ := io.ReadAll(body)
+	body.Close()
+	local, _ := os.ReadFile(filepath.Join(r.bkDir, "e2e", run.OutputName))
+	if !bytes.Equal(remote, local) || size != int64(len(local)) || len(local) == 0 {
+		t.Fatalf("o download deveria ser idêntico ao arquivo local (%d x %d)", len(remote), len(local))
+	}
+
+	// extrair o backup numa pasta de restauração do agente
+	if err := r.srv.Action(r.agent.ID, &pb.AgentAction{Kind: "extract", RunUid: run.UID, JobId: jid, FileName: run.OutputName, Subdir: "e2e", Target: "teste-restauracao"}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(20 * time.Second)
+	dest := filepath.Join(r.bkDir, "restores", "teste-restauracao", "srv", "app", "index.html")
+	for time.Now().Before(deadline) {
+		if b, err := os.ReadFile(dest); err == nil {
+			if string(b) != "olá mundo" {
+				t.Fatalf("conteúdo restaurado: %q", b)
+			}
+			dest = ""
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if dest != "" {
+		t.Fatal("o arquivo não foi extraído")
+	}
+	deadline = time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(r.logs(fixed), "extração concluída") {
+		fixed, _ = r.st.RunByUID(ctx, run.UID)
+		time.Sleep(200 * time.Millisecond)
+	}
+	if !strings.Contains(r.logs(fixed), "extração concluída") {
+		t.Fatalf("log da extração:\n%s", r.logs(fixed))
+	}
+	// extrair de novo na mesma pasta é recusado (não sobrescreve)
+	r.srv.Action(r.agent.ID, &pb.AgentAction{Kind: "extract", RunUid: run.UID, JobId: jid, FileName: run.OutputName, Subdir: "e2e", Target: "teste-restauracao"})
+	deadline = time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(r.logs(fixed), "já existe") {
+		fixed, _ = r.st.RunByUID(ctx, run.UID)
+		time.Sleep(200 * time.Millisecond)
+	}
+	if !strings.Contains(r.logs(fixed), "já existe") {
+		t.Fatalf("deveria recusar sobrescrever:\n%s", r.logs(fixed))
 	}
 }

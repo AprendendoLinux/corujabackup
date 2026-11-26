@@ -32,6 +32,7 @@ message AgentMessage {
     UploadRequest upload_request = 4;
     UploadDone upload_done = 5;
     RpcResult rpc_result = 6;
+    ActionLog action_log = 7;
   }
 }
 
@@ -62,6 +63,7 @@ message ServerMessage {
     UploadSession upload_session = 8;
     UploadVerdict upload_verdict = 9;
     Rpc rpc = 10;
+    AgentAction action = 11;
   }
 }
 
@@ -197,3 +199,28 @@ message DbSpec {
 // Chamada genérica Server -> agente com resposta (listar contêineres, testar conexão de banco...).
 message Rpc { string id = 1; string kind = 2; bytes payload = 3; }
 message RpcResult { string id = 1; bool ok = 2; string error = 3; bytes payload = 4; }
+
+// ---- Fase 5: ações sobre backups já feitos (reenviar para a nuvem, extrair numa pasta) ----------------------------------
+
+message AgentAction {
+  string id = 1;
+  string kind = 2;                 // "reupload" | "extract"
+  string run_uid = 3;
+  int64 job_id = 4;
+  string file_name = 5;            // arquivo de backup (no padrão do job) na pasta de destino do agente
+  string subdir = 6;
+  string target = 7;               // extract: nome da pasta em <backups>/restores/
+}
+
+message ActionLog {
+  string run_uid = 1;
+  string kind = 2;
+  string state = 3;                // running | ok | failed
+  string message = 4;
+  repeated LogLine logs = 5;       // sem seq: o Server numera a partir de 10000
+  string cloud_status = 6;
+  string cloud_path = 7;
+  string cloud_hash = 8;
+  string cloud_verified_by = 9;
+  string path = 10;                // extract: onde ficou (caminho dentro do agente)
+}

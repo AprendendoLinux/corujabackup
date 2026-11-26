@@ -402,6 +402,9 @@ func (s *Server) Connect(stream pb.AgentService_ConnectServer) error {
 					}
 				}
 			}
+			if al := m.GetActionLog(); al != nil {
+				s.applyAction(ctx, a.ID, al)
+			}
 			if rr := m.GetRpcResult(); rr != nil {
 				s.deliverRPC(rr)
 			}
@@ -553,5 +556,35 @@ func (s *Server) deliverRPC(r *pb.RpcResult) {
 		case ch <- r:
 		default:
 		}
+	}
+}
+
+// Action envia ao agente uma ação sobre um backup já feito (reenvio à nuvem, extração numa pasta).
+func (s *Server) Action(agentID int64, act *pb.AgentAction) error {
+	act.Id = auth.NewUUID()
+	return s.enqueue(agentID, &pb.ServerMessage{Body: &pb.ServerMessage_Action{Action: act}})
+}
+
+func (s *Server) applyAction(ctx context.Context, agentID int64, al *pb.ActionLog) {
+	ms := func(v int64) time.Time {
+		if v <= 0 {
+			return time.Now().UTC()
+		}
+		return time.UnixMilli(v).UTC()
+	}
+	res := store.ActionResult{RunUID: al.RunUid, Kind: al.Kind, State: al.State, Message: clip(al.Message, 500), CloudStatus: al.CloudStatus,
+		CloudPath: clip(al.CloudPath, 700), CloudHash: clip(al.CloudHash, 100), CloudVerifiedBy: clip(al.CloudVerifiedBy, 12)}
+	for i, l := range al.Logs {
+		if i >= 500 {
+			break
+		}
+		lv := l.Level
+		if lv != "warn" && lv != "error" {
+			lv = "info"
+		}
+		res.Lines = append(res.Lines, store.RunLog{At: ms(l.UnixMs), Level: lv, Text: l.Text})
+	}
+	if err := s.Store.ApplyActionLog(ctx, agentID, res); err != nil {
+		slog.Warn("log de ação não gravado", "agente", agentID, "execução", al.RunUid, "erro", err.Error())
 	}
 }

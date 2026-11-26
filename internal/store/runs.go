@@ -373,3 +373,79 @@ func (s *Store) FailStaleRuns(ctx context.Context, agentID int64, activeUIDs []s
 	}
 	return res.RowsAffected()
 }
+
+// RunLogsAfter devolve as linhas do log com seq maior que after (para a transmissão ao vivo).
+func (s *Store) RunLogsAfter(ctx context.Context, runID int64, after int, limit int) ([]RunLog, error) {
+	rows, err := s.DB.QueryContext(ctx, "SELECT seq, at, level, text FROM run_logs WHERE run_id=? AND seq>? ORDER BY seq LIMIT ?", runID, after, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []RunLog{}
+	for rows.Next() {
+		var l RunLog
+		if err := rows.Scan(&l.Seq, &l.At, &l.Level, &l.Text); err != nil {
+			return nil, err
+		}
+		out = append(out, l)
+	}
+	return out, rows.Err()
+}
+
+type ActionResult struct {
+	RunUID          string
+	Kind            string
+	State           string // running | ok | failed
+	Message         string
+	Lines           []RunLog // sem seq: é atribuído aqui (a partir de 10000)
+	CloudStatus     string
+	CloudPath       string
+	CloudHash       string
+	CloudVerifiedBy string
+}
+
+const actionSeqBase = 10000
+
+// ApplyActionLog grava o andamento de uma ação posterior (reenvio à nuvem, extração) no log da execução e, quando um reenvio
+// termina bem, atualiza os dados de nuvem da execução (e corrige o estado se a única falha era o envio).
+func (s *Store) ApplyActionLog(ctx context.Context, agentID int64, a ActionResult) error {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var id, runAgent int64
+	var status, errText string
+	err = tx.QueryRowContext(ctx, "SELECT id, agent_id, status, COALESCE(error,'') FROM runs WHERE uid=? FOR UPDATE", a.RunUID).Scan(&id, &runAgent, &status, &errText)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && runAgent != agentID) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	var next int
+	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(seq), ?) FROM run_logs WHERE run_id=? AND seq>=?", actionSeqBase-1, id, actionSeqBase).Scan(&next); err != nil {
+		return err
+	}
+	for _, l := range a.Lines {
+		next++
+		txt := l.Text
+		if len(txt) > 1000 {
+			txt = txt[:1000]
+		}
+		if _, err := tx.ExecContext(ctx, "INSERT IGNORE INTO run_logs (run_id, seq, at, level, text) VALUES (?,?,?,?,?)", id, next, l.At.UTC(), l.Level, txt); err != nil {
+			return err
+		}
+	}
+	if a.Kind == "reupload" && a.State == "ok" {
+		if _, err := tx.ExecContext(ctx, "UPDATE runs SET cloud_status='ok', cloud_path=?, cloud_hash=?, cloud_verified_by=? WHERE id=?", a.CloudPath, a.CloudHash, a.CloudVerifiedBy, id); err != nil {
+			return err
+		}
+		if status == "failed" && strings.Contains(errText, "envio para a nuvem falhou") {
+			if _, err := tx.ExecContext(ctx, "UPDATE runs SET status='ok', error=NULL WHERE id=?", id); err != nil {
+				return err
+			}
+		}
+	}
+	return tx.Commit()
+}

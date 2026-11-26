@@ -295,6 +295,23 @@ func (g *Graph) serve(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	if strings.HasPrefix(r.URL.Path, "/download/") {
+		if r.Header.Get("Authorization") != "" {
+			writeJSON(w, 400, map[string]any{"error": "a URL pré-autenticada não deve receber o token"})
+			return
+		}
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		for _, f := range g.Files {
+			if f.ID == strings.TrimPrefix(r.URL.Path, "/download/") {
+				w.Header().Set("Content-Length", strconv.Itoa(len(f.Content)))
+				_, _ = w.Write(f.Content)
+				return
+			}
+		}
+		w.WriteHeader(404)
+		return
+	}
 	if !g.authed(r) {
 		writeJSON(w, 401, map[string]any{"error": map[string]any{"code": "InvalidAuthenticationToken"}})
 		return
@@ -360,6 +377,12 @@ func (g *Graph) serve(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewDecoder(r.Body).Decode(&b)
 			g.ensure(path + "/" + b.Name)
 			writeJSON(w, 201, map[string]any{"name": b.Name})
+		case tail == "/content" && r.Method == "GET":
+			if f := g.Files[path]; f != nil {
+				http.Redirect(w, r, g.URL+"/download/"+f.ID, http.StatusFound) // como a Graph: URL pré-autenticada em outro endereço
+			} else {
+				writeJSON(w, 404, map[string]any{"error": "não encontrado"})
+			}
 		case tail == "" && r.Method == "GET":
 			if f := g.Files[path]; f != nil {
 				writeJSON(w, 200, g.item(f))
@@ -498,6 +521,16 @@ func (d *Drive) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		d.ensure(full)
 		writeJSON(w, 200, map[string]any{"id": d.Folders[full]})
+	case strings.HasPrefix(pth, "/drive/v3/files/") && r.Method == "GET" && r.URL.Query().Get("alt") == "media":
+		id := strings.TrimPrefix(pth, "/drive/v3/files/")
+		for _, f := range d.Files {
+			if f.ID == id {
+				w.Header().Set("Content-Length", strconv.Itoa(len(f.Content)))
+				_, _ = w.Write(f.Content)
+				return
+			}
+		}
+		writeJSON(w, 404, map[string]any{"error": "não encontrado"})
 	case strings.HasPrefix(pth, "/drive/v3/files/") && r.Method == "DELETE":
 		id := strings.TrimPrefix(pth, "/drive/v3/files/")
 		for k, f := range d.Files {

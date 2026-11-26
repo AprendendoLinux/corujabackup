@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -289,4 +290,49 @@ func (o *OneDrive) Delete(ctx context.Context, folder string, f RemoteFile) erro
 		return err
 	}
 	return nil
+}
+
+func (o *OneDrive) Open(ctx context.Context, folder, name string) (io.ReadCloser, int64, error) {
+	tok, err := o.TS.Access(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	// /content responde 302 para uma URL pré-autenticada. O redirecionamento é seguido À MÃO, sem o token: ele nunca é
+	// reenviado ao endereço de destino (mesmo que seja do mesmo domínio).
+	c := *o.http()
+	c.Timeout = 0 // downloads grandes: quem controla é o contexto
+	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	req, err := http.NewRequestWithContext(ctx, "GET", o.itemURL(folder, name)+"/content", nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	for hops := 0; resp.StatusCode >= 300 && resp.StatusCode < 400 && hops < 5; hops++ {
+		loc := resp.Header.Get("Location")
+		resp.Body.Close()
+		if loc == "" {
+			return nil, 0, errors.New("redirecionamento sem destino")
+		}
+		next, err := http.NewRequestWithContext(ctx, "GET", loc, nil)
+		if err != nil {
+			return nil, 0, err
+		}
+		if resp, err = c.Do(next); err != nil {
+			return nil, 0, err
+		}
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		resp.Body.Close()
+		return nil, 0, ErrNotFound
+	}
+	if resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
+		return nil, 0, &APIError{Status: resp.StatusCode, Body: string(b), Op: "baixar arquivo OneDrive"}
+	}
+	return resp.Body, resp.ContentLength, nil
 }

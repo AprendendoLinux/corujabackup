@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.0.6] - Fase 5 · Interface completa
+- **Logs ao vivo:** o agente envia as linhas do log a cada 2 s durante o backup e o Histórico as mostra em tempo real (SSE,
+  com selo "ao vivo", rolagem automática e barra de progresso); cai para atualização comum se a transmissão falhar.
+- **Identidade visual (white-label):** página **Aparência** (administradores) para trocar o **nome** do sistema, enviar uma
+  **logo personalizada** (PNG, JPEG, GIF, WebP ou SVG sem scripts, até 1 MiB; o tipo é decidido pelo conteúdo e servida
+  isolada, com CSP `sandbox`), escolher o **tema padrão** e criar até 10 **temas personalizados** com seletor de cores e
+  pré-visualização imediata. Nome e logo aparecem no topo, no login e na aba do navegador; o rodapé padrão é mantido.
+- **Restauração:** no detalhe de cada execução, **baixar da nuvem** (o Server só repassa o fluxo, sem gravar em disco; o token
+  da nuvem nunca é enviado a endereços de redirecionamento), **reenviar para a nuvem** quando o envio falhou (reaproveita o
+  arquivo local preservado e corrige o estado da execução), **extrair no agente** para `restores/<pasta>` (extração segura:
+  bloqueia `..`, caminhos absolutos e escrita através de links; nunca sobrescreve) e **guia de restauração manual** com os
+  comandos certos para arquivos, MySQL/MariaDB, PostgreSQL e MongoDB. Todas as ações ficam na auditoria e no log da execução.
+
 ## [0.0.5] - Fase 4 · Bancos de dados
 - **Jobs de banco de dados** para **MySQL, MariaDB, PostgreSQL e MongoDB**, configurados na interface (escolha do tipo ao criar o job).
 - **Dois modos:** *contêiner Docker* (o dump roda **dentro** do contêiner, com as ferramentas da versão certa, pela Docker Engine API;

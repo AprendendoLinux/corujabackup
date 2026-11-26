@@ -96,3 +96,5 @@ export const STATUS: Record<string, { label: string; tone: 'ok' | 'off' | 'warn'
   ok: { label: 'Sucesso', tone: 'ok' }, warning: { label: 'Com avisos', tone: 'warn' }, failed: { label: 'Falhou', tone: 'danger' },
   canceled: { label: 'Cancelado', tone: 'off' }, missed: { label: 'Perdido', tone: 'danger' }, running: { label: 'Executando', tone: 'warn' }, queued: { label: 'Na fila', tone: 'off' },
 }
+
+export type Branding = { name: string; theme: string; themes: { id: string; label: string; vars: Record<string, string> }[]; has_logo: boolean; logo_version?: string }

@@ -12,7 +12,7 @@ O `.zip` é **plano** (sem pastas) e contém:
 | Arquivo | Obrigatório | Para quê |
 | :--- | :---: | :--- |
 | `theme.json` | sim | Manifesto: identificação, cores e referência aos arquivos. |
-| logo da interface (ex.: `logo.png`, `logo.svg`) | não | PNG, JPEG, GIF, WebP ou SVG (sem scripts). Cabeçalho e tela de login. |
+| logo da interface (ex.: `logo.png`, `logo.svg`) | não | PNG, JPEG, GIF, WebP ou SVG (sem scripts). Cabeçalho, tela de login e ícone da aba do navegador. |
 | logo de e-mail/PDF (ex.: `logo.png`) | não | Só **PNG, JPEG ou GIF** (clientes de e-mail e o PDF não renderizam SVG/WebP). Se faltar e a logo da interface for PNG/JPEG/GIF, ela é reaproveitada. |
 | `preview.png` | não | Miniatura (apenas informativa). |
 | `README.md`, `LICENSE` | não | Ignorados pelo sistema. |

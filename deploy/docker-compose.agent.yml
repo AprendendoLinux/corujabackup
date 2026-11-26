@@ -2,7 +2,7 @@
 # Informe o endereço do canal dos agentes do Server e o token gerado na interface (Agentes > Novo agente; vale uma vez).
 services:
   agent:
-    image: ghcr.io/aprendendolinux/corujabackup-agent:0.0.10
+    image: ghcr.io/aprendendolinux/corujabackup-agent:0.0.11
     container_name: corujabackup-agent
     restart: always
     environment:

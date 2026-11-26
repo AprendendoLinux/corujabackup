@@ -52,6 +52,8 @@ type Provider interface {
 	// Stat devolve o arquivo (com os hashes que a nuvem calculou); ErrNotFound se não existir.
 	Stat(ctx context.Context, folder, name string) (*RemoteFile, error)
 	List(ctx context.Context, folder string) ([]RemoteFile, error)
+	// Folders lista os nomes das subpastas de parent ("" = raiz visível ao aplicativo). Pasta inexistente = lista vazia.
+	Folders(ctx context.Context, parent string) ([]string, error)
 	// Delete remove definitivamente quando o provedor permite (sem passar pela lixeira, que consome cota).
 	Delete(ctx context.Context, folder string, f RemoteFile) error
 	// Open baixa o arquivo (para restauração/download). O chamador fecha o corpo.

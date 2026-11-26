@@ -244,6 +244,43 @@ func (c *Core) rpc(ctx context.Context, m *pb.Rpc) ([]byte, error) {
 		}
 		sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 		return json.Marshal(map[string]any{"containers": out})
+	case "fs_list":
+		var req BrowseRequest
+		if err := json.Unmarshal(m.Payload, &req); err != nil {
+			return nil, fmt.Errorf("pedido inválido: %w", err)
+		}
+		var base string
+		switch req.Area {
+		case BrowseHost:
+			base = c.cfg.HostRoot
+			if base == "" {
+				base = "/"
+			}
+		case BrowseBackups:
+			base = c.cfg.BackupDir
+		default:
+			return nil, errors.New("área de navegação inválida")
+		}
+		r, err := Browse(base, req, c.cfg.AllowedPaths)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(r)
+	case "dest_folders":
+		var req struct {
+			Config netdest.Config `json:"config"`
+			Path   string         `json:"path"`
+		}
+		if err := json.Unmarshal(m.Payload, &req); err != nil {
+			return nil, fmt.Errorf("pedido inválido: %w", err)
+		}
+		tctx, cancel := context.WithTimeout(ctx, 50*time.Second)
+		defer cancel()
+		list, err := netdest.Folders(tctx, req.Config, c.destEnv(), req.Path)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"folders": list})
 	case "dest_test":
 		var cfg netdest.Config
 		if err := json.Unmarshal(m.Payload, &cfg); err != nil {

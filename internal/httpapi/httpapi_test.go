@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -562,6 +563,9 @@ func (f *fakeClouds) Test(context.Context, int64) (string, cloud.Quota, error) {
 	return "fulano@x.com", cloud.Quota{Total: 100, Used: 10}, nil
 }
 func (f *fakeClouds) Invalidate(int64) {}
+func (f *fakeClouds) Folders(_ context.Context, id int64, parent string) ([]string, error) {
+	return []string{"zeta", "Alfa", "com/barra", "..", "Alfa"}, nil
+}
 func (f *fakeClouds) BeginWeb(_ context.Context, name, typ, origin string) (string, string, error) {
 	return "https://login.test/?o=" + origin, "nonce." + name, nil
 }
@@ -774,6 +778,75 @@ func TestConsultasAoAgenteContainersETesteDeBanco(t *testing.T) {
 	v.mustOK("POST", "/api/login", map[string]string{"username": "leitor2", "password": pw})
 	if code, _ := v.do("GET", "/api/agents/"+itoa(int(a.ID))+"/containers", nil); code != 403 {
 		t.Fatalf("somente leitura não consulta contêineres: %d", code)
+	}
+}
+
+func TestSeletorDePastasEEnderecoDosAgentes(t *testing.T) {
+	e := newEnv(t)
+	adm := setupAdmin(e)
+	a := newAgent(t, e, "srv-b")
+	browse := "/api/agents/" + itoa(int(a.ID)) + "/browse"
+	e.hub.callOut = []byte(`{"path":"/etc","entries":[{"name":"nginx","dir":true}]}`)
+	r := adm.mustOK("GET", browse+"?area=host&path=%2Fetc", nil)
+	if len(r["entries"].([]any)) != 1 || e.hub.calls[0] != `fs_list:{"area":"host","path":"/etc"}` {
+		t.Fatalf("%v %v", r, e.hub.calls)
+	}
+	if code, _ := adm.do("GET", browse+"?area=qualquer", nil); code != 400 {
+		t.Fatalf("área inválida: %d", code)
+	}
+	e.hub.callErr = errors.New("chamada desconhecida: fs_list")
+	if code, m := adm.do("GET", browse+"?area=host", nil); code != 422 || !strings.Contains(m["error"].(string), "atualize o agente") {
+		t.Fatalf("agente antigo precisa de mensagem clara: %d %v", code, m)
+	}
+	e.hub.callErr = nil
+
+	// nuvem: o Server lista e só devolve nomes utilizáveis, ordenados
+	e.api.Clouds = &fakeClouds{}
+	r = adm.mustOK("GET", "/api/clouds/1/folders?path=Coruja%20Backup", nil)
+	if got := fmt.Sprint(r["folders"]); got != "[Alfa zeta]" {
+		t.Fatalf("%s", got)
+	}
+	if code, _ := adm.do("GET", "/api/clouds/1/folders?path=a%2F..%2Fb", nil); code != 400 {
+		t.Fatalf("'..' deveria ser recusado: %d", code)
+	}
+
+	// endereço dos agentes
+	if r = adm.mustOK("GET", "/api/system", nil); r["agent_address"] != "" {
+		t.Fatalf("padrão deveria ser vazio: %v", r)
+	}
+	for _, bad := range []string{"semporta", "http://x:8443", "x:0", "x:70000", "x y:1", `x";rm -rf /:1`, "$(id):8443", "x:abc"} {
+		if code, _ := adm.do("PUT", "/api/system/agent-address", map[string]string{"address": bad}); code != 400 {
+			t.Errorf("%q deveria ser recusado: %d", bad, code)
+		}
+	}
+	for _, good := range []string{"backup.exemplo.com:8443", "203.0.113.10:8444", "[2001:db8::1]:8443", ""} {
+		adm.mustOK("PUT", "/api/system/agent-address", map[string]string{"address": " " + good + " "})
+		if r = adm.mustOK("GET", "/api/system", nil); r["agent_address"] != good {
+			t.Errorf("gravou %v, esperado %q", r["agent_address"], good)
+		}
+	}
+
+	// permissões: só leitura não navega; operador navega, mas não muda o endereço
+	for name, role := range map[string]string{"leitor3": "viewer", "oper3": "operator"} {
+		adm.mustOK("POST", "/api/users", map[string]string{"username": name, "password": pw, "role": role})
+		u := e.client()
+		u.mustOK("POST", "/api/login", map[string]string{"username": name, "password": pw})
+		want := 200
+		if role == "viewer" {
+			want = 403
+		}
+		if code, _ := u.do("GET", browse+"?area=host", nil); code != want {
+			t.Errorf("%s navegando: %d", role, code)
+		}
+		if code, _ := u.do("GET", "/api/clouds/1/folders", nil); code != want {
+			t.Errorf("%s listando destino: %d", role, code)
+		}
+		if code, _ := u.do("PUT", "/api/system/agent-address", map[string]string{"address": "x:1"}); code != 403 {
+			t.Errorf("%s não pode mudar o endereço: %d", role, code)
+		}
+	}
+	if code, _ := e.client().do("GET", browse+"?area=host", nil); code != 401 {
+		t.Errorf("sem login: %d", code)
 	}
 }
 

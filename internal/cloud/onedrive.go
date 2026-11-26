@@ -277,6 +277,37 @@ func (o *OneDrive) List(ctx context.Context, folder string) ([]RemoteFile, error
 	return out, nil
 }
 
+func (o *OneDrive) Folders(ctx context.Context, parent string) ([]string, error) {
+	next := o.base() + o.drive() + "/root/children"
+	if parent != "" {
+		next = o.itemURL(parent, "") + "/children"
+	}
+	next += "?$select=id,name,folder&$top=200"
+	var out []string
+	for i := 0; next != "" && i < maxListPagesSafe; i++ {
+		var page struct {
+			Value []struct {
+				Name   string    `json:"name"`
+				Folder *struct{} `json:"folder"`
+			} `json:"value"`
+			Next string `json:"@odata.nextLink"`
+		}
+		if _, err := o.do(ctx, "GET", next, nil, &page, "listar pastas OneDrive"); err != nil {
+			if isNotFound(err) {
+				return nil, nil
+			}
+			return nil, err
+		}
+		for _, it := range page.Value {
+			if it.Folder != nil {
+				out = append(out, it.Name)
+			}
+		}
+		next = page.Next
+	}
+	return out, nil
+}
+
 func (o *OneDrive) Delete(ctx context.Context, folder string, f RemoteFile) error {
 	item := o.base() + o.drive() + "/items/" + url.PathEscape(f.ID)
 	if o.HardDelete {

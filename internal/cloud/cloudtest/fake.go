@@ -374,7 +374,7 @@ func (g *Graph) serve(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, 404, map[string]any{"error": "pasta inexistente"})
 				return
 			}
-			var vals []any
+			vals := g.subfolders(path)
 			for _, f := range g.Files {
 				if strings.TrimSuffix(f.Path, "/"+f.Name) == path {
 					vals = append(vals, g.item(f))
@@ -403,6 +403,8 @@ func (g *Graph) serve(w http.ResponseWriter, r *http.Request) {
 		default:
 			writeJSON(w, 400, map[string]any{"error": "rota não suportada pelo falso: " + p})
 		}
+	case p == "/me/drive/root/children" && r.Method == "GET":
+		writeJSON(w, 200, map[string]any{"value": g.subfolders("")})
 	case p == "/me/drive/root/children" && r.Method == "POST":
 		var b struct{ Name string }
 		_ = json.NewDecoder(r.Body).Decode(&b)
@@ -411,6 +413,21 @@ func (g *Graph) serve(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, 400, map[string]any{"error": "rota não suportada pelo falso: " + r.Method + " " + p})
 	}
+}
+
+// subfolders devolve as subpastas diretas de parent ("" = raiz), no formato da Graph.
+func (g *Graph) subfolders(parent string) []any {
+	var out []any
+	for p, id := range g.Folders {
+		dir, name := "", p
+		if i := strings.LastIndex(p, "/"); i >= 0 {
+			dir, name = p[:i], p[i+1:]
+		}
+		if dir == parent {
+			out = append(out, map[string]any{"id": id, "name": name, "folder": map[string]any{}})
+		}
+	}
+	return out
 }
 
 // NoPermanentDelete simula conta pessoal (sem permanentDelete).
@@ -499,7 +516,7 @@ func (d *Drive) serve(w http.ResponseWriter, r *http.Request) {
 				if i := strings.LastIndex(path, "/"); i > 0 {
 					par = d.Folders[path[:i]]
 				}
-				if seg == name && par == parent {
+				if (name == "" || seg == name) && par == parent {
 					out = append(out, map[string]any{"id": id, "name": seg})
 				}
 			}

@@ -115,6 +115,23 @@ func (f *ftpConn) List(dir string) ([]File, error) {
 	return out, nil
 }
 
+func (f *ftpConn) Dirs(dir string) ([]string, error) {
+	es, err := f.cl.List(f.p(dir))
+	if isFTPCode(err, ftp.StatusFileUnavailable) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, e := range es {
+		if n := path.Base(e.Name); e.Type == ftp.EntryTypeFolder && n != "." && n != ".." {
+			out = append(out, n)
+		}
+	}
+	return out, nil
+}
+
 func (f *ftpConn) Rename(dir, from, to string) error {
 	return f.cl.Rename(f.p(dir, from), f.p(dir, to))
 }

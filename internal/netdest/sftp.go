@@ -121,6 +121,23 @@ func (s *sftpConn) List(dir string) ([]File, error) {
 	return out, nil
 }
 
+func (s *sftpConn) Dirs(dir string) ([]string, error) {
+	es, err := s.cl.ReadDir(s.p(dir))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, e := range es {
+		if e.IsDir() {
+			out = append(out, e.Name())
+		}
+	}
+	return out, nil
+}
+
 func (s *sftpConn) Rename(dir, from, to string) error {
 	a, b := s.p(dir, from), s.p(dir, to)
 	if err := s.cl.PosixRename(a, b); err == nil {

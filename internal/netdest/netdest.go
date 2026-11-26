@@ -14,6 +14,7 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -178,7 +179,8 @@ type Conn interface {
 	Write(ctx context.Context, dir, name string, r io.Reader) error
 	Open(ctx context.Context, dir, name string) (io.ReadCloser, error)
 	Size(dir, name string) (int64, error)
-	List(dir string) ([]File, error) // só arquivos; pasta inexistente = lista vazia
+	List(dir string) ([]File, error)   // só arquivos; pasta inexistente = lista vazia
+	Dirs(dir string) ([]string, error) // só subpastas; pasta inexistente = lista vazia
 	Rename(dir, from, to string) error
 	Remove(dir, name string) error
 	Close() error
@@ -390,6 +392,35 @@ func Fetch(ctx context.Context, c Config, env Env, folder, name, localPath, want
 		return 0, err
 	}
 	return n, os.Rename(tmp, localPath)
+}
+
+// Folders lista as subpastas de dir (relativo à pasta base), para a escolha da pasta na interface. Só devolve nomes que
+// podem ser usados como pasta de um job, em ordem alfabética.
+func Folders(ctx context.Context, c Config, env Env, dir string) ([]string, error) {
+	dir, err := CleanPath(dir)
+	if err != nil {
+		return nil, err
+	}
+	if c.Type == TypeSFTP && c.HostKey == "" {
+		return nil, errors.New("destino SFTP sem impressão digital do servidor: teste e salve o destino de novo")
+	}
+	conn, _, err := Dial(ctx, c, env)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	names, err := conn.Dirs(dir)
+	if err != nil {
+		return nil, fmt.Errorf("não foi possível listar as pastas no destino: %w", err)
+	}
+	out := []string{}
+	for _, n := range names {
+		if clean, err := CleanPath(n); err == nil && clean == n && n != "" && !strings.HasPrefix(n, ".") {
+			out = append(out, n)
+		}
+	}
+	slices.SortFunc(out, func(a, b string) int { return strings.Compare(strings.ToLower(a), strings.ToLower(b)) })
+	return out, nil
 }
 
 // TestResult é o resultado do teste de um destino.

@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.14] - Pasta local pelo painel
+- **Segurança:** a pasta de dados do agente (credencial e jobs, com senhas de bancos e destinos) nunca entra num backup, mesmo selecionando o `/` inteiro.
+- **Pasta do backup local escolhida no painel:** navegue pelos discos do servidor, crie a pasta e veja o **espaço livre** antes de escolher. Exige o novo volume `- /:/host-rw` na stack do agente (dá permissão de gravação no servidor; `CORUJA_BACKUP_ROOTS` limita onde). A origem continua somente leitura. Jobs antigos continuam na pasta padrão.
+- **Servidor inteiro:** a stack padrão mostra o `/` completo; sistemas de arquivos virtuais (`/proc`, `/sys`, `/dev`...) e as visões montadas dos contêineres ficam fora do backup automaticamente.
+- **Correção:** salvar uma pasta que contém a pasta de backups do agente (ex.: `/srv` com os backups em `/srv/coruja-backups`) incluía os backups anteriores e o que estava sendo gerado. Agora o agente deixa de fora, automaticamente, a pasta de backups, a raiz de destinos locais (`/destinos`) e tudo o que estiver montado dentro delas, e registra isso no log da execução. Reconhece a pasta pela identidade no disco, qualquer que seja o caminho usado na stack. Uma origem escolhida **dentro** dessas pastas é ignorada com aviso. **Atualize os agentes.**
+
 ## [0.0.13] - Clicar e selecionar
 - **Clicar e selecionar:** no job, as pastas e arquivos a salvar e as exclusões são marcados numa árvore do servidor do agente; a **pasta de destino no agente** e a **pasta no destino** (nuvens, SFTP, FTP, SMB e pasta local) são escolhidas num navegador de pastas, que também cria pasta nova. Digitar continua possível para padrões (`*.tmp`) e casos especiais.
 - A navegação mostra só nomes e tamanhos, respeita `CORUJA_ALLOWED_PATHS`, não segue atalhos e exige perfil Operador ou Administrador. **Atualize os agentes** para usá-la.

@@ -12,6 +12,7 @@
 - [x] **Fase 9, parte 1 – Nuvens com um clique (0.0.10):** login por popup no Google Drive, OneDrive e Dropbox (conector novo), tela de escolha de destino com ícones; os três validados com contas reais.
 - [x] **Fase 9, parte 2 – Destinos de rede (0.0.12):** SFTP, FTP/FTPS, SMB e pasta local/volume do host (NFS e iSCSI).
 - [x] **Usabilidade (0.0.13):** seleção de pastas e arquivos por clique (origem, exclusões e destinos), endereço público do canal dos agentes e botões de copiar funcionando em `http://IP`.
+- [x] **Pasta local pelo painel (0.0.14):** servidor inteiro visível, pasta do backup local escolhida na interface com o espaço livre, e o que é do agente (backups, destinos e credenciais) fora dos backups.
 - [ ] **Fase 9, parte 3:** vários destinos por job; compatíveis com S3; SharePoint.
 - [ ] **Fase 10 – Full/Incremental e MikroTik (versão seguinte):** motor `tar.gz` em blocos com índice e catálogo; agenda full + incrementais; retenção por cadeia; jobs de MikroTik (SSH: `.rsc` e `.backup`).
 - [ ] **Fase 11 – Restauração inteligente (versão posterior):** árvore de arquivos, linha do tempo de versões, restauração de arquivos selecionados e de bancos pela interface.

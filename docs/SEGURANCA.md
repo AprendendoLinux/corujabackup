@@ -11,7 +11,7 @@
 | Vazamento de credenciais pela API/logs | Segredos nunca voltam pela API; erros passam por filtro que remove senha/token |
 | Servidor falso se passando pelo Server | O agente **fixa a impressão digital** do certificado (vem dentro do token de matrícula): sem "confiar no primeiro uso" |
 | Token de matrícula roubado | Uso único, expira (até 7 dias), só o hash é guardado; revogar um agente derruba o canal na hora |
-| Server comprometido pedindo coisas ao agente | Listas de permissão no agente (`CORUJA_ALLOWED_PATHS`, `CORUJA_ALLOWED_CONTAINERS`); destino sempre confinado à pasta de backups; nomes de arquivo validados |
+| Server comprometido pedindo coisas ao agente | Listas de permissão no agente (`CORUJA_ALLOWED_PATHS`, `CORUJA_ALLOWED_CONTAINERS`, `CORUJA_BACKUP_ROOTS`); nomes de arquivo validados; veja "Gravação no servidor" |
 | Arquivo malicioso no backup (restauração) | Extração bloqueia `..`, caminhos absolutos e escrita através de links; nunca sobrescreve |
 | Injeção de comando nos jobs de banco | Sem shell com dados do usuário: argumentos em lista, nomes validados, segredos por variável de ambiente |
 | Dependências vulneráveis | `govulncheck` e `npm audit` no CI (semanal e a cada PR) |
@@ -50,3 +50,15 @@ Para "clicar e selecionar", o Server pede ao agente a listagem de uma pasta.
 - Quem pode: perfis **Operador** e **Administrador** (os mesmos que já podem criar um job com qualquer caminho permitido e baixar o resultado). Somente leitura não navega.
 - No agente: a listagem fica presa à raiz do host (ou à pasta de backups), **não segue atalhos** e respeita `CORUJA_ALLOWED_PATHS` (só aparecem os itens permitidos e o caminho até eles).
 - Pastas de destino: nas nuvens quem lista é o Server; nos destinos de rede, o agente do job, com as mesmas credenciais usadas no envio.
+
+## Gravação no servidor (`/host-rw`)
+Para a **pasta do backup local** ser escolhida no painel, o agente precisa gravar no servidor. A stack padrão monta `/:/host-rw`.
+- **O que muda no risco:** com essa montagem, quem dominar o **contêiner do agente** pode alterar qualquer arquivo do servidor, o que equivale a root nele. Sem ela, o agente só grava em `/backups` e `/destinos`.
+- **O que o agente faz com ela:** grava somente os arquivos de backup (`<job>-AAAAMMDD-HHMMSS.tar.gz` e temporários) na pasta escolhida, e a retenção só apaga arquivos com esse padrão e o nome do job. A origem continua sendo lida por `/host`, somente leitura. Atalhos e `/`, `/proc`, `/sys`, `/dev` e `/run` não são aceitos.
+- **Server comprometido:** ele pode mandar gravar backups em outra pasta permitida. `CORUJA_BACKUP_ROOTS`, definido na stack do agente, limita isso e não pode ser mudado pelo painel.
+- **Para não conceder a permissão:** remova a linha `/:/host-rw`; o backup local fica na pasta padrão do agente.
+
+## Credenciais do agente fora dos backups
+A pasta de dados do agente guarda a credencial dele e a definição dos jobs, que pode conter senhas de bancos e de destinos de rede (arquivos com permissão 600). Ela **nunca entra na origem de um backup**, mesmo quando o `/` inteiro é selecionado. Consequência: para recuperar um agente perdido, matricule-o de novo com um token novo.
+
+Isso vale só para essa pasta. Um backup de pastas do sistema continua levando os outros segredos do servidor que estiverem nelas (inclusive o arquivo da stack, se tiver senhas ou token); trate o destino como um local confidencial.

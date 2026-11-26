@@ -62,3 +62,12 @@ A nova senha é lida do terminal (ou de `CORUJA_NEW_PASSWORD`). Todas as sessõe
 | E-mail não sai | SMTP/segurança/porta | Notificações > Enviar teste mostra o erro exato; histórico de envios traz as tentativas |
 | Log ao vivo não aparece atrás de proxy | buffering do proxy | `proxy_buffering off` (veja a instalação) |
 | Server não inicia: "banco ... MAIS NOVA" | binário mais antigo que o banco | use a versão correta ou restaure o dump |
+
+## Pastas do agente fora do backup
+Os sistemas de arquivos virtuais (`/proc`, `/sys`, `/dev` e semelhantes) entram como pastas vazias, para que o `/` inteiro possa ser selecionado.
+
+Na pasta escolhida para o backup local, que pode ter outros dados, ficam fora **somente os arquivos que o agente gerou**; o restante dela continua sendo salvo.
+
+O que é do próprio agente nunca entra na origem de um backup: a pasta de backups (`/backups`), a raiz de destinos locais (`/destinos`), a pasta de dados (`/var/lib/coruja-agent`, com a credencial e as senhas dos jobs) e o que estiver montado dentro delas. Assim, salvar `/srv` com os backups em `/srv/coruja-backups` não acumula cópias dentro de cópias. A execução registra no log cada pasta deixada de fora. Para guardar uma segunda cópia dos backups, use um **destino** no job, em vez de selecionar essas pastas como origem.
+
+> Monte em `/destinos` somente o que for destino: o que estiver montado ali fica fora da origem, mesmo que tenha outros arquivos.

@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { CLOUD_LABEL, CloudAccount, DeviceInfo, User, api, ApiError, fmtBytes, fmtDate } from '../api'
 import { Badge, Button, Card, CopyBox, ErrorBox, Field, Input, Modal } from '../ui'
 import { CLOUD_ICON } from '../icons'
+import NetDestination, { AgentSelect, NET_TYPES, useAgents } from './NetDestination'
 
 // Catálogo de destinos. ok = disponível; soon = em construção (colorido); off = previsto (cinza).
 type Prov = { id: string; label: string; hint: string; state: 'ok' | 'soon' | 'off' }
@@ -17,8 +18,10 @@ const PROVIDERS: { group: string; items: Prov[] }[] = [
     { id: 'pcloud', label: 'pCloud', hint: 'Armazenamento europeu', state: 'off' },
   ] },
   { group: 'Servidores e rede', items: [
-    { id: 'sftp', label: 'SFTP', hint: 'Servidor por SSH', state: 'off' },
-    { id: 'smb', label: 'Pasta de rede', hint: 'SMB, NFS, iSCSI', state: 'off' },
+    { id: 'sftp', label: 'SFTP', hint: 'Servidor por SSH', state: 'ok' },
+    { id: 'ftp', label: 'FTP', hint: 'FTPS ou FTP simples', state: 'ok' },
+    { id: 'smb', label: 'Pasta de rede', hint: 'SMB / CIFS (Windows, NAS)', state: 'ok' },
+    { id: 'local', label: 'Pasta local', hint: 'NFS, iSCSI ou disco montado', state: 'ok' },
   ] },
 ]
 type Defs = { gdrive?: boolean; gdrive_web?: boolean; onedrive_web?: boolean; dropbox_web?: boolean; broker?: string }
@@ -31,19 +34,19 @@ function ProviderIcon({ id, size = 40 }: { id: string; size?: number }) {
 
 function ProviderGrid({ onPick }: { onPick: (id: string) => void }) {
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <p className="text-sm text-muted">Escolha onde guardar os backups.</p>
       {PROVIDERS.map((g) => (
         <section key={g.group} aria-label={g.group}>
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">{g.group}</h3>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4">
             {g.items.map((p) => {
               const on = p.state === 'ok'
               return (
                 <button key={p.id} type="button" disabled={!on} aria-disabled={!on} onClick={() => on && onPick(p.id)}
                   title={on ? p.label : 'Em breve'}
-                  className={`group relative flex flex-col items-center gap-2 rounded-xl border px-3 py-4 text-center transition ${on ? 'border-border bg-surface hover:-translate-y-0.5 hover:border-primary hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary' : 'cursor-not-allowed border-border/70 bg-bg'}`}>
-                  <span className={on || p.state === 'soon' ? '' : 'opacity-60 grayscale'}><ProviderIcon id={p.id} size={44} /></span>
+                  className={`group relative flex flex-col items-center gap-1.5 rounded-xl border px-2.5 pb-3 pt-4 text-center transition ${on ? 'border-border bg-surface hover:-translate-y-0.5 hover:border-primary hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary' : 'cursor-not-allowed border-border/70 bg-bg'}`}>
+                  <span className={on || p.state === 'soon' ? '' : 'opacity-60 grayscale'}><ProviderIcon id={p.id} size={40} /></span>
                   <span className={`text-sm font-semibold ${on ? '' : 'text-muted'}`}>{p.label}</span>
                   <span className="text-xs leading-snug text-muted">{p.hint}</span>
                   {!on && <span className="absolute right-2 top-2 rounded-full bg-border/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">Em breve</span>}
@@ -53,6 +56,29 @@ function ProviderGrid({ onPick }: { onPick: (id: string) => void }) {
           </div>
         </section>
       ))}
+    </div>
+  )
+}
+
+// Teste de um destino de rede já salvo: quem testa é um agente.
+function TestDestination({ account }: { account: CloudAccount }) {
+  const agents = useAgents()
+  const [agent, setAgent] = useState(0)
+  const [msg, setMsg] = useState('')
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  async function run() {
+    setMsg(''); setErr(''); setBusy(true)
+    try { const r = await api<{ detail: string }>('POST', '/api/destinations/test', { agent_id: agent, id: account.id }); setMsg(`Funcionando: ${r.detail}.`) }
+    catch (x) { setErr((x as ApiError).message) } finally { setBusy(false) }
+  }
+  return (
+    <div className="space-y-3 text-sm">
+      <p className="text-muted">Escolha o agente que vai acessar o destino ({account.account_label}).</p>
+      <AgentSelect agents={agents} value={agent} onChange={setAgent} />
+      {msg && <div className="rounded-lg border border-ok/40 bg-ok/10 px-3 py-2 text-ok">{msg}</div>}
+      <ErrorBox message={err} />
+      <Button onClick={run} disabled={busy || !agent}>{busy ? 'Testando…' : 'Testar'}</Button>
     </div>
   )
 }
@@ -89,6 +115,7 @@ export default function Clouds({ me }: { me: User }) {
   const [info, setInfo] = useState('')
   const [defs, setDefs] = useState<Defs>({})
   const [wizard, setWizard] = useState<{ id?: number; device?: DeviceInfo; name?: string; type?: string } | null>(null)
+  const [testing, setTesting] = useState<CloudAccount | null>(null)
   const isAdmin = me.role === 'admin'
 
   const load = useCallback(() => {
@@ -118,16 +145,16 @@ export default function Clouds({ me }: { me: User }) {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Nuvem</h1>
-          <p className="text-sm text-muted">Contas onde os backups são guardados. As credenciais ficam só no Server (cifradas); o agente envia o arquivo direto para a nuvem.</p>
+          <h1 className="text-2xl font-semibold">Destinos</h1>
+          <p className="text-sm text-muted">Onde os backups são guardados. Nas nuvens, as credenciais ficam só no Server; nos destinos de rede, quem acessa é o agente.</p>
         </div>
-        {isAdmin && <Button onClick={() => setWizard({})}>+ Conectar nuvem</Button>}
+        {isAdmin && <Button onClick={() => setWizard({})}>+ Novo destino</Button>}
       </div>
       <ErrorBox message={err} />
       {info && <div className="rounded-lg border border-ok/40 bg-ok/10 px-3 py-2 text-sm text-ok">{info}</div>}
 
       <div className="grid gap-4 md:grid-cols-2">
-        {accounts.length === 0 && <Card className="md:col-span-2"><p className="text-center text-muted">Nenhuma conta conectada ainda. Clique em “Conectar nuvem”.</p></Card>}
+        {accounts.length === 0 && <Card className="md:col-span-2"><p className="text-center text-muted">Nenhum destino ainda. Clique em “Novo destino”.</p></Card>}
         {accounts.map((a) => {
           const pct = a.quota_total ? Math.min(100, Math.round((a.quota_used / a.quota_total) * 100)) : 0
           return (
@@ -151,8 +178,9 @@ export default function Clouds({ me }: { me: User }) {
               )}
               <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                 <span className="text-muted">{a.jobs} job(s) usando</span>
-                {me.role !== 'viewer' && a.status !== 'pending' && <button className="text-primary hover:underline" onClick={() => test(a)}>Testar conexão</button>}
-                {isAdmin && <button className="text-primary hover:underline" onClick={() => reauth(a)}>Reautorizar</button>}
+                {me.role !== 'viewer' && a.status !== 'pending' && !NET_TYPES.includes(a.type) && <button className="text-primary hover:underline" onClick={() => test(a)}>Testar conexão</button>}
+                {isAdmin && NET_TYPES.includes(a.type) && <button className="text-primary hover:underline" onClick={() => setTesting(a)}>Testar conexão</button>}
+                {isAdmin && !NET_TYPES.includes(a.type) && <button className="text-primary hover:underline" onClick={() => reauth(a)}>Reautorizar</button>}
                 {isAdmin && <button className="text-danger hover:underline" onClick={() => confirm(`Excluir a conta "${a.name}"? Os arquivos já enviados à nuvem não são apagados.`) && act(() => api('DELETE', `/api/clouds/${a.id}`))}>Excluir</button>}
               </div>
             </Card>
@@ -160,10 +188,17 @@ export default function Clouds({ me }: { me: User }) {
         })}
       </div>
 
-      {wizard && <Modal title={wizard.device ? 'Autorizar o acesso' : wizard.type ? `Conectar ${PROV_BY_ID[wizard.type]?.label ?? 'nuvem'}` : 'Conectar nuvem'} onClose={() => { setWizard(null); load() }}>
+      {testing && <Modal title={`Testar "${testing.name}"`} onClose={() => setTesting(null)}><TestDestination account={testing} /></Modal>}
+      {wizard && <Modal wide={!wizard.type && !wizard.device} title={wizard.device ? 'Autorizar o acesso' : wizard.type ? `Conectar ${PROV_BY_ID[wizard.type]?.label ?? 'destino'}` : 'Novo destino'} onClose={() => { setWizard(null); load() }}>
         {wizard.device && wizard.id
           ? <Authorize id={wizard.id} name={wizard.name ?? ''} device={wizard.device} onDone={() => { setWizard(null); setInfo('Conta conectada com sucesso.'); load() }} />
           : !wizard.type ? <ProviderGrid onPick={(type) => setWizard({ type })} />
+          : NET_TYPES.includes(wizard.type) ? (
+            <div className="space-y-4">
+              <button type="button" className="text-sm text-primary hover:underline" onClick={() => setWizard({})}>← Trocar o tipo de destino</button>
+              <NetDestination type={wizard.type} onSaved={() => { setWizard(null); setInfo('Destino salvo.'); load() }} />
+            </div>
+          )
           : <NewAccount type={wizard.type} onBack={() => setWizard({})} defs={defs} onCreated={(id, device, name) => { setWizard({ id, device, name }); load() }} onConnected={() => { setWizard(null); setInfo('Conta conectada com sucesso.'); load() }} />}
       </Modal>}
     </div>

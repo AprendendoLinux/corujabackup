@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/AprendendoLinux/corujabackup/internal/cloud"
+	"github.com/AprendendoLinux/corujabackup/internal/netdest"
 	"github.com/AprendendoLinux/corujabackup/internal/secrets"
 	"github.com/AprendendoLinux/corujabackup/internal/slug"
 	"github.com/AprendendoLinux/corujabackup/internal/store"
@@ -289,6 +290,9 @@ func (m *Manager) Provider(ctx context.Context, id int64) (cloud.Provider, error
 	a, err := m.Store.GetCloud(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if netdest.Is(a.Type) {
+		return nil, ErrAgentDestination
 	}
 	if a.Status != "connected" || a.Tokens == "" {
 		return nil, ErrNotConnected

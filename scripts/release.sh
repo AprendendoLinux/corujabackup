@@ -1,8 +1,8 @@
 #!/bin/sh
 # Publicação manual das imagens multi-arquitetura (o fluxo normal é o workflow "Release", disparado pela tag vX.Y.Z).
-# Uso: ./scripts/release.sh 0.0.11      (precisa de "docker login ghcr.io" e do buildx)
+# Uso: ./scripts/release.sh 0.0.12      (precisa de "docker login ghcr.io" e do buildx)
 set -e
-V="${1:?informe a versão, ex.: 0.0.11}"
+V="${1:?informe a versão, ex.: 0.0.12}"
 OWNER="${OWNER:-aprendendolinux}"
 cd "$(dirname "$0")/.."
 # Segredo do app OAuth padrão do Google (opcional): GOOGLE_CLIENT_SECRET_FILE=/caminho/arquivo ./scripts/release.sh X.Y.Z

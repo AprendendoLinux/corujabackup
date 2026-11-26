@@ -40,7 +40,7 @@ export function Badge({ tone, children }: { tone: 'ok' | 'off' | 'warn' | 'dange
   return <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${c}`}>{children}</span>
 }
 
-export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
   useEffect(() => {
     const h = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', h)
@@ -48,12 +48,13 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
   }, [onClose])
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-modal="true" aria-label={title} className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-xl border border-border bg-surface p-6 shadow-xl">
-        <div className="mb-4 flex items-center justify-between">
+      {/* o título fica fixo e só o conteúdo rola, por dentro dos cantos arredondados */}
+      <div role="dialog" aria-modal="true" aria-label={title} className={`flex max-h-[94vh] w-full ${wide ? 'max-w-4xl' : 'max-w-2xl'} flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-xl`}>
+        <div className="flex items-center justify-between px-6 pb-3 pt-5">
           <h2 className="text-lg font-semibold">{title}</h2>
           <button aria-label="Fechar" className="text-muted hover:text-text" onClick={onClose}>✕</button>
         </div>
-        {children}
+        <div className="scroll-fino mr-1.5 min-h-0 overflow-y-auto pb-5 pl-6 pr-4">{children}</div>
       </div>
     </div>
   )

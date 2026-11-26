@@ -90,6 +90,17 @@ message JobSpec {
   int64 cloud_account_id = 12;     // 0 = sem nuvem (só cópia local)
   string cloud_folder = 13;        // pasta na nuvem (informativo; quem decide é o Server)
   DbSpec db = 14;                  // kind="database"
+  DestSpec dest = 15;              // destino "direto do agente" (SFTP, FTP, SMB, pasta local); ausente nas nuvens
+}
+
+// DestSpec: o agente envia, confere e aplica a retenção. A configuração (com credenciais) viaja só pelo canal TLS e fica no
+// disco do agente com permissão 600.
+message DestSpec {
+  string type = 1;                 // "sftp" | "ftp" | "smb" | "local"
+  bytes config = 2;                // netdest.Config em JSON
+  string folder = 3;
+  int32 keep = 4;
+  int32 keep_days = 5;
 }
 
 message SyncJobs { repeated JobSpec jobs = 1; }
@@ -207,12 +218,13 @@ message RpcResult { string id = 1; bool ok = 2; string error = 3; bytes payload 
 
 message AgentAction {
   string id = 1;
-  string kind = 2;                 // "reupload" | "extract"
+  string kind = 2;                 // "reupload" | "extract" | "fetch"
   string run_uid = 3;
   int64 job_id = 4;
   string file_name = 5;            // arquivo de backup (no padrão do job) na pasta de destino do agente
   string subdir = 6;
   string target = 7;               // extract: nome da pasta em <backups>/restores/
+  string sha256 = 8;               // fetch: hash esperado do arquivo trazido do destino
 }
 
 message ActionLog {

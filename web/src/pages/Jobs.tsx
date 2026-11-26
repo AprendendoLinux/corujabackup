@@ -151,27 +151,27 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
         <Field label="Pasta de destino no agente" hint="Dentro da pasta de backups do agente. Vazio = nome do job.">
           <Input value={f.dest_subdir} placeholder="(automático)" onChange={(e) => setF({ ...f, dest_subdir: e.target.value })} />
         </Field>
-        <Field label="Cópias locais a manter" hint={f.cloud_account_id ? '0 = apagar a cópia local depois que a nuvem confirmar o envio.' : 'A retenção só roda depois que o novo arquivo for verificado.'}>
+        <Field label="Cópias locais a manter" hint={f.cloud_account_id ? '0 = apagar a cópia local depois que o destino confirmar o envio.' : 'A retenção só roda depois que o novo arquivo for verificado.'}>
           <Input type="number" min={f.cloud_account_id ? 0 : 1} max={365} value={f.keep} onChange={(e) => setF({ ...f, keep: Number(e.target.value) })} required />
         </Field>
       </div>
       <fieldset className="space-y-3 rounded-lg border border-border p-3">
-        <legend className="px-1 text-sm font-medium">Enviar para a nuvem (opcional)</legend>
-        <Field label="Conta de nuvem" hint={clouds.length === 0 ? 'Nenhuma conta conectada. Conecte uma na página Nuvem.' : undefined}>
+        <legend className="px-1 text-sm font-medium">Enviar para um destino (opcional)</legend>
+        <Field label="Destino" hint={clouds.length === 0 ? 'Nenhum destino criado. Crie um na página Destinos.' : undefined}>
           <select className={sel} value={f.cloud_account_id} onChange={(e) => setF({ ...f, cloud_account_id: Number(e.target.value), keep: Number(e.target.value) && f.keep === 7 ? 0 : f.keep })}>
             <option value={0}>Só cópia local</option>
             {clouds.map((c) => <option key={c.id} value={c.id}>{c.name} ({CLOUD_LABEL[c.type]})</option>)}
           </select>
         </Field>
         {f.cloud_account_id !== 0 && (<>
-          <Field label="Pasta na nuvem" hint="Vazio = Coruja Backup/<servidor>/<job>. É criada automaticamente.">
+          <Field label="Pasta no destino" hint="Vazio = Coruja Backup/<servidor>/<job>. É criada automaticamente.">
             <Input value={f.cloud_folder} placeholder="(automática)" onChange={(e) => setF({ ...f, cloud_folder: e.target.value })} />
           </Field>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Cópias a manter na nuvem" hint="0 = não limitar por quantidade."><Input type="number" min={0} max={3650} value={f.cloud_keep} onChange={(e) => setF({ ...f, cloud_keep: Number(e.target.value) })} /></Field>
-            <Field label="Dias a manter na nuvem" hint="0 = não limitar por dias. Pelo menos um dos dois é obrigatório."><Input type="number" min={0} max={3650} value={f.cloud_keep_days} onChange={(e) => setF({ ...f, cloud_keep_days: Number(e.target.value) })} /></Field>
+            <Field label="Cópias a manter no destino" hint="0 = não limitar por quantidade."><Input type="number" min={0} max={3650} value={f.cloud_keep} onChange={(e) => setF({ ...f, cloud_keep: Number(e.target.value) })} /></Field>
+            <Field label="Dias a manter no destino" hint="0 = não limitar por dias. Pelo menos um dos dois é obrigatório."><Input type="number" min={0} max={3650} value={f.cloud_keep_days} onChange={(e) => setF({ ...f, cloud_keep_days: Number(e.target.value) })} /></Field>
           </div>
-          <p className="text-xs text-muted">A retenção na nuvem só roda depois que o envio for conferido por hash, e o arquivo mais novo nunca é apagado.</p>
+          <p className="text-xs text-muted">A retenção no destino só roda depois que o envio for conferido, e o arquivo mais novo nunca é apagado.</p>
         </>)}
       </fieldset>
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={f.enabled} onChange={(e) => setF({ ...f, enabled: e.target.checked })} /> Job ativo</label>

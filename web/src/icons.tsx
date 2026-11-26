@@ -62,6 +62,17 @@ export const SmbIcon = ({ size = 40 }: P) => wrap(size, <>
   <circle cx="24" cy="30" r="4" fill="#fff" opacity=".9" /><path d="M14 36h20" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" opacity=".9" />
 </>, 'Pasta de rede (SMB/NFS)')
 
+export const FtpIcon = ({ size = 40 }: P) => wrap(size, <>
+  <rect x="3" y="8" width="42" height="32" rx="7" fill="#2E7D5B" />
+  <path d="M15 31V19m0 0-4 4m4-4 4 4M33 17v12m0 0-4-4m4 4 4-4" fill="none" stroke="#fff" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" />
+</>, 'FTP')
+
+export const LocalIcon = ({ size = 40 }: P) => wrap(size, <>
+  <path d="M8 10h32l5 18v10a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V28z" fill="#59606E" />
+  <path d="M3 28h42v10a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3z" fill="#3F4653" />
+  <circle cx="37" cy="34.5" r="2.4" fill="#7CE0A0" /><path d="M10 34.5h15" stroke="#C9CFDA" strokeWidth="2.6" strokeLinecap="round" />
+</>, 'Pasta local ou volume montado')
+
 export const CLOUD_ICON: Record<string, (p: P) => ReactNode> = {
-  gdrive: GoogleDriveIcon, onedrive: OneDriveIcon, dropbox: DropboxIcon, s3: S3Icon, b2: B2Icon, box: BoxIcon, mega: MegaIcon, pcloud: PCloudIcon, sftp: SftpIcon, smb: SmbIcon,
+  gdrive: GoogleDriveIcon, onedrive: OneDriveIcon, dropbox: DropboxIcon, s3: S3Icon, b2: B2Icon, box: BoxIcon, mega: MegaIcon, pcloud: PCloudIcon, sftp: SftpIcon, ftp: FtpIcon, smb: SmbIcon, local: LocalIcon,
 }

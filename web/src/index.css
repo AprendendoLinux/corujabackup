@@ -21,3 +21,12 @@
 }
 
 body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+
+/* Barra de rolagem discreta (sem setas), nas cores do tema. O Firefox e o Chrome atuais usam scrollbar-width/color;
+   as regras ::-webkit-* cobrem navegadores mais antigos. */
+.scroll-fino { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+@supports not (scrollbar-width: thin) {
+  .scroll-fino::-webkit-scrollbar { width: 8px; }
+  .scroll-fino::-webkit-scrollbar-track { background: transparent; }
+  .scroll-fino::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
+}

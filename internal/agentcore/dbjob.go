@@ -19,6 +19,7 @@ import (
 
 	"github.com/AprendendoLinux/corujabackup/internal/dbdump"
 	"github.com/AprendendoLinux/corujabackup/internal/dockerapi"
+	"github.com/AprendendoLinux/corujabackup/internal/netdest"
 	"github.com/AprendendoLinux/corujabackup/internal/pb"
 )
 
@@ -243,6 +244,19 @@ func (c *Core) rpc(ctx context.Context, m *pb.Rpc) ([]byte, error) {
 		}
 		sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 		return json.Marshal(map[string]any{"containers": out})
+	case "dest_test":
+		var cfg netdest.Config
+		if err := json.Unmarshal(m.Payload, &cfg); err != nil {
+			return nil, fmt.Errorf("pedido inválido: %w", err)
+		}
+		tctx, cancel := context.WithTimeout(ctx, 75*time.Second)
+		defer cancel()
+		r, err := netdest.Test(tctx, cfg, c.destEnv())
+		if err != nil {
+			// a impressão digital vista ajuda a interface a explicar o problema
+			return nil, err
+		}
+		return json.Marshal(r)
 	case "db_test":
 		var d pb.DbSpec
 		if err := json.Unmarshal(m.Payload, &d); err != nil {

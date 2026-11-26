@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -26,6 +27,7 @@ import (
 	"github.com/AprendendoLinux/corujabackup/internal/auth"
 	"github.com/AprendendoLinux/corujabackup/internal/cloudmgr"
 	"github.com/AprendendoLinux/corujabackup/internal/enroll"
+	"github.com/AprendendoLinux/corujabackup/internal/netdest"
 	"github.com/AprendendoLinux/corujabackup/internal/pb"
 	"github.com/AprendendoLinux/corujabackup/internal/ratelimit"
 	"github.com/AprendendoLinux/corujabackup/internal/secrets"
@@ -48,6 +50,7 @@ type conn struct {
 type CloudService interface {
 	OpenUpload(ctx context.Context, j *store.Job, fileName string, size int64) (*cloudmgr.Upload, error)
 	VerifyAndRetain(ctx context.Context, j *store.Job, fileName string, size int64, h cloudmgr.Hashes, now time.Time) cloudmgr.Verdict
+	DestConfig(ctx context.Context, accountID int64) (*netdest.Config, error)
 }
 
 // Notifier recebe o aviso de que uma execução terminou (para enviar notificações).
@@ -85,6 +88,16 @@ func (s *Server) specFor(j store.Job) *pb.JobSpec {
 	sp := SpecFromJob(j)
 	if j.CloudAccountID != nil {
 		sp.CloudAccountId = *j.CloudAccountID
+		if s.Cloud != nil { // destino de rede: o agente precisa da configuração (cifrada no Server, protegida pelo TLS)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if d, err := s.Cloud.DestConfig(ctx, *j.CloudAccountID); err != nil {
+				slog.Error("não foi possível ler o destino do job", "job", j.Name, "erro", err.Error())
+			} else if d != nil {
+				b, _ := json.Marshal(d)
+				sp.Dest = &pb.DestSpec{Type: d.Type, Config: b, Folder: j.CloudFolder, Keep: int32(j.CloudKeep), KeepDays: int32(j.CloudKeepDays)}
+			}
+		}
 	}
 	if j.Kind == "database" {
 		if cfg, err := j.OpenDB(s.Box); err == nil && cfg != nil {

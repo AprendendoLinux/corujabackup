@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.12] - Destinos de rede
+- **Destinos de rede:** SFTP (chave do servidor fixada), FTP/FTPS, SMB/CIFS e pasta local (NFS/iSCSI via volume montado em `/destinos`). O agente grava com nome temporário, confere relendo o arquivo (SHA-256) ou por tamanho, renomeia e só então aplica a retenção; "Trazer do destino" para restaurar. Testados contra servidores reais (`scripts/test-netdest.sh`).
+- A página **Nuvem** passou a se chamar **Destinos**.
+- Janelas com título fixo e barra de rolagem discreta; a escolha de destino cabe sem rolar.
+- **Atualize os agentes** para usar os destinos de rede.
+
 ## [0.0.11] - Temas: Clube Naval e ícone da aba
 - **Ícone da aba acompanha a logo** do tema ativo (ou a logo enviada em Aparência); sem logo própria, continua a coruja.
 - **Tema Clube Naval** em `themes/clube-naval` (botões no vermelho da âncora do brasão e dourado; escudo na interface e logo completa em e-mail e PDF).

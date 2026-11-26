@@ -17,6 +17,7 @@ import (
 	"github.com/AprendendoLinux/corujabackup/internal/auth"
 	"github.com/AprendendoLinux/corujabackup/internal/cloud"
 	"github.com/AprendendoLinux/corujabackup/internal/cloudmgr"
+	"github.com/AprendendoLinux/corujabackup/internal/netdest"
 	"github.com/AprendendoLinux/corujabackup/internal/pb"
 	"github.com/AprendendoLinux/corujabackup/internal/ratelimit"
 	"github.com/AprendendoLinux/corujabackup/internal/report"
@@ -567,7 +568,11 @@ func (f *fakeClouds) BeginWeb(_ context.Context, name, typ, origin string) (stri
 func (f *fakeClouds) BeginWebReauth(_ context.Context, id int64, origin string) (string, string, error) {
 	return "https://login.test/?re=1", "nonce.re", nil
 }
-func (f *fakeClouds) UsesPopup(context.Context, int64) bool { return false }
+func (f *fakeClouds) CreateDestination(context.Context, string, netdest.Config) (int64, error) {
+	return 77, nil
+}
+func (f *fakeClouds) DestConfig(context.Context, int64) (*netdest.Config, error) { return nil, nil }
+func (f *fakeClouds) UsesPopup(context.Context, int64) bool                      { return false }
 func (f *fakeClouds) FinishWeb(_ context.Context, state, code string) (int64, error) {
 	if code != "ok" {
 		return 0, errors.New("código inválido")

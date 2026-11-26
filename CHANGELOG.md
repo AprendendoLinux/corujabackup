@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.9] - Fase 8 · Pacotes de temas
+- **Pacotes de tema (`.zip`):** importados em Aparência; o tema vale para a **interface**, os **e-mails** e os **PDFs** (cores, logo de interface e logo de documento). Importar o mesmo `id` atualiza o tema.
+- **Validação rígida:** `.zip` plano e limitado, nomes e tipos verificados, imagens identificadas pelo conteúdo, SVG com script/referência externa recusado, sem CSS livre; auditoria de importação.
+- **Cores próprias de e-mail/PDF** (`document`) e logo própria de documento por tema; metadados de pacote não podem ser forjados pelo cliente.
+- **CLI:** `coruja-server theme validate|pack` (sem banco de dados).
+- **Pacotes incluídos** em `themes/`: `exemplo`, `melloait` e `umami`. Documentação completa em `docs/TEMAS.md` e JSON Schema em `docs/theme.schema.json`.
+- **Build das imagens sem emulação:** os estágios de build rodam na plataforma nativa e só o binário Go é cruzado (o workflow de release travava no arm64 sob QEMU).
+- **Roadmap revisado** (fases 9 a 12): destinos de armazenamento, full/incremental + MikroTik, restauração inteligente e piloto.
+
 ## [0.0.8] - Fase 7 · Endurecimento e publicação
 - **Dependências:** gRPC atualizado de 1.72 para 1.85 e projeto migrado para **Go 1.26** — o `govulncheck` apontava 8 vulnerabilidades
   alcançáveis no gRPC (incluindo bypass de autorização e falhas no servidor HTTP/2); agora **zero**. CI roda `govulncheck` e `npm audit`.

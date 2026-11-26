@@ -6,7 +6,8 @@ export const THEMES = [
 
 export type ThemeId = (typeof THEMES)[number]['id']
 
-export type CustomTheme = { id: string; label: string; vars: Record<string, string> }
+export type ThemePkg = { version?: string; author?: string; description?: string; logo_ui?: string; logo_doc?: string; asset_ver?: string; doc?: Record<string, string> }
+export type CustomTheme = { id: string; label: string; vars: Record<string, string>; pkg?: ThemePkg }
 
 export const VAR_KEYS: { key: string; label: string }[] = [
   { key: 'bg', label: 'Fundo da página' }, { key: 'surface', label: 'Cartões e janelas' }, { key: 'text', label: 'Texto' },
@@ -35,6 +36,8 @@ export function applyTheme(id: string, custom: CustomTheme[] = []) {
   const ok = ct || builtin ? id : 'coruja'
   clearCustom()
   document.documentElement.setAttribute('data-theme', ct ? 'coruja' : ok)
+  document.documentElement.setAttribute('data-theme-id', ok)
+  window.dispatchEvent(new Event('coruja-theme'))
   if (ct) VAR_KEYS.forEach(({ key }) => document.documentElement.style.setProperty(cssName(key), ct.vars[key]))
   try { localStorage.setItem('coruja.theme', ok) } catch { /* sem armazenamento: tudo bem */ }
   return ok

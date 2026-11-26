@@ -2,29 +2,32 @@
 # Coruja Backup · build único com dois alvos:  --target server  |  --target agent
 
 # --- interface web (React) -> internal/webui/dist ----------------------------------------------------------------
-FROM node:22-alpine AS web
+FROM --platform=$BUILDPLATFORM node:22-alpine AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json* ./
 RUN npm install --no-audit --no-fund
 COPY web/ ./
 RUN mkdir -p /src/internal/webui && npm run build
 
+# Os estágios web e gobuild rodam na plataforma nativa do runner (sem emulação); só o binário é cruzado.
 # --- binários Go -----------------------------------------------------------------------------------------------------
-FROM golang:1.26-alpine AS gobuild
-ARG VERSION=0.0.8
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS gobuild
+ARG VERSION=0.0.9
+ARG TARGETOS
+ARG TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum* ./
 RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
 COPY --from=web /src/internal/webui/dist ./internal/webui/dist
-ENV CGO_ENABLED=0
+ENV CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH}
 RUN go build -trimpath -ldflags "-s -w -X github.com/AprendendoLinux/corujabackup/internal/version.Version=${VERSION}" -o /out/coruja-server ./cmd/server \
  && go build -trimpath -ldflags "-s -w -X github.com/AprendendoLinux/corujabackup/internal/version.Version=${VERSION}" -o /out/coruja-agent ./cmd/agent
 
 # --- Server ------------------------------------------------------------------------------------------------------------
 FROM alpine:3.21 AS server
-ARG VERSION=0.0.8
+ARG VERSION=0.0.9
 LABEL org.opencontainers.image.title="Coruja Backup Server" \
       org.opencontainers.image.description="Backup centralizado: orquestração, agendamentos, nuvem e interface web" \
       org.opencontainers.image.source="https://github.com/AprendendoLinux/corujabackup" \
@@ -40,7 +43,7 @@ ENTRYPOINT ["/usr/local/bin/coruja-server"]
 
 # --- Agente ------------------------------------------------------------------------------------------------------------
 FROM alpine:3.21 AS agent
-ARG VERSION=0.0.8
+ARG VERSION=0.0.9
 LABEL org.opencontainers.image.title="Coruja Backup Agent" \
       org.opencontainers.image.description="Agente leve do Coruja Backup (conecta ao Server por IP:porta)" \
       org.opencontainers.image.source="https://github.com/AprendendoLinux/corujabackup" \

@@ -27,6 +27,7 @@ func LoadBrand(ctx context.Context, st *store.Store) report.Brand {
 	b := report.DefaultBrand()
 	b.Version = version.Version
 	m, err := st.GetSettings(ctx, "brand.name", "brand.theme", "brand.themes", "brand.logo", "brand.logo_type", "app.base_url")
+	themeLogo := ""
 	if err != nil {
 		return b
 	}
@@ -41,6 +42,10 @@ func LoadBrand(ctx context.Context, st *store.Store) report.Brand {
 		var custom []struct {
 			ID   string            `json:"id"`
 			Vars map[string]string `json:"vars"`
+			Pkg  *struct {
+				Doc     map[string]string `json:"doc"`
+				LogoDoc string            `json:"logo_doc"`
+			} `json:"pkg"`
 		}
 		if json.Unmarshal([]byte(m["brand.themes"]), &custom) == nil {
 			for _, t := range custom {
@@ -48,6 +53,14 @@ func LoadBrand(ctx context.Context, st *store.Store) report.Brand {
 					vars = map[string]string{"primary": t.Vars["primary"], "accent": t.Vars["accent"], "ok": t.Vars["ok"], "danger": t.Vars["danger"], "muted": b.Muted, "text": b.Text, "border": b.Border, "bg": b.Bg}
 					if lum(t.Vars["bg"]) > 0.6 { // tema claro: aproveita também o fundo e o texto
 						vars["bg"], vars["text"], vars["muted"], vars["border"] = t.Vars["bg"], t.Vars["text"], t.Vars["muted"], t.Vars["border"]
+					}
+					if t.Pkg != nil { // pacote de tema: cores próprias de e-mail/PDF e logo próprio têm prioridade
+						for k, v := range t.Pkg.Doc {
+							vars[k] = v
+						}
+						if t.Pkg.LogoDoc != "" {
+							themeLogo = t.ID
+						}
 					}
 				}
 			}
@@ -67,6 +80,13 @@ func LoadBrand(ctx context.Context, st *store.Store) report.Brand {
 	set(&b.Muted, "muted")
 	set(&b.Border, "border")
 	b.BaseURL = m["app.base_url"]
+	if themeLogo != "" {
+		a, e := st.GetSettings(ctx, "brand.asset."+themeLogo+".doc", "brand.asset."+themeLogo+".doc_type")
+		if raw, de := base64.StdEncoding.DecodeString(a["brand.asset."+themeLogo+".doc"]); e == nil && de == nil && len(raw) > 0 {
+			b.LogoPNG, b.LogoMIME = raw, a["brand.asset."+themeLogo+".doc_type"]
+			return b
+		}
+	}
 	if lg := m["brand.logo"]; lg != "" {
 		switch typ := m["brand.logo_type"]; typ {
 		case "image/png", "image/jpeg", "image/gif": // SVG/WebP não funcionam em e-mail nem no PDF: usa só o nome

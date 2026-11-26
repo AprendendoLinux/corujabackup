@@ -89,6 +89,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/branding/logo", s.logo)
 	mux.HandleFunc("PUT /api/branding", s.authed(roleAdmin, s.saveBranding))
 	mux.HandleFunc("POST /api/branding/logo", s.authed(roleAdmin, s.uploadLogo))
+	mux.HandleFunc("GET /api/branding/themes/{id}/logo", s.themeLogo)
+	mux.HandleFunc("POST /api/branding/themes/import", s.authed(roleAdmin, s.importTheme))
 	mux.HandleFunc("DELETE /api/branding/logo", s.authed(roleAdmin, s.deleteLogo))
 	mux.HandleFunc("GET /api/setup/status", s.setupStatus)
 	mux.HandleFunc("POST /api/setup", s.setup)

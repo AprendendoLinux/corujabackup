@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react'
+import { createContext, useContext, useEffect, useState } from 'react'
 import type { Branding } from './api'
 
 export const BrandCtx = createContext<{ brand: Branding; reload: () => void }>({
@@ -6,9 +6,21 @@ export const BrandCtx = createContext<{ brand: Branding; reload: () => void }>({
 })
 export const useBrand = () => useContext(BrandCtx)
 
-// Logo: a personalizada (enviada na página Aparência) ou a coruja padrão.
+const activeTheme = () => document.documentElement.getAttribute('data-theme-id') ?? ''
+
+// Logo: a do pacote do tema ativo, ou a personalizada (enviada na página Aparência), ou a coruja padrão.
 export default function Logo({ size = 36 }: { size?: number }) {
   const { brand } = useBrand()
+  const [tid, setTid] = useState(activeTheme)
+  useEffect(() => {
+    const f = () => setTid(activeTheme())
+    window.addEventListener('coruja-theme', f)
+    return () => window.removeEventListener('coruja-theme', f)
+  }, [])
+  const pk = brand.themes.find((t) => t.id === tid)?.pkg
+  if (pk?.logo_ui) {
+    return <img src={`/api/branding/themes/${tid}/logo?v=${pk.asset_ver ?? ''}`} alt={brand.name} height={size} style={{ height: size, maxWidth: size * 4, objectFit: 'contain' }} />
+  }
   if (brand.has_logo) {
     return <img src={`/api/branding/logo?v=${brand.logo_version ?? ''}`} alt={brand.name} height={size} style={{ height: size, maxWidth: size * 4, objectFit: 'contain' }} />
   }

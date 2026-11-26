@@ -3,7 +3,7 @@
 Sistema de backup **centralizado**, em Docker, gerenciado por **interface web**. Um **Server** orquestra tudo; **Agentes** leves rodam
 nos servidores de destino e se conectam a ele informando só **IP:porta + token**.
 
-> **Versão 0.0.8** · [Changelog](CHANGELOG.md) · [Instalação](docs/INSTALACAO.md) · [Operação](docs/OPERACAO.md) · [Segurança](docs/SEGURANCA.md) · [FAQ](docs/FAQ.md)
+> **Versão 0.0.9** · [Changelog](CHANGELOG.md) · [Instalação](docs/INSTALACAO.md) · [Operação](docs/OPERACAO.md) · [Segurança](docs/SEGURANCA.md) · [FAQ](docs/FAQ.md)
 
 ## O que faz
 
@@ -14,7 +14,7 @@ nos servidores de destino e se conectam a ele informando só **IP:porta + token*
 | **Nuvem** | **OneDrive** e **Google Drive**: o agente envia **direto** (sessão retomável), conferência por hash do agente **e** do Server, retenção por quantidade/dias, exclusão definitiva (sem lixeira). |
 | **Restauração** | Baixar da nuvem, reenviar, extrair no agente (extração segura) e guia manual por tipo de backup. |
 | **Avisos** | E-mail (SMTP) e Telegram; falha, aviso, sucesso, agente offline e **relatório diário consolidado em PDF A4**. |
-| **Interface** | Painel, agentes, jobs, histórico com **log ao vivo**, nuvem, notificações, **white-label** (nome, logo, temas), usuários e perfis, 2FA, auditoria. |
+| **Interface** | Painel, agentes, jobs, histórico com **log ao vivo**, nuvem, notificações, **white-label** (nome, logo, temas e **pacotes de tema `.zip`** para interface, e-mail e PDF), usuários e perfis, 2FA, auditoria. |
 | **Operação** | Métricas Prometheus, CLI de recuperação de acesso, política de 2FA/sessão, imagens endurecidas e multi-arquitetura. |
 
 ## Como funciona
@@ -50,6 +50,7 @@ O guia completo (HTTPS, proxy reverso, firewall, agentes, nuvem) está em [docs/
 - [Instalação](docs/INSTALACAO.md) — Server, agentes, HTTPS/proxy, primeiros passos e referência de variáveis.
 - [Operação](docs/OPERACAO.md) — backup do próprio Server, atualização, recuperação de acesso, monitoramento, solução de problemas.
 - [Segurança](docs/SEGURANCA.md) — modelo de ameaças, o que protege, checklist de endurecimento.
+- [Temas](docs/TEMAS.md) — pacotes `.zip` de identidade visual (interface, e-mail e PDF).
 - [Arquitetura](docs/ARQUITETURA.md) e [Roadmap](docs/ROADMAP.md) — decisões técnicas e fases.
 - [FAQ](docs/FAQ.md) · [Contribuindo](CONTRIBUTING.md) · [Política de segurança](SECURITY.md)
 
@@ -66,4 +67,4 @@ docker run --rm --network SUA_REDE -e CORUJA_TEST_DSN='usuario:senha@tcp(db:3306
 ```
 
 ---
-Coruja Backup - Versão 0.0.8 - Desenvolvido por [Henrique Fagundes](https://henrique.tec.br) · Licença MIT
+Coruja Backup - Versão 0.0.9 - Desenvolvido por [Henrique Fagundes](https://henrique.tec.br) · Licença MIT

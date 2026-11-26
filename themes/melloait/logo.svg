@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Símbolo MelloAIT (círculo + "M" molecular) adaptado ao tema futurista claro -->
+  <defs>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#00B8F0"/>
+      <stop offset="0.55" stop-color="#4F7BFF"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <linearGradient id="left" gradientUnits="userSpaceOnUse" x1="130" y1="140" x2="300" y2="360">
+      <stop offset="0" stop-color="#00C8FF"/>
+      <stop offset="1" stop-color="#3B82F6"/>
+    </linearGradient>
+    <linearGradient id="right" gradientUnits="userSpaceOnUse" x1="260" y1="140" x2="400" y2="360">
+      <stop offset="0" stop-color="#5B7CFF"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <radialGradient id="face" cx="0.35" cy="0.3" r="0.8">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EAF2FF"/>
+    </radialGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="7" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- disco e anel -->
+  <circle cx="256" cy="256" r="232" fill="url(#face)"/>
+  <circle cx="256" cy="256" r="232" fill="none" stroke="url(#ring)" stroke-width="16"/>
+  <circle cx="256" cy="256" r="205" fill="none" stroke="#4F7BFF" stroke-opacity="0.22" stroke-width="3" stroke-dasharray="6 12"/>
+  <!-- satélites no anel -->
+  <circle cx="420" cy="92" r="9" fill="#8B5CF6"/>
+  <circle cx="92" cy="420" r="9" fill="#00B8F0"/>
+
+  <g transform="translate(16 16)" filter="url(#glow)">
+    <!-- traço esquerdo (originalmente laranja): perna do M + diagonal -->
+    <g fill="none" stroke="url(#left)" stroke-linecap="round" stroke-width="34">
+      <path d="M147 148 C 178 196, 122 262, 147 320"/>
+      <path d="M147 148 C 168 230, 228 300, 270 320"/>
+    </g>
+    <g fill="url(#left)">
+      <circle cx="147" cy="148" r="42"/>
+      <circle cx="147" cy="320" r="40"/>
+      <circle cx="270" cy="320" r="40"/>
+    </g>
+    <!-- traço direito (originalmente azul) -->
+    <path d="M260 148 C 290 232, 338 292, 383 320" fill="none" stroke="url(#right)" stroke-linecap="round" stroke-width="34"/>
+    <g fill="url(#right)">
+      <circle cx="260" cy="148" r="42"/>
+      <circle cx="383" cy="320" r="40"/>
+    </g>
+    <!-- núcleos luminosos -->
+    <g fill="#FFFFFF" fill-opacity="0.9">
+      <circle cx="147" cy="148" r="12"/>
+      <circle cx="260" cy="148" r="12"/>
+      <circle cx="147" cy="320" r="11"/>
+      <circle cx="270" cy="320" r="11"/>
+      <circle cx="383" cy="320" r="11"/>
+    </g>
+  </g>
+</svg>

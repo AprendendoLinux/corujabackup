@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "id": "melloait",
+  "name": "MelloAIT",
+  "version": "1.1.0",
+  "author": "Coruja Backup",
+  "description": "Identidade visual da MelloAIT (a mesma dos relatórios de backup dos servidores): tema claro futurista em ciano, azul e violeta.",
+  "colors": {
+    "bg": "#eef3fb", "surface": "#ffffff", "text": "#0b1630", "muted": "#5b6b8c", "border": "#dde6f5",
+    "primary": "#4f7bff", "primary_contrast": "#ffffff", "accent": "#8b5cf6", "ok": "#059669", "danger": "#e11d48"
+  },
+  "document": { "bg": "#eef3fb", "primary": "#4f7bff", "accent": "#8b5cf6" },
+  "logo": { "ui": "logo.svg", "document": "logo-doc.png" }
+}

@@ -1,3 +1,4 @@
+import type { CustomTheme } from './themes'
 export class ApiError extends Error {
   status: number
   code?: string
@@ -104,7 +105,7 @@ export const STATUS: Record<string, { label: string; tone: 'ok' | 'off' | 'warn'
   canceled: { label: 'Cancelado', tone: 'off' }, missed: { label: 'Perdido', tone: 'danger' }, running: { label: 'Executando', tone: 'warn' }, queued: { label: 'Na fila', tone: 'off' },
 }
 
-export type Branding = { name: string; theme: string; themes: { id: string; label: string; vars: Record<string, string> }[]; has_logo: boolean; logo_version?: string }
+export type Branding = { name: string; theme: string; themes: CustomTheme[]; has_logo: boolean; logo_version?: string }
 
 export type Channel = {
   id: number; name: string; type: 'email' | 'telegram'; enabled: boolean; created_at: string

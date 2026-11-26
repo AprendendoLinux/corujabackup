@@ -130,6 +130,7 @@ function Created({ c, port }: { c: { token: string; name: string; expires_at: st
       - agent-data:/var/lib/coruja-agent
       - /:/host:ro                 # o que o agente pode salvar (somente leitura)
       - /srv/coruja-backups:/backups   # onde os arquivos de backup são gravados
+      # - /var/run/docker.sock:/var/run/docker.sock   # só para jobs de banco de dados em contêineres Docker
 volumes:
   agent-data:`
   const run = `docker run -d --name corujabackup-agent --restart always \\

@@ -48,3 +48,15 @@
 - **Falhas:** envio falhou => execução `failed`, arquivo local preservado, nuvem intacta. Conta com token revogado fica em
   estado de erro até ser reautorizada.
 - **Provedores futuros:** basta implementar `cloud.Provider` e registrar em `cloudmgr`.
+
+## Bancos de dados (Fase 4)
+- **Um job de banco gera o mesmo tipo de arquivo** (`<slug>-AAAAMMDD-HHMMSS.tar.gz`), então verificação, nuvem e retenção são
+  exatamente os dos jobs de arquivos. Dentro: `<slug>/<banco>.sql|.dump|.archive.gz` e `<slug>/manifest.json`.
+- **Docker Engine API sem o binário `docker`:** o agente fala com `/var/run/docker.sock` (exec com entrada/saída por streaming).
+  Credenciais vão no corpo da chamada (variáveis de ambiente do exec), não na linha de comando.
+- **Marcadores de sucesso:** o código de saída do `mysqldump` engana (cliente MariaDB x servidor MySQL novo); vale o
+  `-- Dump completed`. Códigos diferentes de zero com marcador viram aviso.
+- **Teste de restauração:** contêiner descartável (`NetworkMode: none`, memória limitada, apagado ao final), espera a prontidão
+  por TCP (o servidor temporário de inicialização só escuta no socket), restaura cada banco e compara nº de tabelas/coleções.
+- **Limites conhecidos:** PostgreSQL em modo rede exige cliente igual ou mais novo que o servidor (o agente traz o 17; use o modo
+  contêiner para versões mais novas). MongoDB em modo rede não lista bancos (não há `mongosh` no agente): informe-os no job.

@@ -1,7 +1,7 @@
 # Coruja Backup · Agente. Informe só o endereço do Server e o token gerado na interface web.
 services:
   agent:
-    image: ghcr.io/aprendendolinux/corujabackup-agent:0.0.4
+    image: ghcr.io/aprendendolinux/corujabackup-agent:0.0.5
     container_name: corujabackup-agent
     restart: always
     environment:
@@ -12,7 +12,8 @@ services:
       - agent-data:/var/lib/coruja-agent   # credencial do agente, agenda local e fila de resultados
       - /:/host:ro                         # tudo o que o agente pode salvar, SOMENTE LEITURA (restrinja às pastas necessárias, se preferir)
       - /srv/coruja-backups:/backups       # onde os arquivos de backup são gravados
-    # Opcional (desligado por padrão): permite ao agente entrar em contêineres de banco para fazer dumps.
+    # Opcional (desligado por padrão): permite ao agente executar dumps DENTRO dos contêineres de banco e fazer o
+    # teste de restauração em contêineres descartáveis. Dá ao agente controle total do Docker do servidor: habilite só se precisar.
     #   - /var/run/docker.sock:/var/run/docker.sock
     networks: [echelon]
 volumes:

@@ -47,7 +47,16 @@ export type Job = {
   paths: string[]; excludes: string[]; dest_subdir: string; keep: number; version: number
   agent_name: string; agent_online: boolean; next_run_at: string | null; last_run: Run | null
   cloud_account_id: number | null; cloud_folder: string; cloud_keep: number; cloud_keep_days: number
+  db: DbView | null
 }
+
+export type DbView = {
+  engine: string; mode: 'docker' | 'network'; container: string; host: string; port: number; user: string; password_set: boolean
+  auth_db: string; databases: string[]; exclude_databases: string[]; ssl_skip_verify: boolean; restore_test: 'none' | 'structural' | 'full'; restore_image: string
+}
+export type ContainerInfo = { name: string; image: string; status: string; engine: string }
+export const ENGINE_LABEL: Record<string, string> = { mysql: 'MySQL', mariadb: 'MariaDB', postgres: 'PostgreSQL', mongodb: 'MongoDB' }
+export const ENGINE_PORT: Record<string, number> = { mysql: 3306, mariadb: 3306, postgres: 5432, mongodb: 27017 }
 
 export type CloudAccount = {
   id: number; name: string; type: 'onedrive' | 'gdrive'; status: 'pending' | 'connected' | 'error'; account_label: string

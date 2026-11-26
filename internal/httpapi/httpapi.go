@@ -14,6 +14,7 @@ import (
 	"github.com/AprendendoLinux/corujabackup/internal/cloud"
 	"github.com/AprendendoLinux/corujabackup/internal/cloudmgr"
 	"github.com/AprendendoLinux/corujabackup/internal/ratelimit"
+	"github.com/AprendendoLinux/corujabackup/internal/secrets"
 	"github.com/AprendendoLinux/corujabackup/internal/store"
 	"github.com/AprendendoLinux/corujabackup/internal/version"
 )
@@ -29,6 +30,7 @@ type AgentHub interface {
 	PushJobs(ctx context.Context, agentID int64)
 	RunNow(agentID, jobID int64, runUID string) error
 	CancelRun(agentID int64, runUID string) error
+	Call(ctx context.Context, agentID int64, kind string, payload []byte, timeout time.Duration) ([]byte, error)
 }
 
 // CloudAdmin é o que a API precisa do gerenciador de contas de nuvem (cloudmgr.Manager).
@@ -46,6 +48,7 @@ type Server struct {
 	Pinger      Pinger
 	Agents      AgentHub
 	Clouds      CloudAdmin
+	Box         *secrets.Box
 	Started     time.Time
 	Web         http.Handler
 	Fingerprint string // impressão digital do certificado do canal dos agentes
@@ -95,6 +98,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("PATCH /api/agents/{id}", s.authed(roleOperator, s.renameAgent))
 	mux.HandleFunc("POST /api/agents/{id}/revoke", s.authed(roleOperator, s.revokeAgent))
 	mux.HandleFunc("DELETE /api/agents/{id}", s.authed(roleOperator, s.deleteAgent))
+	mux.HandleFunc("GET /api/agents/{id}/containers", s.authed(roleOperator, s.agentContainers))
+	mux.HandleFunc("POST /api/agents/{id}/db-test", s.authed(roleOperator, s.dbTest))
 	mux.HandleFunc("GET /api/clouds", s.authed(roleAny, s.listClouds))
 	mux.HandleFunc("POST /api/clouds", s.authed(roleAdmin, s.createCloud))
 	mux.HandleFunc("POST /api/clouds/{id}/poll", s.authed(roleAdmin, s.pollCloud))

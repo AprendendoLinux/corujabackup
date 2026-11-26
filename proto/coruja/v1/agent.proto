@@ -31,6 +31,7 @@ message AgentMessage {
     RunReport run_report = 3;
     UploadRequest upload_request = 4;
     UploadDone upload_done = 5;
+    RpcResult rpc_result = 6;
   }
 }
 
@@ -60,6 +61,7 @@ message ServerMessage {
     ReportAck report_ack = 7;
     UploadSession upload_session = 8;
     UploadVerdict upload_verdict = 9;
+    Rpc rpc = 10;
   }
 }
 
@@ -85,6 +87,7 @@ message JobSpec {
   int32 version = 11;              // muda a cada edição (o agente descarta agendas antigas)
   int64 cloud_account_id = 12;     // 0 = sem nuvem (só cópia local)
   string cloud_folder = 13;        // pasta na nuvem (informativo; quem decide é o Server)
+  DbSpec db = 14;                  // kind="database"
 }
 
 message SyncJobs { repeated JobSpec jobs = 1; }
@@ -170,3 +173,27 @@ message UploadVerdict {
   string remote_hash = 6;
   repeated string retention_log = 7;
 }
+
+// ---- Fase 4: bancos de dados ---------------------------------------------------------------------------------------
+
+// DbSpec descreve um job de banco (kind="database"). Contém credenciais: viaja só pelo canal TLS e fica no disco do agente
+// com permissão 600.
+message DbSpec {
+  string engine = 1;               // mysql | mariadb | postgres | mongodb
+  string mode = 2;                 // docker (exec no contêiner) | network (clientes do agente)
+  string container = 3;
+  string host = 4;
+  int32 port = 5;
+  string user = 6;
+  string password = 7;
+  string auth_db = 8;
+  repeated string databases = 9;   // vazio = todos
+  repeated string exclude_databases = 10;
+  bool ssl_skip_verify = 11;
+  string restore_test = 12;        // none | structural | full
+  string restore_image = 13;
+}
+
+// Chamada genérica Server -> agente com resposta (listar contêineres, testar conexão de banco...).
+message Rpc { string id = 1; string kind = 2; bytes payload = 3; }
+message RpcResult { string id = 1; bool ok = 2; string error = 3; bytes payload = 4; }

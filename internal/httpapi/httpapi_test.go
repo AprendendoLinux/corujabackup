@@ -1166,3 +1166,225 @@ func TestRegrasDeNotificacaoRelatorioEConfiguracao(t *testing.T) {
 	}
 	adm.mustOK("DELETE", "/api/notifications/rules/"+itoa(did), nil)
 }
+
+// ---------------------------------------------------------------- endurecimento (Fase 7)
+
+func TestSetupExigeOCodigoDaExecucao(t *testing.T) {
+	e := newEnv(t)
+	e.api.SetupCode = "codigo-do-log-123"
+	c := e.client()
+	if _, m := c.do("GET", "/api/setup/status", nil); m["needs_setup"] != true || m["needs_code"] != true {
+		t.Fatalf("%v", m)
+	}
+	body := func(code string) map[string]string {
+		return map[string]string{"username": "admin", "password": pw, "setup_code": code}
+	}
+	if code, _ := c.do("POST", "/api/setup", body("")); code != 403 {
+		t.Fatalf("sem código: %d", code)
+	}
+	if code, _ := c.do("POST", "/api/setup", body("errado")); code != 403 {
+		t.Fatalf("código errado: %d", code)
+	}
+	// tentativas demais bloqueiam (impede adivinhar o código)
+	for i := 0; i < 6; i++ {
+		c.do("POST", "/api/setup", body("chute"+itoa(i)))
+	}
+	if code, _ := c.do("POST", "/api/setup", body("codigo-do-log-123")); code != 429 {
+		t.Fatalf("após várias falhas deveria bloquear: %d", code)
+	}
+	e.api.LoginLimiter.Reset("setup:127.0.0.1")
+	if code, _ := c.do("POST", "/api/setup", body("codigo-do-log-123")); code != 200 {
+		t.Fatalf("código certo: %d", code)
+	}
+}
+
+func TestCabecalhosDeSegurancaEIPDoProxy(t *testing.T) {
+	e := newEnv(t)
+	_, _, h := e.client().raw("GET", "/api/version", nil, "")
+	for _, k := range []string{"Content-Security-Policy", "Permissions-Policy", "Cross-Origin-Opener-Policy", "X-Frame-Options", "X-Content-Type-Options"} {
+		if h.Get(k) == "" {
+			t.Errorf("falta o cabeçalho %s", k)
+		}
+	}
+	if h.Get("Strict-Transport-Security") != "" {
+		t.Error("HSTS só em HTTPS")
+	}
+	// atrás de proxy confiável vale o ÚLTIMO endereço de X-Forwarded-For (o acrescentado pelo proxy), não o forjado pelo cliente
+	e.api.TrustProxy = true
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "10.0.0.2:1234"
+	req.Header.Set("X-Forwarded-For", "6.6.6.6, 203.0.113.7")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	if ip := e.api.clientIP(req); ip != "203.0.113.7" {
+		t.Fatalf("IP do cliente: %s", ip)
+	}
+	rec := httptest.NewRecorder()
+	e.api.Routes().ServeHTTP(rec, httptest.NewRequest("GET", "/api/version", nil))
+	req2 := httptest.NewRequest("GET", "/api/version", nil)
+	req2.Header.Set("X-Forwarded-Proto", "https")
+	rec2 := httptest.NewRecorder()
+	e.api.Routes().ServeHTTP(rec2, req2)
+	if rec2.Header().Get("Strict-Transport-Security") == "" {
+		t.Error("atrás de proxy HTTPS, deve enviar HSTS")
+	}
+	req.Header.Set("X-Forwarded-For", "lixo, não-é-ip")
+	if ip := e.api.clientIP(req); ip != "10.0.0.2" {
+		t.Fatalf("valor inválido cai para o endereço da conexão: %s", ip)
+	}
+	e.api.TrustProxy = false
+	req.Header.Set("X-Forwarded-For", "6.6.6.6")
+	if ip := e.api.clientIP(req); ip != "10.0.0.2" {
+		t.Fatalf("sem proxy confiável o cabeçalho é ignorado: %s", ip)
+	}
+}
+
+func TestPoliticaDe2FASessoesETempoDaSessao(t *testing.T) {
+	e := newEnv(t)
+	adm := setupAdmin(e)
+	adm.mustOK("POST", "/api/users", map[string]string{"username": "operador9", "password": pw, "role": "operator"})
+	op := e.client()
+	op.mustOK("POST", "/api/login", map[string]string{"username": "operador9", "password": pw})
+
+	// não dá para exigir 2FA sem ter o próprio (trancaria o administrador para fora)
+	if code, _ := adm.do("PUT", "/api/security", map[string]any{"require_2fa": "admins", "session_hours": 12}); code != 409 {
+		t.Fatalf("exigir 2FA sem ter o próprio: %d", code)
+	}
+	for name, body := range map[string]map[string]any{
+		"política inválida": {"require_2fa": "talvez", "session_hours": 12},
+		"sessão curta":      {"require_2fa": "none", "session_hours": 0},
+		"sessão longa":      {"require_2fa": "none", "session_hours": 1000},
+	} {
+		if code, _ := adm.do("PUT", "/api/security", body); code != 400 {
+			t.Errorf("%s: %d", name, code)
+		}
+	}
+	// o administrador ativa o 2FA e então exige para todos
+	sec := adm.mustOK("POST", "/api/me/2fa/begin", nil)["secret"].(string)
+	code, _ := auth.TOTPCode(sec, e.now)
+	adm.mustOK("POST", "/api/me/2fa/enable", map[string]string{"code": code})
+	adm.mustOK("PUT", "/api/security", map[string]any{"require_2fa": "all", "session_hours": 2})
+	e.api.invalidatePolicy()
+
+	// operador sem 2FA: só acessa a própria conta até ativar
+	if c, m := op.do("GET", "/api/agents", nil); c != 403 || m["code"] != "2fa_required" {
+		t.Fatalf("o operador deveria ser barrado: %d %v", c, m)
+	}
+	if c, _ := op.do("GET", "/api/me", nil); c != 200 {
+		t.Fatalf("a própria conta continua acessível: %d", c)
+	}
+	osec := op.mustOK("POST", "/api/me/2fa/begin", nil)["secret"].(string)
+	ocode, _ := auth.TOTPCode(osec, e.now)
+	op.mustOK("POST", "/api/me/2fa/enable", map[string]string{"code": ocode})
+	if c, _ := op.do("GET", "/api/agents", nil); c != 200 {
+		t.Fatalf("depois de ativar o 2FA o acesso volta: %d", c)
+	}
+	// a duração da sessão vem da política
+	var exp time.Time
+	e.api.DB.QueryRow("SELECT MAX(s.expires_at) FROM sessions s JOIN users u ON u.id=s.user_id WHERE u.username='operador9' AND s.pending_2fa=0").Scan(&exp)
+	if d := time.Until(exp); d > 2*time.Hour+time.Minute {
+		t.Fatalf("a sessão deveria durar no máximo 2 h: %v", d)
+	}
+
+	// sessões: listar, encerrar outra, não encerrar a atual
+	second := e.client()
+	second.mustOK("POST", "/api/login", map[string]string{"username": "operador9", "password": pw}) // pede 2FA; a pendente não é listada
+	list := op.mustOK("GET", "/api/me/sessions", nil)["sessions"].([]any)
+	if len(list) != 1 || list[0].(map[string]any)["current"] != true {
+		t.Fatalf("só a sessão completa aparece: %v", list)
+	}
+	cur := list[0].(map[string]any)["id"].(string)
+	if c, _ := op.do("DELETE", "/api/me/sessions/"+cur, nil); c != 409 {
+		t.Fatalf("a sessão atual não se encerra por aqui: %d", c)
+	}
+	if c, _ := op.do("DELETE", "/api/me/sessions/inexistente", nil); c != 404 {
+		t.Fatalf("%d", c)
+	}
+	// outro usuário não encerra a sessão alheia
+	if c, _ := adm.do("DELETE", "/api/me/sessions/"+cur, nil); c != 404 {
+		t.Fatalf("sessão alheia: %d", c)
+	}
+	adm.mustOK("POST", "/api/me/sessions/revoke-others", nil)
+	if c, _ := op.do("GET", "/api/me", nil); c != 200 {
+		t.Fatal("o operador não foi afetado pelo admin")
+	}
+}
+
+func TestMetricasPrometheusComToken(t *testing.T) {
+	e := newEnv(t)
+	adm := setupAdmin(e)
+	pub := e.client()
+	if c, _, _ := pub.raw("GET", "/metrics", nil, ""); c != 404 {
+		t.Fatalf("sem token configurado o endereço não deve existir: %d", c)
+	}
+	a := newAgent(t, e, "srv-m")
+	jid := int(adm.mustOK("POST", "/api/jobs", map[string]any{"name": "Job (a&b)", "agent_id": a.ID, "paths": []string{"/etc"}})["id"].(float64))
+	now := time.Now().UTC()
+	e.api.Store.ApplyReport(context.Background(), store.Report{UID: "m1", JobID: int64(jid), AgentID: a.ID, Final: true, Status: "ok", StartedAt: now, FinishedAt: now, BytesOutput: 1234, OutputName: "x"})
+	cid := addCloud(t, e, "Nuvem M", "connected")
+	e.api.Store.SetCloudQuota(context.Background(), cid, 1000, 250)
+
+	tok := adm.mustOK("POST", "/api/security/metrics-token", nil)["token"].(string)
+	if !strings.HasPrefix(tok, "cbm_") {
+		t.Fatal(tok)
+	}
+	var stored string
+	e.api.DB.QueryRow("SELECT v FROM settings WHERE k='security.metrics_hash'").Scan(&stored)
+	if stored == "" || strings.Contains(stored, tok) {
+		t.Fatal("o Server guarda só o hash do token")
+	}
+	e.api.invalidatePolicy()
+	if c, _, _ := pub.raw("GET", "/metrics", nil, ""); c != 401 {
+		t.Fatalf("sem token: %d", c)
+	}
+	req, _ := http.NewRequest("GET", e.srv.URL+"/metrics", nil)
+	req.Header.Set("Authorization", "Bearer errado")
+	if resp, _ := http.DefaultClient.Do(req); resp.StatusCode != 401 {
+		t.Fatalf("token errado: %d", resp.StatusCode)
+	}
+	req, _ = http.NewRequest("GET", e.srv.URL+"/metrics", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("%v", err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	body := string(b)
+	for _, want := range []string{`coruja_info{version=`, `coruja_agents{state="offline"} 1`, `coruja_job_last_run_ok{job="Job (a&b)",agent="srv-m",status="ok"} 1`,
+		`coruja_job_last_run_bytes{job="Job (a&b)",agent="srv-m"} 1234`, `coruja_cloud_quota_bytes{account="Nuvem M",kind="used"} 250`, `coruja_cloud_up{account="Nuvem M",type="onedrive"} 1`, `coruja_runs_24h{status="ok"} 1`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("métricas sem %q", want)
+		}
+	}
+	adm.mustOK("DELETE", "/api/security/metrics-token", nil)
+	e.api.invalidatePolicy()
+	req.Header.Set("Authorization", "Bearer "+tok)
+	if resp, _ := http.DefaultClient.Do(req); resp.StatusCode != 404 {
+		t.Fatalf("token revogado: %d", resp.StatusCode)
+	}
+}
+
+func TestAuditoriaCSVNeutralizaFormulas(t *testing.T) {
+	e := newEnv(t)
+	adm := setupAdmin(e)
+	e.api.Store.Audit(context.Background(), 0, "=cmd|calc", "teste", "+1+1", "1.2.3.4")
+	code, body, h := adm.raw("GET", "/api/audit.csv", nil, "")
+	if code != 200 || !strings.HasPrefix(h.Get("Content-Type"), "text/csv") {
+		t.Fatalf("%d %v", code, h)
+	}
+	csv := string(body)
+	if !strings.Contains(csv, "quando_utc,usuario,acao,detalhe,ip") || !strings.Contains(csv, "'=cmd|calc") || !strings.Contains(csv, "'+1+1") || strings.Contains(csv, ",=cmd") {
+		t.Fatalf("fórmulas devem ser neutralizadas:\n%s", csv)
+	}
+	op := e.client()
+	adm.mustOK("POST", "/api/users", map[string]string{"username": "operador8", "password": pw, "role": "operator"})
+	op.mustOK("POST", "/api/login", map[string]string{"username": "operador8", "password": pw})
+	if c, _, _ := op.raw("GET", "/api/audit.csv", nil, ""); c != 403 {
+		t.Fatalf("operador não exporta a auditoria: %d", c)
+	}
+}
+
+func TestEscapeDeRotulosDasMetricas(t *testing.T) {
+	if got := esc("a\"b\\c\nd"); got != `a\"b\\c\nd` {
+		t.Fatalf("%q", got)
+	}
+}

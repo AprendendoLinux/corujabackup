@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.0.8] - Fase 7 · Endurecimento e publicação
+- **Dependências:** gRPC atualizado de 1.72 para 1.85 e projeto migrado para **Go 1.26** — o `govulncheck` apontava 8 vulnerabilidades
+  alcançáveis no gRPC (incluindo bypass de autorização e falhas no servidor HTTP/2); agora **zero**. CI roda `govulncheck` e `npm audit`.
+- **Configuração inicial protegida:** o administrador só é criado com um **código mostrado nos logs** do Server (muda a cada início),
+  com limite de tentativas — ninguém "rouba" o primeiro acesso.
+- **Segurança de acesso:** página **Segurança** (política de **exigir 2FA** para ninguém/administradores/todos, duração da sessão),
+  **sessões ativas** em Minha conta (listar, encerrar uma ou todas as outras), IP do cliente correto atrás de proxy (vale o último
+  `X-Forwarded-For`, não o forjado), cabeçalhos extras (`Permissions-Policy`, COOP/CORP, HSTS em HTTPS, CSP mais restrita),
+  timeouts e limites no servidor HTTP, tetos de transmissões ao vivo, **HTTPS direto** (`CORUJA_TLS_CERT/KEY`) e **TLS com o MySQL** (`CORUJA_DB_TLS`).
+- **Agente com política local:** `CORUJA_ALLOWED_PATHS` e `CORUJA_ALLOWED_CONTAINERS` limitam o que o agente aceita fazer, mesmo se o Server pedir outra coisa.
+- **Operação:** `coruja-server admin reset-password|create-admin` (recuperação de acesso), **métricas Prometheus** em `/metrics` com token,
+  exportação da **auditoria em CSV** (com neutralização de fórmulas), limpeza periódica (auditoria 400 dias, limitadores de tentativas),
+  aviso no início se a chave de criptografia não abre os dados guardados e **recusa de iniciar com banco migrado por versão mais nova**.
+- **Imagens e compose endurecidos:** Server `read_only`, `cap_drop: ALL`, `no-new-privileges`, sem root; agente com `cap_drop: ALL` +
+  `DAC_READ_SEARCH`/`DAC_OVERRIDE`. Publicação **multi-arquitetura** (amd64/arm64) automatizada por GitHub Actions, com SBOM e proveniência.
+- **Documentação:** README reescrito, Instalação, Operação, Segurança (modelo de ameaças e checklist), FAQ, SECURITY.md e CONTRIBUTING.md.
+
 ## [0.0.7] - Fase 6 · Notificações e relatórios
 - **Canais configurados pela interface:** **e-mail (SMTP)** com STARTTLS, SSL/TLS direto ou sem criptografia (a senha nunca vai sem TLS
   a menos que você escolha "sem criptografia"; certificado autoassinado é opção explícita) e **Telegram** (bot + vários chats, com

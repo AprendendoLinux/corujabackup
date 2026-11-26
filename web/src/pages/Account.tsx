@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react'
 import QRCode from 'qrcode'
-import { User, api, ApiError } from '../api'
+import { User, api, ApiError, flags, fmtDate } from '../api'
 import { Badge, Button, Card, CopyBox, ErrorBox, Field, Input } from '../ui'
 
 export default function Account({ me, recoveryLeft, reload }: { me: User; recoveryLeft: number; reload: () => void }) {
@@ -10,8 +10,10 @@ export default function Account({ me, recoveryLeft, reload }: { me: User; recove
         <h1 className="text-2xl font-semibold">Minha conta</h1>
         <p className="text-sm text-muted">{me.display_name || me.username} · {me.username}</p>
       </div>
+      {flags.needs2FA && !me.totp_enabled && <div className="rounded-lg border border-accent/60 bg-accent/10 px-3 py-2 text-sm"><b>A política de segurança exige a verificação em duas etapas.</b> Ative o 2FA abaixo para continuar usando o sistema.</div>}
       <Password />
-      <TwoFA me={me} recoveryLeft={recoveryLeft} reload={reload} />
+      <TwoFA me={me} recoveryLeft={recoveryLeft} reload={() => { flags.needs2FA = false; reload() }} />
+      <Sessions />
     </div>
   )
 }
@@ -97,6 +99,31 @@ function TwoFA({ me, recoveryLeft, reload }: { me: User; recoveryLeft: number; r
           <div className="flex gap-2"><Button variant="danger">Desativar</Button><Button type="button" variant="ghost" onClick={() => setOff(false)}>Cancelar</Button></div>
         </form>
       )}
+    </Card>
+  )
+}
+
+type Sess = { id: string; created_at: string; last_seen_at: string; ip: string; user_agent: string; current: boolean }
+
+function Sessions() {
+  const [list, setList] = useState<Sess[]>([])
+  const [err, setErr] = useState('')
+  const load = () => api<{ sessions: Sess[] }>('GET', '/api/me/sessions').then((r) => setList(r.sessions)).catch((x) => setErr((x as ApiError).message))
+  useEffect(() => { load() }, [])
+  const act = (fn: () => Promise<unknown>) => fn().then(() => { setErr(''); load() }).catch((x) => setErr((x as ApiError).message))
+  return (
+    <Card>
+      <div className="mb-2 flex items-center justify-between"><h2 className="font-semibold">Sessões ativas</h2>
+        {list.length > 1 && <Button variant="ghost" onClick={() => act(() => api('POST', '/api/me/sessions/revoke-others'))}>Encerrar as outras</Button>}</div>
+      <ErrorBox message={err} />
+      <ul className="divide-y divide-border text-sm">
+        {list.map((s) => (
+          <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+            <span><b>{s.ip}</b> {s.current && <Badge tone="ok">esta sessão</Badge>}<div className="max-w-md truncate text-xs text-muted">{s.user_agent} · último uso {fmtDate(s.last_seen_at)}</div></span>
+            {!s.current && <button className="text-danger hover:underline" onClick={() => act(() => api('DELETE', `/api/me/sessions/${s.id}`))}>Encerrar</button>}
+          </li>
+        ))}
+      </ul>
     </Card>
   )
 }

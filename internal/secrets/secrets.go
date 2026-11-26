@@ -10,6 +10,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -82,3 +83,19 @@ func (b *Box) Open(s string) (string, error) {
 	}
 	return string(out), nil
 }
+
+// Verify confere se a chave abre os valores cifrados informados; devolve erro se algum não abrir (chave trocada/perdida).
+func (b *Box) Verify(samples []string) error {
+	bad := 0
+	for _, s := range samples {
+		if _, err := b.Open(s); err != nil {
+			bad++
+		}
+	}
+	if bad > 0 {
+		return errors.New("a chave de criptografia atual não abre " + itoa(bad) + " dos " + itoa(len(samples)) + " valores guardados (o arquivo secret.key foi trocado ou perdido?)")
+	}
+	return nil
+}
+
+func itoa(n int) string { return strconv.Itoa(n) }

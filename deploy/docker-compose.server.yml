@@ -1,8 +1,19 @@
-# Coruja Backup · Server (produção). Só UMA variável: a senha do banco. O resto se configura na interface web.
-#   1) troque COLOQUE_UMA_SENHA_FORTE (nos dois lugares)   2) docker compose up -d   3) abra http://SEU_IP:8080 e crie o administrador
+# Coruja Backup · Server (produção)
+#
+#   1) troque COLOQUE_UMA_SENHA_FORTE (nos dois lugares)
+#   2) docker compose -f docker-compose.server.yml up -d
+#   3) docker logs corujabackup-server     <- procure "CONFIGURAÇÃO INICIAL PENDENTE": é o código para criar o administrador
+#   4) abra http://SEU_IP:8080
+#
+# Só UMA variável é obrigatória (a senha do banco). O restante (nuvem, notificações, usuários, aparência) é feito na interface.
+# Opcionais do Server (descomente o que precisar):
+#   CORUJA_TRUST_PROXY=true        atrás de proxy reverso confiável (usa X-Forwarded-For/Proto; ativa HSTS e cookie "Secure")
+#   CORUJA_TLS_CERT / CORUJA_TLS_KEY  HTTPS direto na interface (arquivos PEM montados no contêiner)
+#   CORUJA_DB_TLS=true|skip-verify    TLS com o MySQL (necessário se o banco estiver em outro servidor)
+#   CORUJA_AGENT_LISTEN / CORUJA_LISTEN / CORUJA_DATA_DIR / CORUJA_DB_HOST / CORUJA_DB_NAME / CORUJA_DB_USER / CORUJA_DB_PORT
 services:
   db:
-    image: mysql:latest
+    image: mysql:8.4            # série LTS; "mysql:latest" também funciona, mas pode trocar de versão maior sozinho
     container_name: corujabackup-db
     restart: always
     environment:
@@ -11,15 +22,16 @@ services:
       MYSQL_USER: corujabackup
       MYSQL_PASSWORD: "COLOQUE_UMA_SENHA_FORTE"
     volumes: [db-data:/var/lib/mysql]
+    security_opt: ["no-new-privileges:true"]
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.7 --silent"]
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --silent"]
       interval: 10s
       timeout: 5s
       retries: 12
     networks: [echelon]
 
   server:
-    image: ghcr.io/aprendendolinux/corujabackup-server:0.0.7
+    image: ghcr.io/aprendendolinux/corujabackup-server:0.0.8
     container_name: corujabackup-server
     restart: always
     depends_on:
@@ -29,8 +41,14 @@ services:
       - "8443:8443"   # canal dos agentes (gRPC/TLS): é a porta que os agentes alcançam
     environment:
       CORUJA_DB_PASSWORD: "COLOQUE_UMA_SENHA_FORTE"
-      # CORUJA_TRUST_PROXY: "true"   # só se estiver atrás de proxy reverso confiável (usa X-Forwarded-For/Proto)
-    volumes: [server-data:/data]    # certificado TLS do canal dos agentes
+      # CORUJA_TRUST_PROXY: "true"
+    volumes: [server-data:/data]    # certificado do canal dos agentes + chave de criptografia (FAÇA BACKUP DESTE VOLUME)
+    # Endurecimento: o Server não precisa de privilégios, nem de escrever fora de /data
+    read_only: true
+    tmpfs: ["/tmp:size=64m"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 512
     networks: [echelon]
 
 volumes:

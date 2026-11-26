@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 import { api, ApiError } from '../api'
 import Logo from '../Logo'
 import { Button, Card, ErrorBox, Field, Input } from '../ui'
@@ -18,21 +18,24 @@ function Shell({ title, children }: { title: string; children: React.ReactNode }
 }
 
 export function Setup({ onDone }: { onDone: () => void }) {
-  const [f, setF] = useState({ username: '', display_name: '', password: '', confirm: '' })
+  const [f, setF] = useState({ username: '', display_name: '', password: '', confirm: '', setup_code: '' })
+  const [needsCode, setNeedsCode] = useState(false)
+  useEffect(() => { api<{ needs_code: boolean }>('GET', '/api/setup/status').then((r) => setNeedsCode(!!r.needs_code)).catch(() => {}) }, [])
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   async function submit(e: FormEvent) {
     e.preventDefault()
     if (f.password !== f.confirm) return setErr('As senhas não conferem.')
     setBusy(true); setErr('')
-    try { await api('POST', '/api/setup', { username: f.username, display_name: f.display_name, password: f.password }); onDone() }
+    try { await api('POST', '/api/setup', { username: f.username, display_name: f.display_name, password: f.password, setup_code: f.setup_code }); onDone() }
     catch (x) { setErr((x as ApiError).message) } finally { setBusy(false) }
   }
   return (
     <Shell title="Configuração inicial">
       <p className="mb-4 text-sm text-muted">Crie o primeiro administrador. Depois você cadastra servidores, agendamentos e nuvem aqui mesmo.</p>
       <form onSubmit={submit} className="space-y-3">
-        <Field label="Usuário" hint="3 a 64 caracteres: letras minúsculas, números, ponto, hífen ou sublinhado"><Input autoFocus value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} required /></Field>
+        {needsCode && <Field label="Código de configuração" hint="Mostrado nos logs do Server a cada início: docker logs corujabackup-server (procure “CONFIGURAÇÃO INICIAL PENDENTE”). Evita que um estranho crie o administrador antes de você."><Input autoFocus autoComplete="off" value={f.setup_code} onChange={(e) => setF({ ...f, setup_code: e.target.value })} required /></Field>}
+        <Field label="Usuário" hint="3 a 64 caracteres: letras minúsculas, números, ponto, hífen ou sublinhado"><Input autoFocus={!needsCode} value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} required /></Field>
         <Field label="Nome de exibição"><Input value={f.display_name} onChange={(e) => setF({ ...f, display_name: e.target.value })} /></Field>
         <Field label="Senha" hint="Mínimo de 10 caracteres"><Input type="password" autoComplete="new-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} required /></Field>
         <Field label="Confirme a senha"><Input type="password" autoComplete="new-password" value={f.confirm} onChange={(e) => setF({ ...f, confirm: e.target.value })} required /></Field>

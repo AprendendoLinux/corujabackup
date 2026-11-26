@@ -1,7 +1,11 @@
 export class ApiError extends Error {
   status: number
-  constructor(status: number, message: string) { super(message); this.status = status }
+  code?: string
+  constructor(status: number, message: string, code?: string) { super(message); this.status = status; this.code = code }
 }
+
+// Marcado quando a política de segurança exige que o usuário ative o 2FA antes de usar o resto do sistema.
+export const flags = { needs2FA: false }
 
 export async function api<T = any>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
@@ -12,7 +16,10 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
   })
   let data: any = null
   try { data = await res.json() } catch { /* corpo vazio */ }
-  if (!res.ok) throw new ApiError(res.status, data?.error ?? `Erro ${res.status}`)
+  if (!res.ok) {
+    if (data?.code === '2fa_required') { flags.needs2FA = true; if (window.location.hash !== '#/conta') window.location.hash = '#/conta' }
+    throw new ApiError(res.status, data?.error ?? `Erro ${res.status}`, data?.code)
+  }
   return data as T
 }
 

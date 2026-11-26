@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -44,5 +45,27 @@ func TestMigrateIdempotente(t *testing.T) {
 	var n int
 	if err := d.QueryRow("SELECT COUNT(*) FROM settings WHERE k='brand.name'").Scan(&n); err != nil || n != 1 {
 		t.Fatalf("configuração padrão ausente: %v %d", err, n)
+	}
+}
+
+func TestMigrateRecusaBancoMaisNovo(t *testing.T) {
+	dsn := os.Getenv("CORUJA_TEST_DSN")
+	if dsn == "" {
+		t.Skip("CORUJA_TEST_DSN não definido")
+	}
+	ctx := context.Background()
+	d, err := Open(ctx, dsn, 20*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, err := Migrate(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	d.Exec("INSERT INTO schema_migrations (version) VALUES ('999_do_futuro')")
+	_, err = Migrate(ctx, d)
+	d.Exec("DELETE FROM schema_migrations WHERE version='999_do_futuro'")
+	if err == nil || !strings.Contains(err.Error(), "MAIS NOVA") {
+		t.Fatalf("esperava recusa: %v", err)
 	}
 }

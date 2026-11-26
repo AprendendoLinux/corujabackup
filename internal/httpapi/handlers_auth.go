@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -22,14 +23,29 @@ func (s *Server) setupStatus(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "erro interno")
 		return
 	}
-	writeJSON(w, 200, map[string]bool{"needs_setup": n == 0})
+	writeJSON(w, 200, map[string]bool{"needs_setup": n == 0, "needs_code": n == 0 && s.SetupCode != ""})
 }
 
 // setup cria o primeiro administrador (só funciona enquanto não existe nenhum usuário).
 func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
-	var in struct{ Username, DisplayName, Password string }
+	var in struct {
+		Username, DisplayName, Password string
+		SetupCode                       string `json:"setup_code"`
+	}
 	if !decodeLoose(w, r, &in) {
 		return
+	}
+	if s.SetupCode != "" {
+		ip := s.clientIP(r)
+		if !s.LoginLimiter.Allow("setup:" + ip) {
+			writeErr(w, 429, "muitas tentativas; aguarde alguns minutos")
+			return
+		}
+		if subtle.ConstantTimeCompare([]byte(strings.TrimSpace(in.SetupCode)), []byte(s.SetupCode)) != 1 {
+			s.LoginLimiter.Fail("setup:" + ip)
+			writeErr(w, 403, "código de configuração incorreto: veja nos logs do Server (docker logs ...) o código desta execução")
+			return
+		}
 	}
 	in.Username = strings.ToLower(strings.TrimSpace(in.Username))
 	if !usernameRE.MatchString(in.Username) {

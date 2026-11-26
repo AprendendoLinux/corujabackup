@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/AprendendoLinux/corujabackup/internal/agentsrv"
+	"github.com/AprendendoLinux/corujabackup/internal/auth"
 	"github.com/AprendendoLinux/corujabackup/internal/cloudmgr"
 	"github.com/AprendendoLinux/corujabackup/internal/config"
 	"github.com/AprendendoLinux/corujabackup/internal/db"
@@ -29,6 +31,9 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "admin" {
+		os.Exit(adminCmd(os.Args[2:]))
+	}
 	showVersion := flag.Bool("version", false, "mostra a versão e sai")
 	healthcheck := flag.Bool("healthcheck", false, "consulta /api/health local (usado no HEALTHCHECK do Docker)")
 	flag.Parse()
@@ -78,6 +83,9 @@ func main() {
 		os.Exit(1)
 	}
 	st := store.New(d)
+	if err := box.Verify(st.SealedSamples(ctx)); err != nil {
+		log.Error("ATENÇÃO: "+err.Error()+". Restaure o secret.key do backup, ou reconecte as nuvens e recadastre senhas de canais/bancos", "arquivo", cfg.DataDir+"/secrets/secret.key")
+	}
 	clouds := cloudmgr.New(st, box)
 	hub := agentsrv.New(st, version.Version)
 	hub.Cloud = clouds
@@ -87,13 +95,24 @@ func main() {
 	_, agentPort, _ := net.SplitHostPort(cfg.AgentListen)
 	api := &httpapi.Server{DB: d, Store: st, Pinger: d, Agents: hub, Clouds: clouds, Box: box, Notifier: notifier, Started: time.Now(), Web: webui.Handler(),
 		Fingerprint: fp, AgentPort: agentPort, TrustProxy: cfg.TrustProxy}
-	srv := &http.Server{Addr: cfg.Listen, Handler: api.Routes(), ReadHeaderTimeout: 10 * time.Second}
+	if n, err := st.CountUsers(ctx); err == nil && n == 0 {
+		code, _ := auth.RandomToken(9)
+		api.SetupCode = code
+		log.Warn("CONFIGURAÇÃO INICIAL PENDENTE: abra a interface e informe este código para criar o administrador", "código", code)
+	}
+	srv := &http.Server{Addr: cfg.Listen, Handler: api.Routes(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 64 << 10}
 
 	errc := make(chan error, 2)
 	go func() { errc <- hub.Listen(ctx, cfg.AgentListen, cert) }()
 	go func() {
-		log.Info("interface web/API", "endereço", cfg.Listen)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Info("interface web/API", "endereço", cfg.Listen, "https", cfg.TLSCert != "")
+		var err error
+		if cfg.TLSCert != "" {
+			err = srv.ListenAndServeTLS(cfg.TLSCert, cfg.TLSKey)
+		} else {
+			err = srv.ListenAndServe()
+		}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errc <- err
 		}
 	}()
@@ -136,8 +155,13 @@ func probe(listen string) int {
 	if strings.HasPrefix(addr, ":") {
 		addr = "127.0.0.1" + addr
 	}
+	scheme := "http"
 	c := http.Client{Timeout: 3 * time.Second}
-	resp, err := c.Get("http://" + addr + "/api/health")
+	if os.Getenv("CORUJA_TLS_CERT") != "" {
+		scheme = "https"
+		c.Transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}} //nolint:gosec // só consulta o próprio processo (127.0.0.1)
+	}
+	resp, err := c.Get(scheme + "://" + addr + "/api/health")
 	if err != nil || resp.StatusCode != 200 {
 		return 1
 	}

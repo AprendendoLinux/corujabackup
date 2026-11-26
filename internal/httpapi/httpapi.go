@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/AprendendoLinux/corujabackup/internal/cloud"
@@ -59,8 +61,12 @@ type Server struct {
 	Fingerprint string // impressão digital do certificado do canal dos agentes
 	AgentPort   string
 	TrustProxy  bool
+	SetupCode   string // código de uma execução, mostrado nos logs, exigido na configuração inicial
 
 	LoginLimiter *ratelimit.Limiter
+	pol          policyCache
+	sseTotal     atomic.Int32
+	sseUser      sync.Map
 	now          func() time.Time
 }
 
@@ -101,6 +107,15 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("PATCH /api/users/{id}", s.authed(roleAdmin, s.updateUser))
 	mux.HandleFunc("DELETE /api/users/{id}", s.authed(roleAdmin, s.deleteUser))
 	mux.HandleFunc("GET /api/audit", s.authed(roleAdmin, s.audit))
+	mux.HandleFunc("GET /api/audit.csv", s.authed(roleAdmin, s.auditCSV))
+	mux.HandleFunc("GET /api/security", s.authed(roleAdmin, s.getSecurity))
+	mux.HandleFunc("PUT /api/security", s.authed(roleAdmin, s.saveSecurity))
+	mux.HandleFunc("POST /api/security/metrics-token", s.authed(roleAdmin, s.newMetricsToken))
+	mux.HandleFunc("DELETE /api/security/metrics-token", s.authed(roleAdmin, s.deleteMetricsToken))
+	mux.HandleFunc("GET /metrics", s.metrics)
+	mux.HandleFunc("GET /api/me/sessions", s.authed(roleAny, s.mySessions))
+	mux.HandleFunc("DELETE /api/me/sessions/{id}", s.authed(roleAny, s.revokeSession))
+	mux.HandleFunc("POST /api/me/sessions/revoke-others", s.authed(roleAny, s.revokeOtherSessions))
 	mux.HandleFunc("GET /api/agents", s.authed(roleAny, s.listAgents))
 	mux.HandleFunc("POST /api/agents/tokens", s.authed(roleOperator, s.createToken))
 	mux.HandleFunc("DELETE /api/agents/tokens/{id}", s.authed(roleOperator, s.deleteToken))
@@ -158,7 +173,13 @@ func (s *Server) secure(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "same-origin")
-		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'")
+		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
+		h.Set("Cross-Origin-Opener-Policy", "same-origin")
+		h.Set("Cross-Origin-Resource-Policy", "same-origin")
+		if s.isHTTPS(r) {
+			h.Set("Strict-Transport-Security", "max-age=15552000")
+		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
 			if o := r.Header.Get("Origin"); o != "" {
 				if u, err := url.Parse(o); err != nil || u.Host != r.Host {
@@ -177,8 +198,13 @@ func (s *Server) secure(next http.Handler) http.Handler {
 
 func (s *Server) clientIP(r *http.Request) string {
 	if s.TrustProxy {
+		// O proxy confiável ACRESCENTA o endereço de quem o contatou ao fim da lista; os da esquerda podem ter sido forjados pelo
+		// cliente. Vale, portanto, o último.
 		if xf := r.Header.Get("X-Forwarded-For"); xf != "" {
-			return strings.TrimSpace(strings.Split(xf, ",")[0])
+			parts := strings.Split(xf, ",")
+			if ip := strings.TrimSpace(parts[len(parts)-1]); net.ParseIP(ip) != nil {
+				return ip
+			}
 		}
 	}
 	h, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -233,4 +259,11 @@ func decode(w http.ResponseWriter, r *http.Request, dst any) bool {
 		return false
 	}
 	return true
+}
+
+// Housekeeping faz a limpeza periódica de memória (limitadores de tentativas).
+func (s *Server) Housekeeping() {
+	if s.LoginLimiter != nil {
+		s.LoginLimiter.Sweep()
+	}
 }

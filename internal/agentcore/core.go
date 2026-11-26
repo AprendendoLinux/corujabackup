@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +29,10 @@ const (
 type Config struct {
 	HostRoot  string // raiz do servidor vista pelo agente ("/" fora de contêiner; "/host" com o host montado)
 	BackupDir string // onde os arquivos de backup são gravados (nunca fora dela)
+	// Defesa em profundidade: o agente só executa o que a política local permitir, mesmo que o Server (ou quem o controla)
+	// peça outra coisa. Vazio = sem restrição.
+	AllowedPaths      []string // pastas que podem ser salvas (e tudo dentro delas)
+	AllowedContainers []string // contêineres de banco em que o dump pode rodar (padrões com * e ?)
 }
 
 // Executor roda um job. Trocável nos testes.
@@ -356,11 +362,16 @@ func (c *Core) execute(parent context.Context, r runReq) {
 		c.trySend(&pb.AgentMessage{Body: &pb.AgentMessage_RunReport{RunReport: pr}})
 	}
 	phase("archiving", 0)
-	res, err := c.exec(ctx, job, loc, started, Hooks{Logf: logf, Progress: func(p Result) {
-		pr := proto.Clone(base).(*pb.RunReport)
-		pr.State, pr.Phase, pr.BytesSource, pr.BytesOutput, pr.Files = pb.RunReport_PROGRESS, "archiving", p.BytesSource, p.BytesOutput, p.Files
-		c.trySend(&pb.AgentMessage{Body: &pb.AgentMessage_RunReport{RunReport: pr}})
-	}})
+	var res Result
+	if perr := c.policyCheck(r.spec); perr != nil {
+		err = perr
+	} else {
+		res, err = c.exec(ctx, job, loc, started, Hooks{Logf: logf, Progress: func(p Result) {
+			pr := proto.Clone(base).(*pb.RunReport)
+			pr.State, pr.Phase, pr.BytesSource, pr.BytesOutput, pr.Files = pb.RunReport_PROGRESS, "archiving", p.BytesSource, p.BytesOutput, p.Files
+			c.trySend(&pb.AgentMessage{Body: &pb.AgentMessage_RunReport{RunReport: pr}})
+		}})
+	}
 
 	cloudStatus, cloudErr := "none", error(nil)
 	var cinfo CloudInfo
@@ -575,3 +586,46 @@ func (c *Core) uploadToCloud(ctx context.Context, spec *pb.JobSpec, runUID strin
 
 // SetUploadOptions ajusta o cliente de upload (tentativas, espera entre tentativas); usado em testes.
 func (c *Core) SetUploadOptions(o uploader.Options) { c.httpc.opt = o }
+
+// PathAllowed diz se p é uma das pastas permitidas ou está dentro de uma delas (lista vazia = tudo permitido).
+func PathAllowed(allowed []string, p string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	p = path.Clean("/" + strings.TrimPrefix(p, "/"))
+	for _, a := range allowed {
+		a = path.Clean("/" + strings.TrimPrefix(strings.TrimSpace(a), "/"))
+		if a == "/" || p == a || strings.HasPrefix(p, a+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// ContainerAllowed confere o nome do contêiner com os padrões permitidos (lista vazia = qualquer um).
+func ContainerAllowed(patterns []string, name string) bool {
+	if len(patterns) == 0 {
+		return true
+	}
+	for _, p := range patterns {
+		if ok, _ := path.Match(strings.TrimSpace(p), name); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *Core) policyCheck(spec *pb.JobSpec) error {
+	if spec.Kind == "database" {
+		if spec.Db != nil && spec.Db.Mode == "docker" && !ContainerAllowed(c.cfg.AllowedContainers, spec.Db.Container) {
+			return fmt.Errorf("este agente não tem permissão para acessar o contêiner %q (CORUJA_ALLOWED_CONTAINERS)", spec.Db.Container)
+		}
+		return nil
+	}
+	for _, p := range spec.Paths {
+		if !PathAllowed(c.cfg.AllowedPaths, p) {
+			return fmt.Errorf("o caminho %q não é permitido por este agente (CORUJA_ALLOWED_PATHS)", p)
+		}
+	}
+	return nil
+}

@@ -577,3 +577,53 @@ func TestAcaoReenvioExigeArquivoELocalValido(t *testing.T) {
 		t.Errorf("arquivo ausente: %v", err)
 	}
 }
+
+func TestListasDePermissaoDoAgente(t *testing.T) {
+	for _, c := range []struct {
+		allowed []string
+		p       string
+		want    bool
+	}{
+		{nil, "/qualquer/coisa", true},
+		{[]string{"/etc", "/srv"}, "/etc", true},
+		{[]string{"/etc", "/srv"}, "/etc/nginx/nginx.conf", true},
+		{[]string{"/etc", "/srv"}, "/etcetera", false},
+		{[]string{"/etc", "/srv"}, "/etc/../root/.ssh", false},
+		{[]string{"/etc"}, "/", false},
+		{[]string{"/"}, "/home", true},
+	} {
+		if got := PathAllowed(c.allowed, c.p); got != c.want {
+			t.Errorf("PathAllowed(%v, %q) = %v", c.allowed, c.p, got)
+		}
+	}
+	if !ContainerAllowed(nil, "x") || !ContainerAllowed([]string{"db-*", "mongo"}, "db-server") || ContainerAllowed([]string{"db-*"}, "web") {
+		t.Fatal("ContainerAllowed")
+	}
+}
+
+func TestAgenteRecusaCaminhoForaDaPolitica(t *testing.T) {
+	r := newRig(t)
+	r.core.cfg.AllowedPaths = []string{"/etc"}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go r.core.Run(ctx)
+	ok := spec(1, "ok", "0 0 1 1 *")
+	ok.Paths = []string{"/etc/nginx"}
+	bad := spec(2, "bad", "0 0 1 1 *")
+	bad.Paths = []string{"/etc", "/root/.ssh"}
+	r.core.SyncJobs([]*pb.JobSpec{ok, bad})
+	r.core.Enqueue(1, "u-ok", "manual", time.Time{})
+	r.core.Enqueue(2, "u-bad", "manual", time.Time{})
+	by := map[string]*pb.RunReport{}
+	for _, f := range r.finished(t, 2) {
+		by[f.RunUid] = f
+	}
+	if by["u-ok"].Status != "ok" || by["u-bad"].Status != "failed" || !strings.Contains(by["u-bad"].Error, "não é permitido") {
+		t.Fatalf("%+v / %+v", by["u-ok"], by["u-bad"])
+	}
+	for _, n := range r.runs {
+		if n == "bad" {
+			t.Fatal("o executor não pode nem ser chamado para um caminho proibido")
+		}
+	}
+}

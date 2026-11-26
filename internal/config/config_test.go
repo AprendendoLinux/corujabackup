@@ -29,3 +29,28 @@ func TestRedactedNaoVazaSenha(t *testing.T) {
 		t.Fatal("Redacted deve ocultar a senha e DSN deve conter")
 	}
 }
+
+func TestHTTPSeTLSDoBanco(t *testing.T) {
+	base := map[string]string{"CORUJA_DB_PASSWORD": "x"}
+	with := func(k, v string) map[string]string {
+		m := map[string]string{}
+		for a, b := range base {
+			m[a] = b
+		}
+		m[k] = v
+		return m
+	}
+	if _, err := Load(env(with("CORUJA_TLS_CERT", "/c.pem"))); err == nil {
+		t.Fatal("certificado sem chave deveria falhar")
+	}
+	if _, err := Load(env(with("CORUJA_DB_TLS", "talvez"))); err == nil {
+		t.Fatal("valor inválido de CORUJA_DB_TLS")
+	}
+	c, err := Load(env(with("CORUJA_DB_TLS", "skip-verify")))
+	if err != nil || !strings.HasSuffix(c.DSN(), "&tls=skip-verify") {
+		t.Fatalf("%v %s", err, c.DSN())
+	}
+	if c2, _ := Load(env(base)); strings.Contains(c2.DSN(), "tls=") {
+		t.Fatal("padrão: sem TLS")
+	}
+}

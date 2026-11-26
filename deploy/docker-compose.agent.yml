@@ -1,21 +1,31 @@
-# Coruja Backup · Agente. Informe só o endereço do Server e o token gerado na interface web.
+# Coruja Backup · Agente
+# Informe o endereço do canal dos agentes do Server e o token gerado na interface (Agentes > Novo agente; vale uma vez).
 services:
   agent:
-    image: ghcr.io/aprendendolinux/corujabackup-agent:0.0.7
+    image: ghcr.io/aprendendolinux/corujabackup-agent:0.0.8
     container_name: corujabackup-agent
     restart: always
     environment:
       CORUJA_SERVER: "IP_DO_SERVER:8443"
       CORUJA_TOKEN: "TOKEN_GERADO_NA_INTERFACE"
       CORUJA_HOST_ROOT: "/host"          # o servidor, como o agente o enxerga (veja o volume abaixo)
+      # Defesa em profundidade (opcional, recomendado): o agente só executa o que estas listas permitirem,
+      # mesmo que o Server (ou quem o controle) peça outra coisa. Vazio = sem restrição.
+      # CORUJA_ALLOWED_PATHS: "/etc,/srv,/home"          # pastas que podem ser salvas
+      # CORUJA_ALLOWED_CONTAINERS: "db-*,mongo"          # contêineres de banco em que o dump pode rodar
     volumes:
       - agent-data:/var/lib/coruja-agent   # credencial do agente, agenda local e fila de resultados
       - /:/host:ro                         # tudo o que o agente pode salvar, SOMENTE LEITURA (restrinja às pastas necessárias, se preferir)
       - /srv/coruja-backups:/backups       # onde os arquivos de backup são gravados
-    # Opcional (desligado por padrão): permite ao agente executar dumps DENTRO dos contêineres de banco e fazer o
-    # teste de restauração em contêineres descartáveis. Dá ao agente controle total do Docker do servidor: habilite só se precisar.
-    #   - /var/run/docker.sock:/var/run/docker.sock
+      # Opcional (desligado por padrão): executar dumps DENTRO dos contêineres de banco e fazer o teste de restauração em
+      # contêineres descartáveis. Dá ao agente controle total do Docker do servidor: habilite só se precisar.
+      #   - /var/run/docker.sock:/var/run/docker.sock
+    # Endurecimento: sem privilégios extras; só as duas capacidades necessárias para ler/gravar arquivos de outros donos
+    cap_drop: [ALL]
+    cap_add: [DAC_READ_SEARCH, DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
     networks: [echelon]
+
 volumes:
   agent-data:
 

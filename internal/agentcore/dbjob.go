@@ -236,6 +236,9 @@ func (c *Core) rpc(ctx context.Context, m *pb.Rpc) ([]byte, error) {
 		}
 		out := make([]ContainerInfo, 0, len(list))
 		for _, ct := range list {
+			if !ContainerAllowed(c.cfg.AllowedContainers, ct.Name()) {
+				continue
+			}
 			out = append(out, ContainerInfo{Name: ct.Name(), Image: ct.Image, Status: ct.Status, Engine: guessEngine(ct.Image)})
 		}
 		sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -246,6 +249,9 @@ func (c *Core) rpc(ctx context.Context, m *pb.Rpc) ([]byte, error) {
 			return nil, fmt.Errorf("pedido inválido: %w", err)
 		}
 		cfg := DBConfigFrom(&d)
+		if cfg.Mode == "docker" && !ContainerAllowed(c.cfg.AllowedContainers, cfg.Container) {
+			return nil, fmt.Errorf("este agente não tem permissão para acessar o contêiner %q (CORUJA_ALLOWED_CONTAINERS)", cfg.Container)
+		}
 		tctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 		defer cancel()
 		r, err := dbdump.ResolveRunner(tctx, &cfg, c.docker)

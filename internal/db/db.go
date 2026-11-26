@@ -67,6 +67,26 @@ func Migrate(ctx context.Context, d *sql.DB) (applied []string, err error) {
 		}
 	}
 	sort.Strings(names)
+	// Proteção contra "downgrade": se o banco já foi migrado por uma versão mais nova, este binário não sabe o que há nele.
+	known := map[string]bool{}
+	for _, n := range names {
+		known[strings.TrimSuffix(n, ".sql")] = true
+	}
+	rows, err := d.QueryContext(ctx, "SELECT version FROM schema_migrations")
+	if err != nil {
+		return nil, err
+	}
+	var unknown []string
+	for rows.Next() {
+		var v string
+		if rows.Scan(&v) == nil && !known[v] {
+			unknown = append(unknown, v)
+		}
+	}
+	rows.Close()
+	if len(unknown) > 0 {
+		return nil, fmt.Errorf("o banco foi atualizado por uma versão MAIS NOVA do Coruja Backup (migrações %s). Use a mesma versão ou uma mais nova; volte a versão só restaurando um backup do banco", strings.Join(unknown, ", "))
+	}
 	for _, n := range names {
 		ver := strings.TrimSuffix(n, ".sql")
 		var one int

@@ -53,3 +53,18 @@ func (l *Limiter) Reset(key string) {
 	defer l.mu.Unlock()
 	delete(l.fails, key)
 }
+
+// Sweep remove as chaves cujas falhas já saíram da janela (evita crescer sem limite sob varredura de IPs).
+func (l *Limiter) Sweep() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for k := range l.fails {
+		l.prune(k)
+	}
+}
+
+func (l *Limiter) Len() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.fails)
+}

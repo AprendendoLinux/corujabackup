@@ -43,3 +43,10 @@ No Google Drive e no OneDrive o agente recebe só o endereço de uma sessão de 
 ## Destinos de rede
 
 Em SFTP, FTP, SMB e pasta local o **agente recebe as credenciais do destino** (exceção à regra de que credenciais ficam só no Server): sem isso ele não conseguiria gravar numa rede que o Server não alcança. Use uma conta exclusiva para backups, com acesso apenas à pasta de destino. Um agente comprometido pode ler, alterar e apagar o que essa conta alcança; se o armazenamento oferecer snapshots ou imutabilidade, habilite. Veja [DESTINOS.md](DESTINOS.md).
+
+## Navegação de pastas pela interface
+Para "clicar e selecionar", o Server pede ao agente a listagem de uma pasta.
+- O que trafega: **nomes** de pastas e arquivos e o tamanho dos arquivos, nunca o conteúdo. Nada é guardado no Server.
+- Quem pode: perfis **Operador** e **Administrador** (os mesmos que já podem criar um job com qualquer caminho permitido e baixar o resultado). Somente leitura não navega.
+- No agente: a listagem fica presa à raiz do host (ou à pasta de backups), **não segue atalhos** e respeita `CORUJA_ALLOWED_PATHS` (só aparecem os itens permitidos e o caminho até eles).
+- Pastas de destino: nas nuvens quem lista é o Server; nos destinos de rede, o agente do job, com as mesmas credenciais usadas no envio.

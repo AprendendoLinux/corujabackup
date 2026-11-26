@@ -93,6 +93,28 @@ func (l *localConn) List(dir string) ([]File, error) {
 	return out, nil
 }
 
+func (l *localConn) Dirs(dir string) ([]string, error) {
+	d, err := l.root.Open(l.p(dir))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer d.Close()
+	es, err := d.ReadDir(-1)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, e := range es {
+		if e.IsDir() {
+			out = append(out, e.Name())
+		}
+	}
+	return out, nil
+}
+
 func (l *localConn) Rename(dir, from, to string) error {
 	return l.root.Rename(l.p(dir, from), l.p(dir, to))
 }

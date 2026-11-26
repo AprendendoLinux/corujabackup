@@ -227,26 +227,27 @@ func (d *Dropbox) Stat(ctx context.Context, folder, name string) (*RemoteFile, e
 	return &f, nil
 }
 
-func (d *Dropbox) List(ctx context.Context, folder string) ([]RemoteFile, error) {
+// entries lista tudo o que há numa pasta ("" = pasta do aplicativo), seguindo a paginação.
+func (d *Dropbox) entries(ctx context.Context, folder string) ([]dbxEntry, error) {
 	var r struct {
 		Entries []dbxEntry `json:"entries"`
 		Cursor  string     `json:"cursor"`
 		HasMore bool       `json:"has_more"`
 	}
-	err := d.rpc(ctx, "listar pasta", "/files/list_folder", map[string]any{"path": "/" + folder}, &r)
+	p := ""
+	if folder != "" {
+		p = "/" + folder
+	}
+	err := d.rpc(ctx, "listar pasta", "/files/list_folder", map[string]any{"path": p}, &r)
 	if err != nil {
 		if errorsIsNotFound(err) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	var out []RemoteFile
+	var out []dbxEntry
 	for page := 0; ; page++ {
-		for _, e := range r.Entries {
-			if e.Tag == "file" {
-				out = append(out, e.remote())
-			}
-		}
+		out = append(out, r.Entries...)
 		if !r.HasMore {
 			return out, nil
 		}
@@ -259,6 +260,34 @@ func (d *Dropbox) List(ctx context.Context, folder string) ([]RemoteFile, error)
 			return nil, err
 		}
 	}
+}
+
+func (d *Dropbox) List(ctx context.Context, folder string) ([]RemoteFile, error) {
+	es, err := d.entries(ctx, folder)
+	if err != nil {
+		return nil, err
+	}
+	var out []RemoteFile
+	for _, e := range es {
+		if e.Tag == "file" {
+			out = append(out, e.remote())
+		}
+	}
+	return out, nil
+}
+
+func (d *Dropbox) Folders(ctx context.Context, parent string) ([]string, error) {
+	es, err := d.entries(ctx, parent)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, e := range es {
+		if e.Tag == "folder" {
+			out = append(out, e.Name)
+		}
+	}
+	return out, nil
 }
 
 // Delete apaga o arquivo. No Dropbox ele ainda pode ser recuperado por um período (regra do plano da conta).

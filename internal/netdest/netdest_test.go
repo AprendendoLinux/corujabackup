@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
+	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -73,6 +75,23 @@ func exercise(t *testing.T, c Config, env Env) {
 	files, err := conn.List(folder)
 	if err != nil || len(files) != 2 {
 		t.Fatalf("lista: %v %+v", err, files)
+	}
+	// escolha de pasta na interface: lista só as subpastas, relativas à pasta base
+	parent, leaf := path.Split(folder)
+	if dirs, err := Folders(ctx, c, env, strings.TrimSuffix(parent, "/")); err != nil || !slices.Contains(dirs, leaf) {
+		t.Fatalf("subpastas de %q: %v %v", parent, dirs, err)
+	}
+	if dirs, err := Folders(ctx, c, env, ""); err != nil || !slices.Contains(dirs, "Coruja Backup") {
+		t.Fatalf("subpastas da pasta base: %v %v", dirs, err)
+	}
+	if dirs, err := Folders(ctx, c, env, folder); err != nil || len(dirs) != 0 {
+		t.Fatalf("pasta só com arquivos não tem subpastas: %v %v", dirs, err)
+	}
+	if dirs, err := Folders(ctx, c, env, "nao/existe"); err != nil || len(dirs) != 0 {
+		t.Fatalf("pasta inexistente: %v %v", dirs, err)
+	}
+	if _, err := Folders(ctx, c, env, "../fora"); err == nil {
+		t.Fatal("'..' deveria ser recusado")
 	}
 	if missing, err := conn.List(folder + "/nao-existe"); err != nil || len(missing) != 0 {
 		t.Fatalf("pasta inexistente deveria dar lista vazia: %v %v", missing, err)

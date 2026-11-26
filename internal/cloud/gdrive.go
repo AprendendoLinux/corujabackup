@@ -278,6 +278,29 @@ func (g *GDrive) List(ctx context.Context, folder string) ([]RemoteFile, error) 
 	return out, nil
 }
 
+// Folders lista subpastas. Com o escopo drive.file o aplicativo só enxerga as pastas que ele mesmo criou.
+func (g *GDrive) Folders(ctx context.Context, parent string) ([]string, error) {
+	pid := "root"
+	if parent != "" {
+		var err error
+		if pid, err = g.folderID(ctx, parent, false); err != nil {
+			if err == ErrNotFound {
+				return nil, nil
+			}
+			return nil, err
+		}
+	}
+	fs, err := g.listQ(ctx, fmt.Sprintf("'%s' in parents and mimeType='%s' and trashed=false", gq(pid), folderMIME), "id,name")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(fs))
+	for _, f := range fs {
+		out = append(out, f.Name)
+	}
+	return out, nil
+}
+
 func (g *GDrive) Delete(ctx context.Context, folder string, f RemoteFile) error {
 	// DELETE em /files/{id} apaga de vez (não vai para a lixeira)
 	_, err := g.do(ctx, "DELETE", g.api()+"/files/"+url.PathEscape(f.ID), nil, nil, "apagar arquivo Google Drive", nil)

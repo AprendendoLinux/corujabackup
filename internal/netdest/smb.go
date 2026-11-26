@@ -100,6 +100,23 @@ func (s *smbConn) List(dir string) ([]File, error) {
 	return out, nil
 }
 
+func (s *smbConn) Dirs(dir string) ([]string, error) {
+	es, err := s.share.ReadDir(s.p(dir))
+	if errors.Is(err, fs.ErrNotExist) || os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, e := range es {
+		if e.IsDir() {
+			out = append(out, e.Name())
+		}
+	}
+	return out, nil
+}
+
 func (s *smbConn) Rename(dir, from, to string) error {
 	_ = s.share.Remove(s.p(dir, to))
 	return s.share.Rename(s.p(dir, from), s.p(dir, to))

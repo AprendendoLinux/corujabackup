@@ -191,8 +191,18 @@ func (d *Dropbox) serve(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, d.meta(in.Path))
 	case "/files/list_folder":
 		var es []map[string]any
+		folders := map[string]bool{}
 		for p := range d.Files {
-			if n, ok := strings.CutPrefix(p, in.Path+"/"); ok && !strings.Contains(n, "/") {
+			n, ok := strings.CutPrefix(p, in.Path+"/")
+			if !ok {
+				continue
+			}
+			if sub, _, nested := strings.Cut(n, "/"); nested {
+				if !folders[sub] {
+					folders[sub] = true
+					es = append(es, map[string]any{".tag": "folder", "name": sub})
+				}
+			} else {
 				es = append(es, d.meta(p))
 			}
 		}

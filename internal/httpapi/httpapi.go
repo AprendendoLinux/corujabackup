@@ -53,6 +53,7 @@ type CloudAdmin interface {
 	DestConfig(ctx context.Context, id int64) (*netdest.Config, error)
 	FinishWeb(ctx context.Context, state, code string) (int64, error)
 	Open(ctx context.Context, accountID int64, folder, name string) (io.ReadCloser, int64, error)
+	Folders(ctx context.Context, accountID int64, parent string) ([]string, error)
 }
 
 type Server struct {
@@ -132,6 +133,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/agents/{id}/revoke", s.authed(roleOperator, s.revokeAgent))
 	mux.HandleFunc("DELETE /api/agents/{id}", s.authed(roleOperator, s.deleteAgent))
 	mux.HandleFunc("GET /api/agents/{id}/containers", s.authed(roleOperator, s.agentContainers))
+	mux.HandleFunc("GET /api/agents/{id}/browse", s.authed(roleOperator, s.agentBrowse))
+	mux.HandleFunc("PUT /api/system/agent-address", s.authed(roleAdmin, s.saveAgentAddress))
 	mux.HandleFunc("POST /api/agents/{id}/db-test", s.authed(roleOperator, s.dbTest))
 	mux.HandleFunc("GET /api/notifications/channels", s.authed(roleAdmin, s.listChannels))
 	mux.HandleFunc("POST /api/notifications/channels", s.authed(roleAdmin, s.createChannel))
@@ -154,6 +157,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/runs/{id}/fetch", s.authed(roleOperator, s.fetchRun))
 	mux.HandleFunc("POST /api/clouds/oauth/begin", s.authed(roleAdmin, s.beginCloudWeb))
 	mux.HandleFunc("POST /api/clouds/oauth/finish", s.authed(roleAdmin, s.finishCloudWeb))
+	mux.HandleFunc("GET /api/clouds/{id}/folders", s.authed(roleOperator, s.destFolders))
 	mux.HandleFunc("POST /api/clouds/{id}/poll", s.authed(roleAdmin, s.pollCloud))
 	mux.HandleFunc("POST /api/clouds/{id}/reauthorize", s.authed(roleAdmin, s.reauthCloud))
 	mux.HandleFunc("POST /api/clouds/{id}/test", s.authed(roleOperator, s.testCloud))
@@ -250,7 +254,12 @@ func (s *Server) version(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) system(w http.ResponseWriter, r *http.Request, _ *ctxUser) {
-	writeJSON(w, 200, map[string]any{"version": version.Version, "agent_port": s.AgentPort, "fingerprint": s.Fingerprint})
+	set, err := s.Store.GetSettings(r.Context(), settingAgentAddress)
+	if err != nil {
+		writeErr(w, 500, "erro interno")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"version": version.Version, "agent_port": s.AgentPort, "agent_address": set[settingAgentAddress], "fingerprint": s.Fingerprint})
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

@@ -364,6 +364,15 @@ func (m *Manager) Test(ctx context.Context, id int64) (string, cloud.Quota, erro
 	return label, q, nil
 }
 
+// Folders lista as subpastas de uma pasta da nuvem ("" = raiz visível ao aplicativo).
+func (m *Manager) Folders(ctx context.Context, id int64, parent string) ([]string, error) {
+	p, err := m.Provider(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return p.Folders(ctx, parent)
+}
+
 // ---------------------------------------------------------------- upload, conferência e retenção
 
 type Upload struct {

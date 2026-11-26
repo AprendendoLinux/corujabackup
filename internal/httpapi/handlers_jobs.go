@@ -65,6 +65,7 @@ type dbIn struct {
 var (
 	containerRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
 	hostRE      = regexp.MustCompile(`^[A-Za-z0-9._:\-]{1,255}$`)
+	agentHostRE = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9.\-]{0,251}[A-Za-z0-9])?$|^[0-9A-Fa-f:]+$`)
 	imageRE     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,200}$`)
 )
 
@@ -598,6 +599,8 @@ func (s *Server) agentCall(w http.ResponseWriter, r *http.Request, agentID int64
 	switch {
 	case errors.Is(err, agentsrv.ErrOffline):
 		writeErr(w, 409, "o agente está offline")
+	case err != nil && strings.HasPrefix(err.Error(), "chamada desconhecida"):
+		writeErr(w, 422, "este agente é de uma versão antiga e não tem esta função: atualize o agente para a versão do Server")
 	case err != nil:
 		writeErr(w, 422, err.Error())
 	default:

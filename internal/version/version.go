@@ -2,6 +2,6 @@
 package version
 
 // Version é sobrescrita no build: -ldflags "-X github.com/AprendendoLinux/corujabackup/internal/version.Version=1.2.3".
-var Version = "0.0.12"
+var Version = "0.0.13"
 
 const Name = "Coruja Backup"

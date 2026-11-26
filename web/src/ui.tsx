@@ -1,4 +1,4 @@
-import { ReactNode, useEffect } from 'react'
+import { ReactNode, useEffect, useRef, useState } from 'react'
 
 export function Button({ variant = 'primary', className = '', ...p }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'ghost' | 'danger' }) {
   const base = 'inline-flex items-center justify-center rounded-lg px-3.5 py-2 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-accent'
@@ -41,15 +41,22 @@ export function Badge({ tone, children }: { tone: 'ok' | 'off' | 'warn' | 'dange
 }
 
 export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
+  const dialog = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    const h = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    // com uma janela sobre outra (seletor de pastas), o Esc fecha só a de cima
+    const h = (e: KeyboardEvent) => {
+      const all = document.querySelectorAll('[role=dialog]')
+      if (e.key !== 'Escape' || e.defaultPrevented || all[all.length - 1] !== dialog.current) return
+      e.preventDefault()
+      onClose()
+    }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
   }, [onClose])
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       {/* o título fica fixo e só o conteúdo rola, por dentro dos cantos arredondados */}
-      <div role="dialog" aria-modal="true" aria-label={title} className={`flex max-h-[94vh] w-full ${wide ? 'max-w-4xl' : 'max-w-2xl'} flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-xl`}>
+      <div ref={dialog} role="dialog" aria-modal="true" aria-label={title} className={`flex max-h-[94vh] w-full ${wide ? 'max-w-4xl' : 'max-w-2xl'} flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-xl`}>
         <div className="flex items-center justify-between px-6 pb-3 pt-5">
           <h2 className="text-lg font-semibold">{title}</h2>
           <button aria-label="Fechar" className="text-muted hover:text-text" onClick={onClose}>✕</button>
@@ -61,11 +68,44 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
 }
 
 export function CopyBox({ text }: { text: string }) {
+  const pre = useRef<HTMLPreElement>(null)
+  const [state, setState] = useState<'idle' | 'ok' | 'manual'>('idle')
+  useEffect(() => {
+    if (state === 'idle') return
+    const t = setTimeout(() => setState('idle'), 2500)
+    return () => clearTimeout(t)
+  }, [state])
+
+  // navigator.clipboard só existe em HTTPS ou localhost. Em http://IP:porta copiamos a partir da seleção do próprio texto;
+  // se nem isso funcionar, o texto fica selecionado para o Ctrl+C.
+  async function copy() {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text)
+        setState('ok')
+        return
+      }
+    } catch { /* sem permissão: tenta pela seleção */ }
+    const selection = window.getSelection()
+    if (!pre.current || !selection) return setState('manual')
+    const range = document.createRange()
+    range.selectNodeContents(pre.current)
+    selection.removeAllRanges()
+    selection.addRange(range)
+    if (document.execCommand('copy')) {
+      selection.removeAllRanges()
+      setState('ok')
+    } else {
+      setState('manual')
+    }
+  }
+
   return (
     <div className="relative">
-      <pre className="overflow-x-auto rounded-lg border border-border bg-bg p-3 pr-20 text-xs leading-relaxed">{text}</pre>
-      <button className="absolute right-2 top-2 rounded-md border border-border bg-surface px-2 py-1 text-xs hover:bg-bg"
-        onClick={() => navigator.clipboard?.writeText(text)}>Copiar</button>
+      <pre ref={pre} className="overflow-x-auto rounded-lg border border-border bg-bg p-3 pr-28 text-xs leading-relaxed">{text}</pre>
+      <button type="button" aria-live="polite" className="absolute right-2 top-2 rounded-md border border-border bg-surface px-2 py-1 text-xs hover:bg-bg" onClick={copy}>
+        {state === 'ok' ? 'Copiado ✓' : state === 'manual' ? 'Use Ctrl+C' : 'Copiar'}
+      </button>
     </div>
   )
 }

@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.0.16] - Interface nova
+- **Interface nova:** menu lateral à esquerda, com ícones e grupos (Operação e Administração), que pode ser recolhido; no celular vira uma gaveta. Cartões, login e painel redesenhados.
+- **Ícones no lugar dos links** de ação (executar, histórico, editar, pausar, excluir, testar...), com dica ao passar o mouse ou focar pelo teclado.
+- **Tema único do sistema:** o seletor de tema do topo saiu. O tema é escolhido só em **Aparência**, pelo administrador, e vale para todos. **Correção:** a escolha antiga guardada em cada navegador podia sobrepor o tema do sistema, mostrando um tema diferente do selecionado; ela é descartada.
+- **Créditos do rodapé configuráveis** em Aparência (texto, nome e link), também nos e-mails e no PDF. Nome vazio esconde os créditos.
+- **Janelas de confirmação no visual do sistema** no lugar dos alertas do navegador (excluir, executar, revogar, renomear, redefinir senha...).
+- **Execução ao vivo:** em Jobs e no Histórico, o backup em andamento aparece com indicador girando, fase e percentual, atualizados a cada 2 segundos.
+- **Temas só por pacote, com modo claro e escuro:** a tela de Aparência não cria nem edita cores; instala, atualiza ou exclui pacotes, além dos temas da Coruja (Coruja e Floresta). Cada tema tem modo claro e escuro (`colors_dark` no pacote, ou gerado automaticamente), e o modo pode ser Claro, Escuro ou Automático. O antigo tema "Noturno" vira Coruja no modo escuro.
+- **Assistentes:** Novo job (Identificação › Origem › Agenda › Destino › Revisão) e Novo agente (Identificação › Instalação › Conexão, que espera o agente aparecer) passam a ser em etapas. Na edição de um job, qualquer etapa pode ser aberta e salva.
+- **Foto do usuário:** em Minha conta, cada usuário envia a própria foto (PNG, JPEG, GIF ou WebP, até 2 MB; o sistema recorta o centro e reduz para 256×256 px), mostrada no menu e em Usuários.
+
 ## [0.0.15] - Agente e tipos na lista
 - **Pasta e arquivo diferenciados:** nas listas do que salvar e das exclusões, cada item tem ícone e etiqueta (Pasta, Arquivo, Atalho, Padrão), e as pastas terminam com `/`. Um caminho que não existe mais no agente aparece como **Não encontrado**.
 - **Nomes:** a máquina onde o backup roda é sempre chamada de **agente** na interface, nos e-mails e no PDF. "Servidor" fica só para servidores SMTP, SFTP, FTP, SMB e de banco.

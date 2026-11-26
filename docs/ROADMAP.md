@@ -14,6 +14,7 @@
 - [x] **Usabilidade (0.0.13):** seleção de pastas e arquivos por clique (origem, exclusões e destinos), endereço público do canal dos agentes e botões de copiar funcionando em `http://IP`.
 - [x] **Pasta local pelo painel (0.0.14):** servidor inteiro visível, pasta do backup local escolhida na interface com o espaço livre, e o que é do agente (backups, destinos e credenciais) fora dos backups.
 - [x] **Clareza da interface (0.0.15):** a máquina do backup é sempre chamada de agente; pastas, arquivos, atalhos e padrões identificados nas listas.
+- [x] **Interface nova (0.0.16):** menu lateral, ícones, modais próprios, assistentes de job e agente, execução ao vivo, temas só por pacote com modo claro e escuro, créditos configuráveis e foto do usuário.
 - [ ] **Fase 9, parte 3:** vários destinos por job; compatíveis com S3; SharePoint.
 - [ ] **Fase 10 – Full/Incremental e MikroTik (versão seguinte):** motor `tar.gz` em blocos com índice e catálogo; agenda full + incrementais; retenção por cadeia; jobs de MikroTik (SSH: `.rsc` e `.backup`).
 - [ ] **Fase 11 – Restauração inteligente (versão posterior):** árvore de arquivos, linha do tempo de versões, restauração de arquivos selecionados e de bancos pela interface.

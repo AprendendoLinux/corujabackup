@@ -46,6 +46,7 @@ Limites: `.zip` até 3 MiB; cada arquivo até 1 MiB; até 12 arquivos; nomes só
 | `name` | Nome exibido (1 a 40 caracteres). |
 | `version`, `author`, `description` | Opcionais, informativos. |
 | `colors` | As 10 cores da interface, **todas obrigatórias**, no formato `#RRGGBB`. |
+| `colors_dark` | Opcional. As mesmas 10 cores para o **modo escuro**. Sem ele, o modo escuro é gerado automaticamente a partir de `colors` (fundos escuros tingidos pela cor principal e destaques clareados para manter o contraste). |
 | `document` | Opcional. Cores de e-mail e PDF que você quer **sobrescrever** (veja abaixo). |
 | `logo.ui`, `logo.document` | Opcionais. Nomes de arquivos que estão no pacote. |
 
@@ -77,6 +78,9 @@ E-mails e PDFs usam **sempre fundo claro** (legível em qualquer cliente de e-ma
 O tema que vale para e-mail e PDF é o **tema padrão** (em Aparência › Identidade); a interface respeita ainda a escolha de cada pessoa no seletor do topo.
 
 > Fontes personalizadas ainda **não** são suportadas (a versão 1 do formato só cobre cores e logos).
+
+## Modo claro e escuro
+Todo tema tem os dois modos. Em **Aparência**, o administrador escolhe o tema e o modo: **Claro**, **Escuro** ou **Automático**, que segue o modo do sistema operacional de cada pessoa. Os temas só entram por pacote; na tela não é possível alterar as cores de um tema instalado, apenas instalar, atualizar (importando de novo o mesmo `id`) ou excluir. E-mails e PDF usam sempre o modo claro.
 
 ## Passo a passo: criar e importar um tema
 

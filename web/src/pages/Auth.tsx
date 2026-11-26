@@ -32,7 +32,7 @@ export function Setup({ onDone }: { onDone: () => void }) {
   }
   return (
     <Shell title="Configuração inicial">
-      <p className="mb-4 text-sm text-muted">Crie o primeiro administrador. Depois você cadastra servidores, agendamentos e nuvem aqui mesmo.</p>
+      <p className="mb-4 text-sm text-muted">Crie o primeiro administrador. Depois você cadastra agentes, agendamentos e destinos aqui mesmo.</p>
       <form onSubmit={submit} className="space-y-3">
         {needsCode && <Field label="Código de configuração" hint="Mostrado nos logs do Server a cada início: docker logs corujabackup-server (procure “CONFIGURAÇÃO INICIAL PENDENTE”). Evita que um estranho crie o administrador antes de você."><Input autoFocus autoComplete="off" value={f.setup_code} onChange={(e) => setF({ ...f, setup_code: e.target.value })} required /></Field>}
         <Field label="Usuário" hint="3 a 64 caracteres: letras minúsculas, números, ponto, hífen ou sublinhado"><Input autoFocus={!needsCode} value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} required /></Field>

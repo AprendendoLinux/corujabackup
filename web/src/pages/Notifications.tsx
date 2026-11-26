@@ -30,7 +30,7 @@ export default function Notifications() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Notificações e relatórios</h1>
-        <p className="text-sm text-muted">Avisos por e-mail e Telegram, relatório diário consolidado em PDF A4 e alerta de servidor offline.</p>
+        <p className="text-sm text-muted">Avisos por e-mail e Telegram, relatório diário consolidado em PDF A4 e alerta de agente offline.</p>
       </div>
       <ErrorBox message={err} />
       {info && <div className="rounded-lg border border-ok/40 bg-ok/10 px-3 py-2 text-sm text-ok">{info}</div>}

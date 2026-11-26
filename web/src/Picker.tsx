@@ -120,7 +120,7 @@ export function TreePicker({ title, intro, agentId, roots, initial, lockRoots, c
         <p className="text-muted">{intro}</p>
         <div className="scroll-fino h-[46vh] overflow-auto rounded-lg border border-border p-1.5">
           {/* Node é chamado como função, e não como componente, para a árvore não se remontar a cada clique */}
-          <ul>{roots.map((r) => <li key={r}><ul>{Node({ path: r, label: r === '/' ? '/ (servidor inteiro)' : r, entry: { name: r, dir: true }, depth: 0 })}</ul></li>)}</ul>
+          <ul>{roots.map((r) => <li key={r}><ul>{Node({ path: r, label: r === '/' ? '/ (tudo)' : r, entry: { name: r, dir: true }, depth: 0 })}</ul></li>)}</ul>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <span className="text-muted">{chosen.length === 0 ? 'Nada marcado.' : `${chosen.length} item(ns) marcado(s).`}</span>
@@ -252,11 +252,72 @@ export function FolderField({ label, hint, value, autoText, disabledReason, rese
   )
 }
 
+/** O que um item da lista é no agente. "pattern" é um padrão de exclusão (*.tmp); "unknown", quando não deu para conferir. */
+export type Kind = 'dir' | 'file' | 'link' | 'pattern' | 'missing' | 'unknown'
+
+const isPattern = (p: string) => !p.startsWith('/') || /[*?]/.test(p)
+
+/**
+ * Descobre o que é cada caminho listando a pasta que o contém. Assim vale também para jobs já salvos e caminhos digitados.
+ * Enquanto consulta, o item fica sem tipo.
+ */
+function useKinds(agentId: number, items: string[]): Record<string, Kind> {
+  const [kinds, setKinds] = useState<Record<string, Kind>>({})
+  const key = items.join('\n')
+  useEffect(() => {
+    let live = true
+    const set = (p: string, k: Kind) => live && setKinds((c) => ({ ...c, [p]: k }))
+    setKinds({})
+    const parents = new Map<string, { path: string; name: string }[]>()
+    for (const p of key ? key.split('\n') : []) {
+      if (isPattern(p)) { set(p, 'pattern'); continue }
+      const clean = p.replace(/\/+$/, '')
+      if (!clean) { set(p, 'dir'); continue }
+      const cut = clean.lastIndexOf('/')
+      const parent = clean.slice(0, cut) || '/'
+      parents.set(parent, [...(parents.get(parent) ?? []), { path: p, name: clean.slice(cut + 1) }])
+    }
+    parents.forEach((children, parent) => {
+      api<{ entries: Entry[]; truncated?: boolean }>('GET', `/api/agents/${agentId}/browse?area=host&path=${encodeURIComponent(parent)}`)
+        .then((r) => children.forEach((c) => {
+          const e = r.entries.find((x) => x.name === c.name)
+          set(c.path, e ? (e.link ? 'link' : e.dir ? 'dir' : 'file') : r.truncated ? 'unknown' : 'missing')
+        }))
+        .catch((x) => children.forEach((c) => set(c.path, /não existe|não é uma pasta/.test((x as ApiError).message) ? 'missing' : 'unknown')))
+    })
+    return () => { live = false }
+  }, [agentId, key])
+  return kinds
+}
+
+const KIND: Record<Kind, { label: string; title: string; tag: string }> = {
+  dir: { label: 'Pasta', title: 'Pasta: entra tudo o que há dentro dela', tag: 'border-accent/60 bg-accent/15 text-text' },
+  file: { label: 'Arquivo', title: 'Arquivo: só ele', tag: 'border-border bg-bg text-muted' },
+  link: { label: 'Atalho', title: 'Atalho: entra só o atalho, não o conteúdo para onde ele aponta', tag: 'border-border bg-bg text-muted' },
+  pattern: { label: 'Padrão', title: 'Padrão: vale para tudo o que combinar com ele', tag: 'border-primary/40 bg-primary/10 text-text' },
+  missing: { label: 'Não encontrado', title: 'Este caminho não existe no agente agora', tag: 'border-danger/40 bg-danger/10 text-danger' },
+  unknown: { label: 'Não conferido', title: 'Não foi possível consultar o agente (offline, versão antiga ou sem permissão)', tag: 'border-dashed border-border text-muted' },
+}
+
+const LinkIcon = () => (
+  <svg viewBox="0 0 20 20" className="h-4 w-4 shrink-0 text-muted" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M5 2.75h6.5L15.25 6.5v10.75H5z" /><path d="M7.5 14c0-2.5 1.5-4 4.500-4M10 8.500l2 1.500-2 1.500" /></svg>
+)
+const PatternIcon = () => <span className="w-4 shrink-0 text-center font-mono text-sm font-bold text-primary" aria-hidden="true">✱</span>
+
+function KindIcon({ kind }: { kind?: Kind }) {
+  if (kind === 'dir') return <FolderIcon />
+  if (kind === 'file') return <FileIcon />
+  if (kind === 'link') return <LinkIcon />
+  if (kind === 'pattern') return <PatternIcon />
+  return <span className="w-4 shrink-0 text-center text-muted" aria-hidden="true">{kind === 'missing' ? '!' : '·'}</span>
+}
+
 /** Lista de itens escolhidos, com remover, o botão que abre a árvore e (recolhida) a digitação, para casos especiais. */
-export function PathList({ label, hint, items, empty, pickLabel, pickDisabled, typeLabel, placeholder, onPick, onChange }: {
-  label: string; hint: string; items: string[]; empty: string; pickLabel: string; pickDisabled?: string
+export function PathList({ agentId, label, hint, items, empty, pickLabel, pickDisabled, typeLabel, placeholder, onPick, onChange }: {
+  agentId: number; label: string; hint: string; items: string[]; empty: string; pickLabel: string; pickDisabled?: string
   typeLabel: string; placeholder: string; onPick: () => void; onChange: (items: string[]) => void
 }) {
+  const kinds = useKinds(agentId, items)
   const [typing, setTyping] = useState(false)
   const [text, setText] = useState('')
   function add() {
@@ -271,8 +332,10 @@ export function PathList({ label, hint, items, empty, pickLabel, pickDisabled, t
         {items.length === 0 ? <p className="px-3 py-2.5 text-muted">{empty}</p> : (
           <ul className="scroll-fino max-h-44 overflow-y-auto divide-y divide-border">
             {items.map((p) => (
-              <li key={p} className="flex items-center gap-2 px-3 py-1.5">
-                <span className="min-w-0 flex-1 break-all font-mono text-xs">{p}</span>
+              <li key={p} className="flex items-center gap-2 px-3 py-1.5" title={kinds[p] ? KIND[kinds[p]].title : undefined}>
+                <KindIcon kind={kinds[p]} />
+                <span data-path={p} className={`min-w-0 flex-1 break-all font-mono text-xs ${kinds[p] === 'dir' ? 'font-semibold' : ''}`}>{p}{kinds[p] === 'dir' && !p.endsWith('/') ? '/' : ''}</span>
+                {kinds[p] && <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] leading-none ${KIND[kinds[p]].tag}`}>{KIND[kinds[p]].label}</span>}
                 <button type="button" aria-label={`Remover ${p}`} className="text-muted hover:text-danger" onClick={() => onChange(items.filter((x) => x !== p))}>✕</button>
               </li>
             ))}

@@ -30,7 +30,7 @@ export default function App() {
   const [theme, setTheme] = useState('coruja')
   const [phase, setPhase] = useState<Phase>('loading')
   const [me, setMe] = useState<Me | null>(null)
-  const [version, setVersion] = useState('0.0.14')
+  const [version, setVersion] = useState('0.0.15')
   const route = useRoute()
   useFavicon(brand)
 
@@ -169,7 +169,7 @@ function Dashboard({ name, canReport }: { name: string; canReport: boolean }) {
       {agents && active.length === 0 && (
         <Card className="mt-6">
           <b>Comece adicionando um agente.</b>
-          <p className="mt-1 text-sm text-muted">Vá em <a className="text-primary underline" href="#/agentes">Agentes</a> e gere um token de matrícula para o primeiro servidor.</p>
+          <p className="mt-1 text-sm text-muted">Vá em <a className="text-primary underline" href="#/agentes">Agentes</a> e gere um token de matrícula para o primeiro agente.</p>
         </Card>
       )}
     </div>

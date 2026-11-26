@@ -2,13 +2,13 @@
   "schema": 1,
   "id": "clube-naval",
   "name": "Clube Naval",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Coruja Backup",
-  "description": "Identidade visual do Clube Naval: fundo claro, azul-marinho do site, dourado do monograma e vinho do brasão.",
+  "description": "Identidade visual do Clube Naval: fundo claro, botões no vermelho da âncora do brasão e dourado do monograma.",
   "colors": {
     "bg": "#f5f6f8", "surface": "#ffffff", "text": "#262a33", "muted": "#5f6673", "border": "#dfe3ea",
-    "primary": "#2b4263", "primary_contrast": "#ffffff", "accent": "#be904e", "ok": "#1f7a4d", "danger": "#aa3335"
+    "primary": "#aa3335", "primary_contrast": "#ffffff", "accent": "#be904e", "ok": "#1f7a4d", "danger": "#c2410c"
   },
-  "document": { "bg": "#f5f6f8", "text": "#373435", "primary": "#2b4263", "accent": "#be904e", "danger": "#aa3335" },
+  "document": { "bg": "#f5f6f8", "text": "#373435", "primary": "#aa3335", "accent": "#be904e", "danger": "#c2410c" },
   "logo": { "ui": "logo.png", "document": "logo-documento.png" }
 }

@@ -1,7 +1,7 @@
 # Changelog
 
 ## [Não publicado]
-- **Tema Clube Naval** em `themes/clube-naval` (azul-marinho, dourado e vinho; escudo na interface e logo completa em e-mail e PDF).
+- **Tema Clube Naval** em `themes/clube-naval` (botões no vermelho da âncora do brasão e dourado; escudo na interface e logo completa em e-mail e PDF).
 
 ## [0.0.10] - Fase 9 · Login com um clique e Dropbox
 - **Dropbox:** novo destino, com login por popup (cliente público, sem segredo) e acesso só à pasta do aplicativo. Envio em partes com retomada, conferência pelo `content_hash` do Dropbox, retenção, download e restauração. Como o Dropbox não tem endereço pré-autorizado para arquivos grandes, o agente recebe um **token de curta duração só de escrita de conteúdo** (exceção à regra "o agente não recebe tokens"); cada envio precisa terminar antes de o token vencer (cerca de 4 horas).

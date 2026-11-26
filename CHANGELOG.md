@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.13] - Clicar e selecionar
+- **Clicar e selecionar:** no job, as pastas e arquivos a salvar e as exclusões são marcados numa árvore do servidor do agente; a **pasta de destino no agente** e a **pasta no destino** (nuvens, SFTP, FTP, SMB e pasta local) são escolhidas num navegador de pastas, que também cria pasta nova. Digitar continua possível para padrões (`*.tmp`) e casos especiais.
+- A navegação mostra só nomes e tamanhos, respeita `CORUJA_ALLOWED_PATHS`, não segue atalhos e exige perfil Operador ou Administrador. **Atualize os agentes** para usá-la.
+- **Endereço para os agentes:** o administrador pode informar o endereço:porta usado nos comandos de instalação (para quando o canal é publicado em outra porta ou outro nome).
+- **Correção:** os botões "Copiar" não faziam nada quando a interface era aberta por `http://IP:porta` (o navegador só libera a área de transferência moderna em HTTPS ou `localhost`). Agora funcionam nos dois casos e mostram "Copiado ✓".
+
 ## [0.0.12] - Destinos de rede
 - **Destinos de rede:** SFTP (chave do servidor fixada), FTP/FTPS, SMB/CIFS e pasta local (NFS/iSCSI via volume montado em `/destinos`). O agente grava com nome temporário, confere relendo o arquivo (SHA-256) ou por tamanho, renomeia e só então aplica a retenção; "Trazer do destino" para restaurar. Testados contra servidores reais (`scripts/test-netdest.sh`).
 - A página **Nuvem** passou a se chamar **Destinos**.

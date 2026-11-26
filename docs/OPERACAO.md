@@ -52,6 +52,7 @@ A nova senha é lida do terminal (ou de `CORUJA_NEW_PASSWORD`). Todas as sessõe
 ## Solução de problemas
 | Sintoma | Causa provável | O que fazer |
 | :--- | :--- | :--- |
+| Os comandos de **Novo agente** mostram a porta errada | o canal está publicado em outra porta ou nome (ex.: `8444:8443`) | em **Agentes**, ajuste **Endereço para os agentes** |
 | Agente "offline" | rede/porta `8443` bloqueada, token já usado, agente revogado | `docker logs corujabackup-agent`; libere a porta; gere novo token |
 | "o certificado do Server não confere" | o volume `/data` do Server foi recriado | restaure `tls/` ou matricule os agentes de novo |
 | Backup "Perdido" | agente parado/offline no horário | veja o log do agente; o agente recupera horários perdidos em até 6 h |

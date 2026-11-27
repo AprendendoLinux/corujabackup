@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.22] - Backup de MikroTik
+- **Roteadores MikroTik (RouterOS 6 e 7):** novo tipo de job **Roteador MikroTik**. O agente acessa o roteador por SSH e salva o **export da configuração** (`.rsc`), o **export com dados sensíveis** (senhas e chaves) e o **backup binário** (`.backup`, cifrado com a senha do job), mais um `info.txt` com a identificação e como restaurar. Tudo num `.tar.gz` conferido, com storages, gravação direta e retenção como os outros backups.
+- O `.backup` é gerado no roteador com nome temporário, baixado por SFTP e **apagado do roteador** em seguida, mesmo em caso de falha.
+- **Teste pelo painel** (sem gravar nada no roteador) e **impressão digital fixada**: se a chave do roteador mudar, o backup é recusado. Mensagens claras para senha errada, SSH desligado e falta de permissão (com as políticas necessárias).
+- **Restauração testada num RouterOS real:** `.backup` carregado com a senha e `.rsc` importado num roteador de fábrica. Guia em `docs/MIKROTIK.md` e no Histórico.
+- **Extrair no agente** agora também traz sozinho do storage de rede um backup **completo** (antes, só os incrementais), conferido pelo SHA-256 e apagado depois. Resolve a restauração de jobs com gravação direta.
+- **Exige agente 0.0.22** para jobs de MikroTik.
+
 ## [0.0.21] - Full + incrementais
 - **Backups incrementais:** no job, escolha **Full + incrementais** e o dia da semana do full (padrão: domingo). Nos outros dias, só entram os arquivos novos ou alterados (pela data, tamanho e inode) e a lista do que foi apagado. Menos espaço e envios bem mais rápidos.
 - **Full automático quando preciso:** no dia marcado, no primeiro backup, quando as origens ou exclusões mudam e quando o último full tem 7 dias ou mais (o do dia marcado não rodou). Na lista de jobs, **Executar backup full agora** abre uma nova semana na hora.

@@ -19,6 +19,7 @@ import (
 
 	"github.com/AprendendoLinux/corujabackup/internal/dbdump"
 	"github.com/AprendendoLinux/corujabackup/internal/dockerapi"
+	"github.com/AprendendoLinux/corujabackup/internal/mikrotik"
 	"github.com/AprendendoLinux/corujabackup/internal/netdest"
 	"github.com/AprendendoLinux/corujabackup/internal/pb"
 )
@@ -88,7 +89,19 @@ func runDatabase(ctx context.Context, name string, spec *pb.DbSpec, subdir strin
 		h.log("info", "conferência estrutural concluída (para provar a restauração, ative o teste de restauração real no job)")
 	}
 
-	prefix := Slug(name)
+	var srcBytes int64
+	for _, f := range dumped.Files {
+		srcBytes += f.Bytes
+	}
+	packed, err := packWork(ctx, work, dest, Slug(name), loc, now, h, out, int64(len(dumped.Files)), srcBytes, "bancos/arquivos")
+	packed.Warnings += res.Warnings // avisos do dump e do teste de restauração
+	return packed, err
+}
+
+// packWork empacota os arquivos de uma pasta de trabalho (sem subpastas) num .tar.gz, confere e o grava na pasta de
+// destino do agente ou, com out (modo direto), no storage. Usado pelos jobs de banco e de MikroTik.
+func packWork(ctx context.Context, work, dest, prefix string, loc *time.Location, now time.Time, h Hooks, out archiveOut, files, srcBytes int64, what string) (Result, error) {
+	var res Result
 	local := out == nil
 	if local {
 		out = &localOut{dest: dest}
@@ -103,11 +116,8 @@ func runDatabase(ctx context.Context, name string, spec *pb.DbSpec, subdir strin
 		return res, err
 	}
 	res.OutputName, res.Prefix = arcName, prefix
-	res.BytesOutput, res.SHA256, res.Files = size, sum, int64(len(dumped.Files))
-	for _, f := range dumped.Files {
-		res.BytesSource += f.Bytes
-	}
-	h.log("info", "arquivo gerado: %s (%s, %d bancos/arquivos)", arcName, HumanBytes(size), len(dumped.Files))
+	res.BytesOutput, res.SHA256, res.Files, res.BytesSource = size, sum, files, srcBytes
+	h.log("info", "arquivo gerado: %s (%s, %d %s)", arcName, HumanBytes(size), files, what)
 	if !local {
 		h.log("info", "conferindo o arquivo no storage")
 	}
@@ -302,6 +312,18 @@ func (c *Core) rpc(ctx context.Context, m *pb.Rpc) ([]byte, error) {
 			return nil, err
 		}
 		return json.Marshal(r)
+	case "mikrotik_test":
+		var cfg mikrotik.Config
+		if err := json.Unmarshal(m.Payload, &cfg); err != nil {
+			return nil, fmt.Errorf("pedido inválido: %w", err)
+		}
+		tctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+		defer cancel()
+		info, err := mikrotik.Test(tctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(info)
 	case "db_test":
 		var d pb.DbSpec
 		if err := json.Unmarshal(m.Payload, &d); err != nil {

@@ -103,12 +103,18 @@ func New(cfg Config, st *State, log *slog.Logger) *Core {
 	c.exec = func(ctx context.Context, job FilesJob, loc *time.Location, now time.Time, h Hooks) (Result, error) {
 		var chosen string // caminho real da pasta escolhida na interface ("" = pasta de backups padrão)
 		// no modo direto, um job de arquivos não usa pasta local; o de banco ainda precisa dela para o dump temporário
-		if strings.HasPrefix(job.Subdir, "/") && (job.out == nil || job.DB != nil) {
+		if strings.HasPrefix(job.Subdir, "/") && (job.out == nil || job.DB != nil || job.Mikrotik != nil) {
 			var err error
 			if chosen, err = c.localDir(job.Subdir); err != nil {
 				return Result{}, err
 			}
 			h.log("info", "pasta do backup local: %s", job.Subdir)
+		}
+		if job.Mikrotik != nil {
+			if chosen != "" {
+				return runMikrotik(ctx, job.Name, job.Mikrotik, ".", chosen, loc, now, h, job.out)
+			}
+			return runMikrotik(ctx, job.Name, job.Mikrotik, job.Subdir, c.cfg.BackupDir, loc, now, h, job.out)
 		}
 		if job.DB != nil {
 			if chosen != "" {
@@ -182,7 +188,7 @@ func (c *Core) Tick() {
 	var due []runReq
 	changed := false
 	for id, spec := range c.jobs {
-		if !spec.Enabled || (spec.Kind != "files" && spec.Kind != "database") {
+		if !spec.Enabled || (spec.Kind != "files" && spec.Kind != "database" && spec.Kind != "mikrotik") {
 			continue
 		}
 		sc, err := sched.Parse(spec.Cron, spec.Timezone)
@@ -386,14 +392,20 @@ func (c *Core) execute(parent context.Context, r runReq) {
 		loc = time.UTC
 	}
 	job := FilesJob{Name: r.spec.Name, Paths: r.spec.Paths, Excludes: r.spec.Excludes, Subdir: r.spec.DestSubdir, Keep: int(r.spec.Keep), SkipRetention: true}
-	if r.spec.Kind == "database" {
+	switch r.spec.Kind {
+	case "database":
 		job.DB = r.spec.Db
+	case "mikrotik":
+		job.Mikrotik = r.spec.Mikrotik
+		if job.Mikrotik == nil {
+			job.Mikrotik = &pb.MikrotikSpec{} // runMikrotik explica o que falta
+		}
 	}
 	// incremental: full no dia marcado (ou quando não há base confiável); nos outros dias, só o que mudou
 	var plan *incPlan
 	var prevSnap *Snapshot
 	sig := ""
-	if r.spec.Kind != "database" && r.spec.BackupMode == ModeIncremental && c.st != nil {
+	if (r.spec.Kind == "files" || r.spec.Kind == "") && r.spec.BackupMode == ModeIncremental && c.st != nil {
 		sig = jobSig(c.cfg.HostRoot, r.spec.Paths, r.spec.Excludes)
 		prevSnap = c.st.LoadSnapshot(r.spec.JobId)
 		local := started.In(loc)

@@ -1682,3 +1682,52 @@ func TestJobIncremental(t *testing.T) {
 		t.Fatalf("um full não precisa de cadeia: %v", act.Chain)
 	}
 }
+
+func TestJobMikrotik(t *testing.T) {
+	e := newEnv(t)
+	adm := setupAdmin(e)
+	ag := newAgent(t, e, "srv-mt")
+	rt := map[string]any{"host": "10.0.0.1", "user": "coruja", "password": "s3nha", "export": true, "binary": true, "backup_password": "senha-backup-1", "host_key": "SHA256:abc"}
+	job := func(name string, m map[string]any) map[string]any {
+		return map[string]any{"name": name, "agent_id": ag.ID, "kind": "mikrotik", "mikrotik": m}
+	}
+	if code, m := adm.do("POST", "/api/jobs", job("velho", rt)); code != 400 || !strings.Contains(m["error"].(string), "0.0.22") {
+		t.Fatalf("agente antigo: %d %v", code, m)
+	}
+	e.api.Store.DB.Exec("UPDATE agents SET agent_version='0.0.22' WHERE id=?", ag.ID)
+	semChave := map[string]any{}
+	for k, v := range rt {
+		semChave[k] = v
+	}
+	delete(semChave, "host_key")
+	if code, m := adm.do("POST", "/api/jobs", job("sem-chave", semChave)); code != 400 || !strings.Contains(m["error"].(string), "impressão digital") {
+		t.Fatalf("sem impressão digital: %d %v", code, m)
+	}
+	id := int64(adm.mustOK("POST", "/api/jobs", job("roteador", rt))["id"].(float64))
+	var v map[string]any
+	for _, x := range adm.mustOK("GET", "/api/jobs", nil)["jobs"].([]any) {
+		if x.(map[string]any)["name"] == "roteador" {
+			v = x.(map[string]any)
+		}
+	}
+	mt := v["mikrotik"].(map[string]any)
+	if mt["password_set"] != true || mt["backup_password_set"] != true || mt["host"] != "10.0.0.1" || mt["password"] != nil || mt["backup_password"] != nil {
+		t.Fatalf("a visão não pode expor senhas: %v", mt)
+	}
+	// editar sem reenviar as senhas mantém as salvas
+	edit := map[string]any{"host": "10.0.0.1", "user": "coruja", "export": true, "export_sensitive": true, "binary": true, "host_key": "SHA256:abc"}
+	adm.mustOK("PATCH", "/api/jobs/"+itoa(int(id)), map[string]any{"mikrotik": edit})
+	j, _ := e.api.Store.GetJob(context.Background(), id)
+	c, err := j.OpenMikrotik(e.api.Box)
+	if err != nil || c.Password != "s3nha" || c.BackupPassword != "senha-backup-1" || !c.ExportSensitive || j.BackupMode != "full" {
+		t.Fatalf("edição: %v %+v %s", err, c, j.BackupMode)
+	}
+	// trocar o roteador exige a senha de novo
+	edit["host"] = "10.0.0.2"
+	if code, _ := adm.do("PATCH", "/api/jobs/"+itoa(int(id)), map[string]any{"mikrotik": edit}); code != 400 {
+		t.Fatalf("outro roteador sem senha deveria ser recusado: %d", code)
+	}
+	if db, _ := j.OpenDB(e.api.Box); db != nil {
+		t.Fatal("job de MikroTik não tem configuração de banco")
+	}
+}

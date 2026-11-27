@@ -100,6 +100,14 @@ func (s *Server) specFor(j store.Job) *pb.JobSpec {
 			}
 		}
 	}
+	if j.Kind == "mikrotik" {
+		if c, err := j.OpenMikrotik(s.Box); err == nil && c != nil {
+			sp.Mikrotik = &pb.MikrotikSpec{Host: c.Host, Port: int32(c.Port), User: c.User, Password: c.Password, PrivateKey: c.PrivateKey, HostKey: c.HostKey,
+				Export: c.Export, ExportSensitive: c.ExportSensitive, Binary: c.Binary, BackupPassword: c.BackupPassword}
+		} else if err != nil {
+			slog.Error("não foi possível decifrar a configuração do roteador", "job", j.Name, "erro", err.Error())
+		}
+	}
 	if j.Kind == "database" {
 		if cfg, err := j.OpenDB(s.Box); err == nil && cfg != nil {
 			sp.Db = &pb.DbSpec{Engine: cfg.Engine, Mode: cfg.Mode, Container: cfg.Container, Host: cfg.Host, Port: int32(cfg.Port), User: cfg.User,

@@ -26,7 +26,7 @@ type DBConfig struct {
 
 // OpenDB decifra a configuração do job (nil se o job não for de banco).
 func (j *Job) OpenDB(box *secrets.Box) (*DBConfig, error) {
-	if j.DBSealed == "" {
+	if j.DBSealed == "" || j.Kind == "mikrotik" { // num job de MikroTik a coluna guarda o roteador
 		return nil, nil
 	}
 	if box == nil {

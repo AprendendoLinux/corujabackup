@@ -141,6 +141,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/agents/{id}/containers", s.authed(roleOperator, s.agentContainers))
 	mux.HandleFunc("GET /api/agents/{id}/browse", s.authed(roleOperator, s.agentBrowse))
 	mux.HandleFunc("POST /api/agents/{id}/db-test", s.authed(roleOperator, s.dbTest))
+	mux.HandleFunc("POST /api/agents/{id}/mikrotik-test", s.authed(roleOperator, s.mikrotikTest))
 	mux.HandleFunc("GET /api/notifications/channels", s.authed(roleAdmin, s.listChannels))
 	mux.HandleFunc("POST /api/notifications/channels", s.authed(roleAdmin, s.createChannel))
 	mux.HandleFunc("PATCH /api/notifications/channels/{id}", s.authed(roleAdmin, s.updateChannel))

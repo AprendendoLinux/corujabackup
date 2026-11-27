@@ -9,6 +9,7 @@ import DialogHost from './Dialogs'
 import { Login, Setup } from './pages/Auth'
 import Agents from './pages/Agents'
 import Dashboard from './pages/Dashboard'
+import Restore from './pages/Restore'
 import Jobs from './pages/Jobs'
 import Clouds from './pages/Clouds'
 import Runs from './pages/Runs'
@@ -29,11 +30,12 @@ function useRoute() {
   return r
 }
 
-type NavItem = { to: string; label: string; icon: IconName; admin?: boolean }
+type NavItem = { to: string; label: string; icon: IconName; admin?: boolean; operator?: boolean }
 const NAV: { title: string; items: NavItem[] }[] = [
   { title: 'Operação', items: [
     { to: 'painel', label: 'Painel', icon: 'painel' }, { to: 'agentes', label: 'Agentes', icon: 'agentes' },
     { to: 'jobs', label: 'Jobs', icon: 'jobs' }, { to: 'nuvem', label: 'Storages', icon: 'destinos' }, { to: 'historico', label: 'Histórico', icon: 'historico' },
+    { to: 'restaurar', label: 'Restaurar', icon: 'restaurar', operator: true },
   ] },
   { title: 'Administração', items: [
     { to: 'usuarios', label: 'Usuários', icon: 'usuarios', admin: true }, { to: 'notificacoes', label: 'Notificações', icon: 'notificacoes', admin: true },
@@ -48,7 +50,7 @@ export default function App() {
   const [brand, setBrand] = useState<Branding>({ name: 'Coruja Backup', theme: 'coruja', themes: [], has_logo: false })
   const [phase, setPhase] = useState<Phase>('loading')
   const [me, setMe] = useState<Me | null>(null)
-  const [version, setVersion] = useState('0.0.22')
+  const [version, setVersion] = useState('0.0.23')
   const [drawer, setDrawer] = useState(false)
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const route = useRoute()
@@ -119,7 +121,7 @@ export default function App() {
       </div>
       <nav className="scroll-fino flex-1 overflow-y-auto px-3 py-4" aria-label="Principal">
         {NAV.map((g) => {
-          const items = g.items.filter((i) => !i.admin || isAdmin)
+          const items = g.items.filter((i) => (!i.admin || isAdmin) && (!i.operator || me.user.role !== 'viewer'))
           if (items.length === 0) return null
           return (
             <div key={g.title} className="mb-5">
@@ -185,6 +187,7 @@ export default function App() {
             {page === 'agentes' ? <Agents me={me.user} />
               : page === 'jobs' ? <Jobs me={me.user} />
               : page === 'nuvem' || page === 'storages' ? <Clouds me={me.user} />
+              : page === 'restaurar' ? <Restore me={me.user} jobParam={Number(new URLSearchParams(route.split('?')[1] ?? '').get('job') ?? 0)} />
               : page === 'historico' ? <Runs me={me.user} jobFilter={Number(new URLSearchParams(route.split('?')[1] ?? '').get('job') ?? 0)} />
               : page === 'usuarios' && isAdmin ? <Users me={me.user} />
               : page === 'auditoria' && isAdmin ? <Audit />

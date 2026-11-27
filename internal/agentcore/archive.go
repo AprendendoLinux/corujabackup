@@ -137,9 +137,13 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 	skipInDir := map[string][]*regexp.Regexp{} // por pasta percorrida: o que o agente gerou nela
 	virtual := readVirtualMounts()
 	inc := job.inc
-	if inc != nil {
-		inc.next = &Snapshot{Version: snapshotVersion, Files: map[string]fileMeta{}}
+	// o catálogo (estado de cada item e onde está o conteúdo) é montado em todo job de arquivos; num job
+	// incremental ele também é a base do próximo backup
+	cat := inc
+	if cat == nil {
+		cat = &incPlan{}
 	}
+	cat.next = &Snapshot{Version: snapshotVersion, Files: map[string]fileMeta{}}
 	name, w, err := out.begin(prefix, loc, now, inc != nil && inc.base != nil)
 	if err != nil {
 		return res, err
@@ -234,13 +238,12 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 				return nil
 			}
 			meta := metaOf(info)
-			record := func() {
-				if inc != nil {
-					inc.next.Files[logical] = meta
-				}
-			}
-			// incremental: o que não mudou desde o backup anterior fica de fora (mas continua no retrato)
+			meta.A = cat.current()
+			record := func() { cat.next.Files[logical] = meta }
+			// incremental: o que não mudou desde o backup anterior fica de fora (mas continua no retrato, apontando
+			// para o arquivo da cadeia que guarda o conteúdo)
 			if inc != nil && !mode.IsDir() && inc.unchanged(logical, meta) {
+				meta.A = inc.archiveOf(logical)
 				record()
 				inc.same++
 				return after
@@ -336,10 +339,15 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 		if inc.base != nil {
 			h.log("info", "incremental sobre %s: %d arquivo(s) novo(s) ou alterado(s), %d sem mudança, %d apagado(s) desde o anterior", inc.base.Last, inc.reads, inc.same, len(m.Deleted))
 		}
-		inc.next.Sig, inc.next.Chain, inc.next.Last = "", m.Chain, name
-		res.Snapshot = inc.next
 		res.Kind = inc.kind()
 	}
+	cat.next.Chain, cat.next.Last = name, name
+	cat.next.Archives = []string{name}
+	if inc != nil && inc.base != nil {
+		cat.next.Chain = inc.base.Chain
+		cat.next.Archives = append(append([]string{}, inc.base.Archives...), name)
+	}
+	res.Snapshot = cat.next
 	if err := tw.Close(); err != nil {
 		return fail(err)
 	}

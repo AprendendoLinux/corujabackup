@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.23] - Restauração por seleção
+- **Nova página Restaurar:** escolha o job e um ponto na **linha do tempo** (cada backup, agrupado por dia, full ou incremental) e **navegue nos arquivos como estavam naquele momento**, pasta por pasta, com tamanho e data. Nos incrementais, o que mudou naquele backup aparece marcado.
+- **Versões de um arquivo:** veja todas as versões de um arquivo nos backups do job (data, tamanho e em quantos backups aparece) e abra o backup de qualquer uma delas.
+- **Restaure só o que marcar** (arquivos e pastas): numa **pasta de restauração** no agente (seguro, nada no servidor muda) ou, só para administradores, **no local original**, sobrescrevendo (com confirmação e registro na auditoria). Cada arquivo sai do pacote certo da cadeia, sem aplicar a semana inteira, e o que estiver só no storage de rede é trazido sozinho. O andamento aparece na própria janela.
+- **Backups antigos:** os anteriores a esta versão não têm índice; a página oferece **Gerar índice**, que o agente monta lendo o próprio arquivo.
+- No Histórico, **Navegar e restaurar arquivos** leva direto à página.
+- A extração (inclusive "Extrair no agente") grava cada arquivo num temporário e o renomeia no fim, e devolve o dono original quando o agente roda como root.
+- **Exige agente 0.0.23.** Depois de atualizar, o primeiro backup de cada job incremental é full (o formato interno do retrato mudou).
+
 ## [0.0.22] - Backup de MikroTik
 - **Roteadores MikroTik (RouterOS 6 e 7):** novo tipo de job **Roteador MikroTik**. O agente acessa o roteador por SSH e salva o **export da configuração** (`.rsc`), o **export com dados sensíveis** (senhas e chaves) e o **backup binário** (`.backup`, cifrado com a senha do job), mais um `info.txt` com a identificação e como restaurar. Tudo num `.tar.gz` conferido, com storages, gravação direta e retenção como os outros backups.
 - O `.backup` é gerado no roteador com nome temporário, baixado por SFTP e **apagado do roteador** em seguida, mesmo em caso de falha.

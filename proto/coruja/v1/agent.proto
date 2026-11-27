@@ -237,7 +237,7 @@ message RpcResult { string id = 1; bool ok = 2; string error = 3; bytes payload 
 
 message AgentAction {
   string id = 1;
-  string kind = 2;                 // "reupload" | "extract" | "fetch"
+  string kind = 2;                 // "reupload" | "extract" | "fetch" | "restore_files" | "index"
   string run_uid = 3;
   int64 job_id = 4;
   string file_name = 5;            // arquivo de backup (no padrão do job) na pasta de destino do agente
@@ -246,6 +246,8 @@ message AgentAction {
   string sha256 = 8;               // fetch/extract: hash esperado do arquivo (o que vier do storage é conferido)
   repeated string chain = 9;       // extract de um incremental: arquivos da cadeia em ordem (o full primeiro; o último é file_name)
   repeated string chain_sha256 = 10; // SHA-256 de cada arquivo de chain (para conferir o que for trazido do storage)
+  repeated string paths = 11;      // restore_files: caminhos escolhidos (pastas incluem o que há dentro)
+  bool original = 12;              // restore_files: grava no local original (sobrescreve), em vez de restores/<target>
 }
 
 message ActionLog {

@@ -1,0 +1,301 @@
+// Restaurar: escolha o job, um ponto na linha do tempo (cada backup), navegue nos arquivos como estavam naquele momento,
+// veja as versões de um arquivo e restaure só o que marcar (numa pasta de restauração ou no local original).
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Job, Run, RunLog, User, api, ApiError, fmtBytes } from '../api'
+import { Badge, Button, Card, ErrorBox, Input, Modal, Spinner } from '../ui'
+import { confirmar } from '../Dialogs'
+
+type Entry = { name: string; dir: boolean; link?: boolean; size: number; modified: number; here: boolean; files?: number }
+type Listing = { dir: string; entries: Entry[]; files: number; incremental: boolean; chain: number }
+type Version = { archive: string; size: number; modified: number; backups: number; latest: string }
+
+const fmtWhen = (s: string | null) => (s ? new Date(s).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—')
+const fmtUnix = (n: number) => (n ? new Date(n * 1000).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—')
+const join = (dir: string, name: string) => (dir === '/' ? '/' + name : dir + '/' + name)
+const dayKey = (s: string | null) => {
+  const d = s ? new Date(s).toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' }) : ''
+  return d.charAt(0).toUpperCase() + d.slice(1)
+}
+
+function FolderIcon() {
+  return <svg aria-hidden width="18" height="18" viewBox="0 0 24 24" fill="currentColor" className="shrink-0 text-accent"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>
+}
+function FileIcon() {
+  return <svg aria-hidden width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="shrink-0 text-muted"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><path d="M14 3v6h6" /></svg>
+}
+
+export default function Restore({ me, jobParam }: { me: User; jobParam: number }) {
+  const [jobs, setJobs] = useState<Job[]>([])
+  const [jobId, setJobId] = useState(jobParam)
+  const [runs, setRuns] = useState<Run[] | null>(null)
+  const [runId, setRunId] = useState(0)
+  const [err, setErr] = useState('')
+  useEffect(() => { api<{ jobs: Job[] }>('GET', '/api/jobs').then((r) => { setJobs(r.jobs); if (!jobParam) { const f = r.jobs.find((j) => j.kind === 'files'); if (f) setJobId(f.id) } }).catch((x) => setErr((x as ApiError).message)) }, [jobParam])
+  useEffect(() => {
+    setRuns(null); setRunId(0)
+    if (!jobId) return
+    api<{ runs: Run[] }>('GET', `/api/runs?job_id=${jobId}&limit=500`).then((r) => {
+      const ok = r.runs.filter((x) => (x.status === 'ok' || x.status === 'warning') && x.output_name)
+      setRuns(ok)
+      if (ok[0]) setRunId(ok[0].id)
+    }).catch((x) => setErr((x as ApiError).message))
+  }, [jobId])
+  const job = jobs.find((j) => j.id === jobId)
+  const run = runs?.find((r) => r.id === runId) ?? null
+  const byArchive = useMemo(() => new Map((runs ?? []).map((r) => [r.output_name, r])), [runs])
+  const groups = useMemo(() => {
+    const g: { day: string; runs: Run[] }[] = []
+    for (const r of runs ?? []) {
+      const d = dayKey(r.started_at)
+      if (!g.length || g[g.length - 1].day !== d) g.push({ day: d, runs: [] })
+      g[g.length - 1].runs.push(r)
+    }
+    return g
+  }, [runs])
+  const sel = 'rounded-lg border border-border bg-surface px-2.5 py-2 text-sm'
+  return (
+    <div className="space-y-5">
+      <div>
+        <h1 className="text-2xl font-semibold">Restaurar</h1>
+        <p className="mt-1 text-sm text-muted">Escolha um backup na linha do tempo, navegue nos arquivos como estavam naquele momento e restaure só o que precisar.</p>
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <select aria-label="Job" className={sel} value={jobId} onChange={(e) => setJobId(Number(e.target.value))}>
+          <option value={0}>Escolha um job…</option>
+          {jobs.map((j) => <option key={j.id} value={j.id} disabled={j.kind !== 'files'}>{j.name}{j.kind !== 'files' ? (j.kind === 'database' ? ' (banco: use o Histórico)' : ' (MikroTik: use o Histórico)') : ''}</option>)}
+        </select>
+        {job && <span className="text-sm text-muted">{job.agent_name} · {job.backup_mode === 'incremental' ? 'full + incrementais' : 'completo a cada execução'}</span>}
+      </div>
+      <ErrorBox message={err} />
+      {jobId !== 0 && runs && runs.length === 0 && <Card><p className="text-sm text-muted">Este job ainda não tem backups concluídos.</p></Card>}
+      {runs && runs.length > 0 && job && (
+        <div className="grid gap-4 lg:grid-cols-[18rem_1fr]">
+          <Card className="min-w-0 p-0">
+            <div className="border-b border-border px-4 py-3"><h2 className="font-semibold">Linha do tempo</h2><p className="text-xs text-muted">{runs.length} backup(s); o mais recente no topo</p></div>
+            <ol className="scroll-fino max-h-[70vh] overflow-y-auto p-2" aria-label="Backups">
+              {groups.map((g) => (
+                <li key={g.day}>
+                  <div className="px-2 pb-1 pt-2 text-xs font-medium text-muted">{g.day}</div>
+                  <ul className="space-y-1">
+                    {g.runs.map((r) => (
+                      <li key={r.id}>
+                        <button type="button" onClick={() => setRunId(r.id)} aria-current={r.id === runId}
+                          className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition ${r.id === runId ? 'bg-primary text-primary-contrast' : 'hover:bg-bg'}`}>
+                          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${r.backup_kind === 'incremental' ? 'border-2 border-current' : 'bg-current'}`} aria-hidden />
+                          <span className="min-w-0 flex-1">
+                            <span className="block font-medium tabular-nums">{new Date(r.started_at ?? r.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                            <span className={`block truncate text-xs ${r.id === runId ? 'opacity-80' : 'text-muted'}`}>{r.backup_kind === 'incremental' ? 'incremental' : 'full'} · {fmtBytes(r.bytes_output)}{r.status === 'warning' ? ' · com avisos' : ''}</span>
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ol>
+          </Card>
+          {run && <Browser key={run.id} me={me} job={job} run={run} byArchive={byArchive} onPick={(id) => setRunId(id)} />}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Browser({ me, job, run, byArchive, onPick }: { me: User; job: Job; run: Run; byArchive: Map<string, Run>; onPick: (id: number) => void }) {
+  const [dir, setDir] = useState('/')
+  const [list, setList] = useState<Listing | null>(null)
+  const [err, setErr] = useState('')
+  const [noIndex, setNoIndex] = useState(false)
+  const [indexing, setIndexing] = useState(false)
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [versions, setVersions] = useState<string | null>(null)
+  const [restoring, setRestoring] = useState(false)
+  const load = useCallback((d: string) => {
+    setErr('')
+    api<Listing>('GET', `/api/runs/${run.id}/browse?dir=${encodeURIComponent(d)}`).then((r) => { setList(r); setNoIndex(false); setIndexing(false) }).catch((x) => {
+      const m = (x as ApiError).message
+      if (m.includes('sem catálogo')) setNoIndex(true); else setErr(m)
+      setList(null)
+    })
+  }, [run.id])
+  useEffect(() => { load(dir) }, [dir, load])
+  // enquanto o índice é montado, tenta de novo a cada 3 s
+  useEffect(() => {
+    if (!indexing) return
+    const t = setInterval(() => load(dir), 3000)
+    return () => clearInterval(t)
+  }, [indexing, dir, load])
+  const crumbs = dir === '/' ? [] : dir.split('/').slice(1)
+  const covered = (p: string) => [...picked].some((x) => p === x || p.startsWith(x + '/'))
+  function toggle(p: string) {
+    const n = new Set([...picked].filter((x) => !x.startsWith(p + '/')))
+    if (picked.has(p)) n.delete(p); else n.add(p)
+    setPicked(n)
+  }
+  const allHere = list?.entries.every((e) => covered(join(dir, e.name))) ?? false
+  return (
+    <Card className="min-w-0 p-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
+        <div className="min-w-0">
+          <h2 className="font-semibold">{fmtWhen(run.started_at)} <span className="ml-1 align-middle"><Badge tone={run.backup_kind === 'incremental' ? 'warn' : 'ok'}>{run.backup_kind === 'incremental' ? 'Incremental' : 'Full'}</Badge></span></h2>
+          <p className="truncate text-xs text-muted">{run.output_name}{list ? ` · ${list.files.toLocaleString('pt-BR')} arquivo(s) nesta pasta e subpastas` : ''}</p>
+        </div>
+      </div>
+      <nav aria-label="Pasta atual" className="flex flex-wrap items-center gap-1 px-4 pt-3 text-sm">
+        <button type="button" className="rounded px-1.5 py-0.5 font-medium text-primary hover:bg-bg" onClick={() => setDir('/')}>Origens</button>
+        {crumbs.map((c, i) => (
+          <span key={i} className="flex items-center gap-1"><span className="text-muted">/</span>
+            <button type="button" className="rounded px-1.5 py-0.5 text-primary hover:bg-bg" onClick={() => setDir('/' + crumbs.slice(0, i + 1).join('/'))}>{c}</button></span>
+        ))}
+      </nav>
+      <div className="p-4 pt-2">
+        <ErrorBox message={err} />
+        {noIndex && (
+          <div className="rounded-xl border border-border bg-bg p-4 text-sm">
+            <b>Este backup ainda não tem índice no agente.</b> Ele é de antes da 0.0.23 (ou o agente foi reinstalado). O agente pode montar o índice lendo o próprio arquivo{job.cloud_account_id ? ' (trazendo-o do storage de rede, se preciso)' : ''}.
+            {run.backup_kind === 'incremental' && ' Num incremental antigo, o índice mostra só o que mudou nele.'}
+            <div className="mt-3">{indexing ? <span className="inline-flex items-center gap-2 text-muted"><Spinner /> Montando o índice…</span>
+              : <Button onClick={() => api('POST', `/api/runs/${run.id}/index`).then(() => setIndexing(true)).catch((x) => setErr((x as ApiError).message))}>Gerar índice</Button>}</div>
+          </div>
+        )}
+        {list && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="border-b border-border text-left text-xs text-muted">
+                <tr>
+                  <th className="w-8 py-2"><input type="checkbox" aria-label="Marcar tudo nesta pasta" checked={allHere && list.entries.length > 0} onChange={() => {
+                    const n = new Set(picked)
+                    for (const e of list.entries) { const p = join(dir, e.name); if (allHere) n.delete(p); else if (!covered(p)) n.add(p) }
+                    setPicked(n)
+                  }} /></th>
+                  <th className="py-2">Nome</th><th className="py-2 text-right">Tamanho</th><th className="px-3 py-2">Modificado</th><th className="py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {dir !== '/' && <tr className="border-b border-border"><td /><td colSpan={4} className="py-2"><button type="button" className="text-primary hover:underline" onClick={() => setDir(dir.split('/').slice(0, -1).join('/') || '/')}>↑ pasta acima</button></td></tr>}
+                {list.entries.length === 0 && <tr><td colSpan={5} className="py-6 text-center text-muted">Pasta vazia neste backup.</td></tr>}
+                {list.entries.map((e) => {
+                  const p = join(dir, e.name)
+                  const inherited = covered(p) && !picked.has(p)
+                  return (
+                    <tr key={e.name} className="border-b border-border last:border-0 hover:bg-bg">
+                      <td className="py-1.5"><input type="checkbox" aria-label={`Marcar ${e.name}`} checked={covered(p)} disabled={inherited} onChange={() => toggle(p)} /></td>
+                      <td className="py-1.5">
+                        {e.dir
+                          ? <button type="button" className="flex items-center gap-2 text-left hover:underline" onClick={() => setDir(p)}><FolderIcon /><span className="font-medium">{e.name}</span></button>
+                          : <span className="flex items-center gap-2"><FileIcon /><span>{e.name}{e.link && <span className="ml-1 text-xs text-muted">(atalho)</span>}</span></span>}
+                        {list.incremental && e.here && <span className="ml-7 text-[11px] text-accent">{e.dir ? 'tem mudanças neste backup' : 'mudou neste backup'}</span>}
+                      </td>
+                      <td className="py-1.5 text-right tabular-nums text-muted">{e.dir ? (e.files ? `${e.files} arq.` : '') : fmtBytes(e.size)}</td>
+                      <td className="px-3 py-1.5 tabular-nums text-muted">{e.dir ? '' : fmtUnix(e.modified)}</td>
+                      <td className="py-1.5 text-right">{!e.dir && !e.link && <button type="button" className="text-xs text-primary hover:underline" onClick={() => setVersions(p)}>versões</button>}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      {picked.size > 0 && (
+        <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 border-t border-border bg-surface/95 px-4 py-3 backdrop-blur">
+          <div className="min-w-0 text-sm"><b>{picked.size}</b> item(ns) marcado(s): <span className="text-muted">{[...picked].slice(0, 3).join(', ')}{picked.size > 3 ? '…' : ''}</span></div>
+          <div className="flex gap-2"><Button variant="ghost" onClick={() => setPicked(new Set())}>Limpar</Button><Button onClick={() => setRestoring(true)}>Restaurar…</Button></div>
+        </div>
+      )}
+      {versions && <Modal title="Versões do arquivo" onClose={() => setVersions(null)}><Versions job={job} path={versions} byArchive={byArchive} onRestore={(runId) => { setVersions(null); onPick(runId) }} /></Modal>}
+      {restoring && <Modal title="Restaurar os itens marcados" onClose={() => setRestoring(false)}><RestoreForm me={me} run={run} paths={[...picked]} onDone={() => setPicked(new Set())} /></Modal>}
+    </Card>
+  )
+}
+
+function Versions({ job, path, byArchive, onRestore }: { job: Job; path: string; byArchive: Map<string, Run>; onRestore: (runId: number) => void }) {
+  const [vs, setVs] = useState<Version[] | null>(null)
+  const [err, setErr] = useState('')
+  useEffect(() => { api<{ versions: Version[] }>('GET', `/api/jobs/${job.id}/versions?path=${encodeURIComponent(path)}`).then((r) => setVs(r.versions)).catch((x) => setErr((x as ApiError).message)) }, [job.id, path])
+  return (
+    <div className="space-y-3 text-sm">
+      <p className="break-all font-mono text-xs text-muted">{path}</p>
+      <ErrorBox message={err} />
+      {!vs && !err && <span className="inline-flex items-center gap-2 text-muted"><Spinner /> Procurando nos backups…</span>}
+      {vs && vs.length === 0 && <p className="text-muted">Nenhuma versão encontrada nos backups com índice neste agente.</p>}
+      {vs && vs.length > 0 && (
+        <ol className="space-y-2">
+          {vs.map((v, i) => {
+            const r = byArchive.get(v.latest)
+            return (
+              <li key={v.archive + i} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3">
+                <div>
+                  <div className="font-medium">{i === 0 ? 'Versão mais recente' : `Versão de ${fmtUnix(v.modified)}`}</div>
+                  <div className="text-xs text-muted">modificado em {fmtUnix(v.modified)} · {fmtBytes(v.size)} · presente em {v.backups} backup(s)</div>
+                </div>
+                {r ? <Button variant="ghost" onClick={() => onRestore(r.id)}>Abrir este backup</Button> : <span className="text-xs text-muted">backup fora do histórico</span>}
+              </li>
+            )
+          })}
+        </ol>
+      )}
+      <p className="text-xs text-muted">Ao abrir um backup, marque o arquivo e use “Restaurar…”.</p>
+    </div>
+  )
+}
+
+function RestoreForm({ me, run, paths: initial, onDone }: { me: User; run: Run; paths: string[]; onDone: () => void }) {
+  const [paths] = useState(initial) // a lista do momento em que a janela abriu (a seleção é limpa ao concluir)
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')
+  const [original, setOriginal] = useState(false)
+  const [target, setTarget] = useState(`restaurar-${stamp}`)
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [logs, setLogs] = useState<RunLog[] | null>(null)
+  const [done, setDone] = useState<'' | 'ok' | 'failed'>('')
+  const since = useRef(0)
+  async function go() {
+    if (original && !(await confirmar({ title: 'Sobrescrever no local original?', message: `Os ${paths.length} item(ns) marcados voltam para o lugar de origem no agente, SUBSTITUINDO os arquivos que estiverem lá agora. Não há como desfazer.`, confirmLabel: 'Restaurar e sobrescrever', danger: true }))) return
+    setErr(''); setBusy(true)
+    try {
+      const before = await api<{ logs: RunLog[] }>('GET', `/api/runs/${run.id}`)
+      since.current = Math.max(10000, ...before.logs.map((l) => l.seq))
+      await api('POST', `/api/runs/${run.id}/restore`, { paths, original, target: original ? '' : target })
+      setLogs([])
+    } catch (x) { setErr((x as ApiError).message); setBusy(false) }
+  }
+  useEffect(() => {
+    if (logs === null || done) return
+    const t = setInterval(async () => {
+      try {
+        const d = await api<{ logs: RunLog[] }>('GET', `/api/runs/${run.id}`)
+        const fresh = d.logs.filter((l) => l.seq > since.current)
+        setLogs(fresh)
+        if (fresh.some((l) => l.text.startsWith('restauração concluída'))) { setDone('ok'); setBusy(false); onDone() }
+        if (fresh.some((l) => l.level === 'error')) { setDone('failed'); setBusy(false) }
+      } catch { /* tenta de novo */ }
+    }, 2000)
+    return () => clearInterval(t)
+  }, [logs, done, run.id, onDone])
+  return (
+    <div className="space-y-4 text-sm">
+      <p>{paths.length} item(ns) do backup de <b>{fmtWhen(run.started_at)}</b>. Pastas marcadas incluem tudo o que há dentro delas.</p>
+      <fieldset className="space-y-2" disabled={busy || done !== ''}>
+        <label className={`flex items-start gap-2.5 rounded-lg border p-3 ${!original ? 'border-primary' : 'border-border'}`}>
+          <input type="radio" name="destino" className="mt-1" checked={!original} onChange={() => setOriginal(false)} />
+          <span className="flex-1"><b className="block">Numa pasta de restauração (seguro)</b><span className="text-xs text-muted">Nada no servidor é alterado: os arquivos vão para <code>restores/&lt;nome&gt;</code> na pasta de backups do agente, com os caminhos completos.</span>
+            {!original && <Input className="mt-2 font-mono" value={target} onChange={(e) => setTarget(e.target.value)} aria-label="Nome da pasta de restauração" />}</span>
+        </label>
+        <label className={`flex items-start gap-2.5 rounded-lg border p-3 ${original ? 'border-danger' : 'border-border'} ${me.role !== 'admin' ? 'opacity-60' : ''}`}>
+          <input type="radio" name="destino" className="mt-1" checked={original} disabled={me.role !== 'admin'} onChange={() => setOriginal(true)} />
+          <span><b className="block">No local original (sobrescreve)</b><span className="text-xs text-muted">{me.role === 'admin' ? 'Os arquivos voltam para onde estavam, substituindo os atuais. Precisa do volume /:/host-rw no agente.' : 'Só administradores podem sobrescrever arquivos do servidor.'}</span></span>
+        </label>
+      </fieldset>
+      <ErrorBox message={err} />
+      {logs !== null && (
+        <div className="max-h-52 overflow-y-auto rounded-lg bg-bg p-3 font-mono text-xs">
+          {logs.length === 0 && <span className="inline-flex items-center gap-2 text-muted"><Spinner /> Aguardando o agente…</span>}
+          {logs.map((l) => <div key={l.seq} className={l.level === 'error' ? 'text-danger' : l.level === 'warn' ? 'text-accent' : ''}>{l.text}</div>)}
+        </div>
+      )}
+      {done === 'ok' && <div className="rounded-lg border border-ok/40 bg-ok/10 px-3 py-2 text-ok">Restauração concluída.</div>}
+      {done === '' && <Button variant={original ? 'danger' : 'primary'} onClick={go} disabled={busy || (!original && !target.trim())}>{busy ? 'Restaurando…' : original ? 'Restaurar e sobrescrever' : 'Restaurar na pasta'}</Button>}
+    </div>
+  )
+}

@@ -88,3 +88,11 @@
 - **Formato:** o incremental continua sendo um `.tar.gz` comum (`<job>-AAAAMMDD-HHMMSS-inc.tar.gz`; o full não tem `-inc`), com os itens alterados e um `.coruja-manifest.json` na raiz: tipo, full da cadeia, backup base e a lista `deleted` do que foi apagado desde o anterior.
 - **Cadeia:** um full e os incrementais seguintes. A retenção (local, nuvem e storages) conta **cadeias** ("semanas"): apaga cadeias inteiras, nunca um pedaço do meio, e nunca a mais recente; por dias, uma cadeia sai quando o arquivo mais novo dela passa do prazo. Num job só de fulls, cada arquivo é uma cadeia: o comportamento antigo não muda.
 - **Restauração:** "Extrair no agente" de um incremental aplica, em ordem, o full e os incrementais até ele, removendo o que o manifesto marca como apagado. O que não estiver no agente é trazido do storage de rede (conferido pelo SHA-256) e apagado depois da extração. Nas nuvens, a cadeia precisa estar no agente.
+
+## Restauração por seleção (0.0.23)
+
+- **Catálogo por backup:** a cada backup de arquivos que termina bem, o agente grava o estado de cada item (tamanho, data, tipo) e o índice do `.tar.gz` da cadeia que guarda o conteúdo dele, em `<dados do agente>/catalogs/<job>/<arquivo>.json.gz` (permissão 600; os 120 mais recentes por job). Num incremental, um arquivo sem mudança aponta para o pacote anterior onde ele está.
+- **Navegar e versões:** o Server pergunta ao agente (chamadas `catalog_dir` e `catalog_versions`); as versões de um arquivo são as combinações distintas de tamanho/data/inode nos catálogos do job.
+- **Restaurar o escolhido:** a ação `restore_files` agrupa os itens por pacote, obtém cada pacote (no agente ou trazido do storage de rede, conferido pelo SHA-256 e apagado depois) e extrai só os itens marcados, cada arquivo num temporário renomeado no fim (nunca fica pela metade). Destino: `restores/<nome>` (padrão, operador) ou o local original pelo volume `/:/host-rw`, sobrescrevendo (só administrador; recusado em `/proc`, `/sys`, `/dev`, `/run`; registrado na auditoria).
+- **Backups sem catálogo** (de antes da 0.0.23 ou de antes de reinstalar o agente): a ação `index` monta o catálogo lendo o próprio `.tar.gz`; num incremental, só o que mudou nele aparece.
+- O formato do retrato do incremental passou para a versão 2; depois de atualizar o agente, o primeiro backup de cada job incremental é full.

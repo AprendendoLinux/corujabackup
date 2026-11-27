@@ -507,6 +507,12 @@ func (c *Core) execute(parent context.Context, r runReq) {
 		fin.Status = "ok"
 		logf("info", "concluído com sucesso em %s", c.now().Sub(started).Round(time.Second))
 	}
+	// catálogo do backup (navegar, versões e restaurar selecionados): também só quando terminou bem
+	if c.st != nil && res.Snapshot != nil && res.OutputName != "" && (fin.Status == "ok" || fin.Status == "warning") {
+		if err := c.st.SaveCatalog(r.spec.JobId, res.OutputName, res.Snapshot); err != nil {
+			logf("warn", "não foi possível guardar o catálogo do backup: %v", err)
+		}
+	}
 	// o retrato só vale quando a execução terminou bem (arquivo e storage conferidos)
 	if plan != nil && res.Snapshot != nil && (fin.Status == "ok" || fin.Status == "warning") {
 		snap := res.Snapshot

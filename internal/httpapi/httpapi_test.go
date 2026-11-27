@@ -1731,3 +1731,65 @@ func TestJobMikrotik(t *testing.T) {
 		t.Fatal("job de MikroTik não tem configuração de banco")
 	}
 }
+
+func TestRestauracaoPorSelecao(t *testing.T) {
+	e := newEnv(t)
+	adm := setupAdmin(e)
+	ag := newAgent(t, e, "srv-rest")
+	e.api.Store.DB.Exec("UPDATE agents SET agent_version='0.0.23' WHERE id=?", ag.ID)
+	jid := int64(adm.mustOK("POST", "/api/jobs", map[string]any{"name": "rest", "agent_id": ag.ID, "paths": []string{"/srv"}, "keep": 3, "backup_mode": "incremental"})["id"].(float64))
+	ctx := context.Background()
+	now := time.Now().UTC()
+	st := e.api.Store
+	for i, n := range []string{"rest-20261122-030000.tar.gz", "rest-20261123-030000-inc.tar.gz"} {
+		st.ApplyReport(ctx, store.Report{UID: "r" + itoa(i), JobID: jid, AgentID: ag.ID, Final: true, Status: "ok", StartedAt: now, FinishedAt: now, OutputName: n, SHA256: "s" + itoa(i)})
+	}
+	r1, _ := st.RunByUID(ctx, "r1")
+	base := "/api/runs/" + itoa(int(r1.ID))
+	adm.mustOK("POST", base+"/restore", map[string]any{"paths": []string{"/srv/a.txt", "/srv/dir"}, "target": "sel-1"})
+	act := e.hub.actions[len(e.hub.actions)-1]
+	if act.Kind != "restore_files" || act.Original || act.Target != "sel-1" || strings.Join(act.Paths, ",") != "/srv/a.txt,/srv/dir" ||
+		strings.Join(act.Chain, ",") != "rest-20261122-030000.tar.gz,rest-20261123-030000-inc.tar.gz" || act.Sha256 != "s1" {
+		t.Fatalf("ação: %+v", act)
+	}
+	adm.mustOK("POST", base+"/restore", map[string]any{"paths": []string{"/srv/a.txt"}, "original": true})
+	if a := e.hub.actions[len(e.hub.actions)-1]; !a.Original || a.Target != "" {
+		t.Fatalf("original: %+v", a)
+	}
+	for _, bad := range []map[string]any{{"paths": []string{}}, {"paths": []string{"relativo"}}, {"paths": []string{"/x"}, "target": "../fora"}} {
+		if code, _ := adm.do("POST", base+"/restore", bad); code != 400 {
+			t.Fatalf("%v deveria dar 400: %d", bad, code)
+		}
+	}
+	// operador restaura numa pasta, mas não no local original; leitor não restaura
+	adm.mustOK("POST", "/api/users", map[string]string{"username": "oper", "password": pw, "role": "operator"})
+	adm.mustOK("POST", "/api/users", map[string]string{"username": "leit", "password": pw, "role": "viewer"})
+	o := e.client()
+	o.mustOK("POST", "/api/login", map[string]string{"username": "oper", "password": pw})
+	o.mustOK("POST", base+"/restore", map[string]any{"paths": []string{"/srv"}})
+	if code, _ := o.do("POST", base+"/restore", map[string]any{"paths": []string{"/srv"}, "original": true}); code != 403 {
+		t.Fatalf("operador no local original: %d", code)
+	}
+	v := e.client()
+	v.mustOK("POST", "/api/login", map[string]string{"username": "leit", "password": pw})
+	for _, rq := range []struct{ m, p string }{{"POST", base + "/restore"}, {"GET", base + "/browse"}, {"GET", "/api/jobs/" + itoa(int(jid)) + "/versions?path=/srv/a"}} {
+		if code, _ := v.do(rq.m, rq.p, map[string]any{"paths": []string{"/srv"}}); code != 403 {
+			t.Fatalf("leitor em %s: %d", rq.p, code)
+		}
+	}
+	// auditoria registra o que foi restaurado
+	found := false
+	for _, x := range adm.mustOK("GET", "/api/audit", nil)["entries"].([]any) {
+		if m := x.(map[string]any); m["action"] == "run.restore_files" && strings.Contains(m["detail"].(string), "LOCAL ORIGINAL") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("restauração no local original deveria ir para a auditoria")
+	}
+	// agente antigo
+	e.api.Store.DB.Exec("UPDATE agents SET agent_version='0.0.22' WHERE id=?", ag.ID)
+	if code, m := adm.do("POST", base+"/restore", map[string]any{"paths": []string{"/srv"}}); code != 422 || !strings.Contains(m["error"].(string), "0.0.23") {
+		t.Fatalf("agente antigo: %d %v", code, m)
+	}
+}

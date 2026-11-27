@@ -2443,7 +2443,7 @@ func (x *RpcResult) GetPayload() []byte {
 type AgentAction struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Kind          string                 `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"` // "reupload" | "extract" | "fetch"
+	Kind          string                 `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"` // "reupload" | "extract" | "fetch" | "restore_files" | "index"
 	RunUid        string                 `protobuf:"bytes,3,opt,name=run_uid,json=runUid,proto3" json:"run_uid,omitempty"`
 	JobId         int64                  `protobuf:"varint,4,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
 	FileName      string                 `protobuf:"bytes,5,opt,name=file_name,json=fileName,proto3" json:"file_name,omitempty"` // arquivo de backup (no padrão do job) na pasta de destino do agente
@@ -2452,6 +2452,8 @@ type AgentAction struct {
 	Sha256        string                 `protobuf:"bytes,8,opt,name=sha256,proto3" json:"sha256,omitempty"`                               // fetch/extract: hash esperado do arquivo (o que vier do storage é conferido)
 	Chain         []string               `protobuf:"bytes,9,rep,name=chain,proto3" json:"chain,omitempty"`                                 // extract de um incremental: arquivos da cadeia em ordem (o full primeiro; o último é file_name)
 	ChainSha256   []string               `protobuf:"bytes,10,rep,name=chain_sha256,json=chainSha256,proto3" json:"chain_sha256,omitempty"` // SHA-256 de cada arquivo de chain (para conferir o que for trazido do storage)
+	Paths         []string               `protobuf:"bytes,11,rep,name=paths,proto3" json:"paths,omitempty"`                                // restore_files: caminhos escolhidos (pastas incluem o que há dentro)
+	Original      bool                   `protobuf:"varint,12,opt,name=original,proto3" json:"original,omitempty"`                         // restore_files: grava no local original (sobrescreve), em vez de restores/<target>
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2554,6 +2556,20 @@ func (x *AgentAction) GetChainSha256() []string {
 		return x.ChainSha256
 	}
 	return nil
+}
+
+func (x *AgentAction) GetPaths() []string {
+	if x != nil {
+		return x.Paths
+	}
+	return nil
+}
+
+func (x *AgentAction) GetOriginal() bool {
+	if x != nil {
+		return x.Original
+	}
+	return false
 }
 
 type ActionLog struct {
@@ -2906,7 +2922,7 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x0e\n" +
 	"\x02ok\x18\x02 \x01(\bR\x02ok\x12\x14\n" +
 	"\x05error\x18\x03 \x01(\tR\x05error\x12\x18\n" +
-	"\apayload\x18\x04 \x01(\fR\apayload\"\xff\x01\n" +
+	"\apayload\x18\x04 \x01(\fR\apayload\"\xb1\x02\n" +
 	"\vAgentAction\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x17\n" +
@@ -2918,7 +2934,9 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\x06sha256\x18\b \x01(\tR\x06sha256\x12\x14\n" +
 	"\x05chain\x18\t \x03(\tR\x05chain\x12!\n" +
 	"\fchain_sha256\x18\n" +
-	" \x03(\tR\vchainSha256\"\xb1\x02\n" +
+	" \x03(\tR\vchainSha256\x12\x14\n" +
+	"\x05paths\x18\v \x03(\tR\x05paths\x12\x1a\n" +
+	"\boriginal\x18\f \x01(\bR\boriginal\"\xb1\x02\n" +
 	"\tActionLog\x12\x17\n" +
 	"\arun_uid\x18\x01 \x01(\tR\x06runUid\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x14\n" +

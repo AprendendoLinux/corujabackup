@@ -75,7 +75,7 @@ function TestDestination({ account }: { account: CloudAccount }) {
   }
   return (
     <div className="space-y-3 text-sm">
-      <p className="text-muted">Escolha o agente que vai acessar o destino ({account.account_label}).</p>
+      <p className="text-muted">Escolha o agente que vai acessar o storage ({account.account_label}).</p>
       <AgentSelect agents={agents} value={agent} onChange={setAgent} />
       {msg && <div className="rounded-lg border border-ok/40 bg-ok/10 px-3 py-2 text-ok">{msg}</div>}
       <ErrorBox message={err} />
@@ -146,16 +146,16 @@ export default function Clouds({ me }: { me: User }) {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Destinos</h1>
-          <p className="text-sm text-muted">Onde os backups são guardados. Nas nuvens, as credenciais ficam só no Server; nos destinos de rede, quem acessa é o agente.</p>
+          <h1 className="text-2xl font-semibold">Storages</h1>
+          <p className="text-sm text-muted">Onde os backups são guardados. Nas nuvens, as credenciais ficam só no Server; nos storages de rede, quem acessa é o agente.</p>
         </div>
-        {isAdmin && <Button onClick={() => setWizard({})}>+ Novo destino</Button>}
+        {isAdmin && <Button onClick={() => setWizard({})}>+ Novo storage</Button>}
       </div>
       <ErrorBox message={err} />
       {info && <div className="rounded-lg border border-ok/40 bg-ok/10 px-3 py-2 text-sm text-ok">{info}</div>}
 
       <div className="grid gap-4 md:grid-cols-2">
-        {accounts.length === 0 && <Card className="md:col-span-2"><p className="text-center text-muted">Nenhum destino ainda. Clique em “Novo destino”.</p></Card>}
+        {accounts.length === 0 && <Card className="md:col-span-2"><p className="text-center text-muted">Nenhum storage ainda. Clique em “Novo storage”.</p></Card>}
         {accounts.map((a) => {
           const pct = a.quota_total ? Math.min(100, Math.round((a.quota_used / a.quota_total) * 100)) : 0
           return (
@@ -183,7 +183,7 @@ export default function Clouds({ me }: { me: User }) {
                   {me.role !== 'viewer' && a.status !== 'pending' && !NET_TYPES.includes(a.type) && <IconButton icon="testar" label="Testar conexão" onClick={() => test(a)} />}
                   {isAdmin && NET_TYPES.includes(a.type) && <IconButton icon="testar" label="Testar conexão" onClick={() => setTesting(a)} />}
                   {isAdmin && !NET_TYPES.includes(a.type) && <IconButton icon="reautorizar" label="Reautorizar" onClick={() => reauth(a)} />}
-                  {isAdmin && <IconButton icon="excluir" tone="danger" label="Excluir" onClick={async () => await confirmar({ title: `Excluir o destino "${a.name}"?`, message: 'Os arquivos já enviados não são apagados.', danger: true }) && act(() => api('DELETE', `/api/clouds/${a.id}`))} />}
+                  {isAdmin && <IconButton icon="excluir" tone="danger" label="Excluir" onClick={async () => await confirmar({ title: `Excluir o storage "${a.name}"?`, message: 'Os arquivos já enviados não são apagados.', danger: true }) && act(() => api('DELETE', `/api/clouds/${a.id}`))} />}
                 </Actions>
               </div>
             </Card>
@@ -192,14 +192,14 @@ export default function Clouds({ me }: { me: User }) {
       </div>
 
       {testing && <Modal title={`Testar "${testing.name}"`} onClose={() => setTesting(null)}><TestDestination account={testing} /></Modal>}
-      {wizard && <Modal wide={!wizard.type && !wizard.device} title={wizard.device ? 'Autorizar o acesso' : wizard.type ? `Conectar ${PROV_BY_ID[wizard.type]?.label ?? 'destino'}` : 'Novo destino'} onClose={() => { setWizard(null); load() }}>
+      {wizard && <Modal wide={!wizard.type && !wizard.device} title={wizard.device ? 'Autorizar o acesso' : wizard.type ? `Conectar ${PROV_BY_ID[wizard.type]?.label ?? 'storage'}` : 'Novo storage'} onClose={() => { setWizard(null); load() }}>
         {wizard.device && wizard.id
           ? <Authorize id={wizard.id} name={wizard.name ?? ''} device={wizard.device} onDone={() => { setWizard(null); setInfo('Conta conectada com sucesso.'); load() }} />
           : !wizard.type ? <ProviderGrid onPick={(type) => setWizard({ type })} />
           : NET_TYPES.includes(wizard.type) ? (
             <div className="space-y-4">
-              <button type="button" className="text-sm text-primary hover:underline" onClick={() => setWizard({})}>← Trocar o tipo de destino</button>
-              <NetDestination type={wizard.type} onSaved={() => { setWizard(null); setInfo('Destino salvo.'); load() }} />
+              <button type="button" className="text-sm text-primary hover:underline" onClick={() => setWizard({})}>← Trocar o tipo de storage</button>
+              <NetDestination type={wizard.type} onSaved={() => { setWizard(null); setInfo('Storage salvo.'); load() }} />
             </div>
           )
           : <NewAccount type={wizard.type} onBack={() => setWizard({})} defs={defs} onCreated={(id, device, name) => { setWizard({ id, device, name }); load() }} onConnected={() => { setWizard(null); setInfo('Conta conectada com sucesso.'); load() }} />}

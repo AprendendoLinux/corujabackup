@@ -60,7 +60,7 @@ export default function Runs({ me, jobFilter }: { me: User; jobFilter: number })
               <tr key={r.id} className="cursor-pointer border-b border-border last:border-0 hover:bg-bg" onClick={() => setOpen(r.id)}>
                 <td className="p-3 whitespace-nowrap">{fmtDate(r.started_at ?? r.scheduled_for ?? r.created_at)}<div className="text-xs text-muted">{r.trigger === 'manual' ? 'manual' : 'agendado'}</div></td>
                 <td className="p-3"><b>{r.job_name}</b><div className="text-xs text-muted">{r.agent_name}</div></td>
-                <td className="p-3"><StatusBadge s={r.status} />{r.status === 'running' && r.phase && <div className="mt-1 text-xs text-muted">{PHASE[r.phase] ?? r.phase}{r.phase === 'uploading' ? ` ${r.progress_pct}%` : ''}</div>}{r.cloud_status === 'ok' && <div className="mt-1 text-xs text-muted">☁ no destino</div>}{r.cloud_status === 'failed' && <div className="mt-1 text-xs text-danger">☁ envio falhou</div>}</td>
+                <td className="p-3"><StatusBadge s={r.status} />{r.status === 'running' && r.phase && <div className="mt-1 text-xs text-muted">{PHASE[r.phase] ?? r.phase}{r.phase === 'uploading' ? ` ${r.progress_pct}%` : ''}</div>}{r.cloud_status === 'ok' && <div className="mt-1 text-xs text-muted">☁ no storage</div>}{r.cloud_status === 'failed' && <div className="mt-1 text-xs text-danger">☁ envio falhou</div>}</td>
                 <td className="p-3 text-muted">{fmtDuration(r.started_at, r.finished_at)}</td>
                 <td className="p-3 text-muted">{fmtBytes(r.bytes_output)}</td>
                 <td className="p-3 text-muted">{r.files || '—'}</td>
@@ -149,7 +149,7 @@ function Detail({ id, me, onChange }: { id: number; me: User; onChange: () => vo
         <Item k="Origem" v={fmtBytes(r.bytes_source)} /><Item k="Arquivo gerado" v={fmtBytes(r.bytes_output)} /><Item k="Itens" v={String(r.files || '—')} />
         <div className="col-span-2 sm:col-span-3"><Item k="Arquivo" v={r.output_name || '—'} /></div>
         <div className="col-span-2 sm:col-span-3"><Item k="SHA-256" v={r.sha256 || '—'} mono /></div>
-        {r.cloud_status !== 'none' && <div className="col-span-2 sm:col-span-3"><Item k={`Destino (${r.cloud_status === 'ok' ? `conferido por ${r.cloud_verified_by}` : 'falhou'})`} v={r.cloud_path || '—'} /></div>}
+        {r.cloud_status !== 'none' && <div className="col-span-2 sm:col-span-3"><Item k={`Storage (${r.cloud_status === 'ok' ? `conferido por ${r.cloud_verified_by}` : 'falhou'})`} v={r.cloud_path || '—'} /></div>}
       </dl>
 
       {canAct && <RestorePanel run={r} job={job} onAction={(p, b) => post(p, b, 'Pedido enviado ao agente; acompanhe o log abaixo.')} />}
@@ -175,14 +175,14 @@ function RestorePanel({ run, job, onAction }: { run: Run; job: JobInfo; onAction
     <div className="space-y-3 rounded-lg border border-border bg-bg p-3">
       <div className="font-medium">Restauração e ações</div>
       <div className="flex flex-wrap items-center gap-2">
-        {inCloud && job.net_destination && <Button variant="ghost" onClick={() => onAction(`/api/runs/${run.id}/fetch`, undefined)}>⬇ Trazer do destino para o agente</Button>}
+        {inCloud && job.net_destination && <Button variant="ghost" onClick={() => onAction(`/api/runs/${run.id}/fetch`, undefined)}>⬇ Trazer do storage para o agente</Button>}
         {inCloud && !job.net_destination && <a className="inline-flex items-center rounded-lg bg-primary px-3.5 py-2 text-sm font-medium text-primary-contrast hover:opacity-90" href={`/api/runs/${run.id}/download`}>⬇ Baixar da nuvem</a>}
-        {run.cloud_status === 'failed' && job.has_cloud && <Button variant="ghost" onClick={async () => await confirmar({ title: 'Reenviar ao destino?', message: 'O arquivo local deste backup é enviado de novo e conferido.', confirmLabel: 'Reenviar', icon: 'enviar' }) && onAction(`/api/runs/${run.id}/reupload`, undefined)}>☁ Reenviar ao destino</Button>}
+        {run.cloud_status === 'failed' && job.has_cloud && <Button variant="ghost" onClick={async () => await confirmar({ title: 'Reenviar ao storage?', message: 'O arquivo local deste backup é enviado de novo e conferido.', confirmLabel: 'Reenviar', icon: 'enviar' }) && onAction(`/api/runs/${run.id}/reupload`, undefined)}>☁ Reenviar ao storage</Button>}
         <input aria-label="Pasta de destino" className="w-56 rounded-lg border border-border bg-surface px-3 py-2 text-sm" placeholder="pasta de restauração (opcional)" value={target} onChange={(e) => setTarget(e.target.value)} />
         <Button variant="ghost" onClick={() => onAction(`/api/runs/${run.id}/extract`, { target }, undefined)}>📂 Extrair no agente</Button>
         <button className="text-primary hover:underline" onClick={() => setGuide(!guide)}>{guide ? 'Ocultar guia' : 'Como restaurar manualmente'}</button>
       </div>
-      <p className="text-xs text-muted">“Extrair no agente” descompacta o arquivo local em <code>restores/&lt;pasta&gt;</code> dentro da pasta de backups do agente, sem sobrescrever nada. O andamento aparece no log abaixo. Se a cópia local já foi removida, baixe da nuvem (ou, num destino de rede, use “Trazer do destino”).</p>
+      <p className="text-xs text-muted">“Extrair no agente” descompacta o arquivo local em <code>restores/&lt;pasta&gt;</code> dentro da pasta de backups do agente, sem sobrescrever nada. O andamento aparece no log abaixo. Se a cópia local já foi removida, baixe da nuvem (ou, num storage de rede, use “Trazer do storage”).</p>
       {guide && <Guide run={run} job={job} />}
     </div>
   )
@@ -219,7 +219,7 @@ mongorestore --archive=/restaurar/*/NOME_DO_BANCO.archive.gz --gzip --drop
   return (
     <div className="space-y-2">
       <CopyBox text={text} />
-      {run.cloud_path && <p className="text-xs text-muted">Cópia no destino: <code>{run.cloud_path}</code>.</p>}
+      {run.cloud_path && <p className="text-xs text-muted">Cópia no storage: <code>{run.cloud_path}</code>.</p>}
       <p className="text-xs text-muted">Teste a restauração num ambiente separado antes de aplicar em produção.</p>
     </div>
   )

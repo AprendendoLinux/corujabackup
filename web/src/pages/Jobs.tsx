@@ -1,10 +1,11 @@
 import { ReactNode, useCallback, useEffect, useState } from 'react'
-import { Agent, CloudAccount, CLOUD_LABEL, ContainerInfo, CRON_PRESETS, DbView, ENGINE_LABEL, ENGINE_PORT, Job, User, api, ApiError, describeCron, fmtDate, STATUS } from '../api'
+import { Agent, CloudAccount, CLOUD_LABEL, ContainerInfo, DbView, ENGINE_LABEL, ENGINE_PORT, Job, User, api, ApiError, fmtDate, STATUS } from '../api'
 import { Actions, Badge, Button, Card, ErrorBox, Field, IconButton, Input, Modal, Spinner } from '../ui'
 import { confirmar } from '../Dialogs'
 import { FolderField, PathList, TreePicker } from '../Picker'
 import { LocalDirField, agentHasDiskPicker } from '../LocalDir'
 import { Wizard } from '../Wizard'
+import { ScheduleEditor, describeSched } from '../Schedule'
 
 export default function Jobs({ me }: { me: User }) {
   const [jobs, setJobs] = useState<Job[]>([])
@@ -58,7 +59,7 @@ export default function Jobs({ me }: { me: User }) {
                     <b>{j.name}</b> {!j.enabled && <Badge tone="off">Pausado</Badge>}
                     <div className="text-xs text-muted">{j.agent_name} {j.agent_online ? <span className="text-ok">● online</span> : <span>○ offline</span>} · {j.kind === 'database' ? `🗄 ${ENGINE_LABEL[j.db?.engine ?? ''] ?? 'Banco'}${j.db?.mode === 'docker' ? ` · ${j.db?.container}` : ` · ${j.db?.host}`}` : `${j.paths.length} origem(ns)`} · {j.cloud_account_id ? <span title={j.cloud_folder}>☁ {clouds.find((c) => c.id === j.cloud_account_id)?.name ?? 'nuvem'}</span> : 'só local'}</div>
                   </td>
-                  <td className="p-3 text-muted">{describeCron(j.cron)}<div className="text-xs">{j.timezone}</div></td>
+                  <td className="p-3 text-muted">{describeSched(j.cron)}<div className="text-xs">{j.timezone}</div></td>
                   <td className="p-3 text-muted">{j.enabled ? fmtDate(j.next_run_at) : '—'}</td>
                   <td className="p-3">{j.last_run && (j.last_run.status === 'running' || j.last_run.status === 'queued') ? <LiveRun run={j.last_run} />
                     : s ? <><Badge tone={s.tone}>{s.label}</Badge><div className="mt-1 text-xs text-muted">{fmtDate(j.last_run!.started_at ?? j.last_run!.scheduled_for ?? j.last_run!.created_at)}</div></> : <span className="text-muted">nunca executou</span>}</td>
@@ -87,6 +88,38 @@ export default function Jobs({ me }: { me: User }) {
   )
 }
 
+/** Opção de um grupo (bolinha de seleção + texto, que pode conter campos). */
+function Choice({ on, onClick, children }: { on: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <div role="radio" aria-checked={on} tabIndex={0} onClick={onClick} onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onClick() } }}
+      className={`flex cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-2 rounded-xl border px-3 py-2.5 text-sm transition ${on ? 'border-primary bg-primary/5 ring-1 ring-primary/30' : 'border-border hover:border-primary/50'}`}>
+      <span className={`mr-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 ${on ? 'border-primary' : 'border-border'}`}>{on && <span className="h-2 w-2 rounded-full bg-primary" />}</span>
+      {children}
+    </div>
+  )
+}
+
+/** Número escolhido nos botões − e + ou digitado; não deixa sair do intervalo. */
+function Count({ value, min, max, onChange, unit }: { value: number; min: number; max: number; onChange: (n: number) => void; unit: string }) {
+  const clamp = (n: number) => Math.max(min, Math.min(max, Math.round(n) || min))
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1" onClick={(e) => e.stopPropagation()}>
+      <button type="button" aria-label="Menos" className="h-7 w-7 rounded-md border border-border hover:border-primary/60" onClick={() => onChange(clamp(value - 1))}>−</button>
+      <input aria-label={unit} type="number" min={min} max={max} value={value} onChange={(e) => onChange(clamp(+e.target.value))}
+        className="h-7 w-16 rounded-md border border-border bg-surface px-1 text-center font-semibold [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" />
+      <button type="button" aria-label="Mais" className="h-7 w-7 rounded-md border border-border hover:border-primary/60" onClick={() => onChange(clamp(value + 1))}>+</button>
+      <span>{unit}</span>
+    </span>
+  )
+}
+
+function retentionText(keep: number, days: number, where: string) {
+  const at = where ? `No ${where}` : ''
+  if (keep && days) return `${at} ficam no máximo ${keep} cópias, e as com mais de ${days} dias são apagadas.`.trim()
+  if (days) return `${at} ficam todas as cópias dos últimos ${days} dias.`.trim()
+  return `${at} ficam as ${keep || 7} cópias mais recentes.`.trim()
+}
+
 const PHASE: Record<string, string> = { archiving: 'Compactando', uploading: 'Enviando ao destino', verifying: 'Conferindo' }
 
 /** Execução em andamento: indicador girando, fase e andamento, atualizados a cada 2 s. */
@@ -106,7 +139,6 @@ function LiveRun({ run }: { run: NonNullable<Job['last_run']> }) {
 }
 
 function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Agent[]; clouds: CloudAccount[]; onDone: () => void }) {
-  const isPreset = (c: string) => CRON_PRESETS.some((p) => p.cron === c)
   const [f, setF] = useState({
     name: job?.name ?? '', agent_id: job?.agent_id ?? agents[0]?.id ?? 0,
     paths: job?.paths ?? [], excludes: job?.excludes ?? [],
@@ -120,7 +152,6 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
     user: job?.db?.user ?? '', password: '', auth_db: job?.db?.auth_db ?? '', databases: (job?.db?.databases ?? []).join('\n'), exclude_databases: (job?.db?.exclude_databases ?? []).join('\n'),
     ssl_skip_verify: job?.db?.ssl_skip_verify ?? false, restore_test: job?.db?.restore_test ?? 'full', restore_image: job?.db?.restore_image ?? '',
   })
-  const [custom, setCustom] = useState(!isPreset(f.cron))
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [noWriteAgent, setNoWriteAgent] = useState(0) // agente sem a montagem gravável: usa a pasta padrão
@@ -131,7 +162,9 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
   const agentVersion = agents.find((a) => a.id === Number(f.agent_id))?.agent_version ?? ''
   const dest = clouds.find((c) => c.id === f.cloud_account_id)
   const destIsCloud = !!dest && ['gdrive', 'onedrive', 'dropbox'].includes(dest.type)
-  const zones: string[] = (Intl as any).supportedValuesOf ? (Intl as any).supportedValuesOf('timeZone') : ['America/Sao_Paulo', 'UTC']
+  const allZones: string[] = (Intl as any).supportedValuesOf ? (Intl as any).supportedValuesOf('timeZone') : ['America/Sao_Paulo', 'UTC']
+  // fusos do Brasil primeiro; o do job aparece mesmo que o navegador não o conheça
+  const zones = [...new Set([f.timezone, ...allZones.filter((z) => z.startsWith('America/') && /Sao_Paulo|Manaus|Recife|Fortaleza|Belem|Bahia|Cuiaba|Campo_Grande|Porto_Velho|Boa_Vista|Rio_Branco|Noronha|Maceio|Araguaina|Santarem|Eirunepe/.test(z)), ...allZones])]
 
   const [step, setStep] = useState(0)
   const [reached, setReached] = useState(job ? 4 : 0)
@@ -139,7 +172,7 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
     { title: 'Identificação', hint: 'Dê um nome ao job, escolha o agente onde ele roda e o que será salvo.' },
     { title: 'Origem', hint: f.kind === 'files' ? 'Marque as pastas e os arquivos do agente que entram no backup, e o que fica de fora.' : 'Onde está o banco de dados e quais bancos salvar.' },
     { title: 'Agenda', hint: 'Quando o backup roda e de que tipo ele é.' },
-    { title: 'Destino', hint: 'Onde o arquivo é gerado no agente, quantas cópias ficam lá e para onde ele é enviado.' },
+    { title: 'Storage', hint: 'Onde o arquivo é gerado no agente, quantas cópias ficam lá e para qual storage ele é enviado.' },
     { title: 'Revisão', hint: job ? 'Confira e salve as alterações.' : 'Confira tudo antes de criar o job.' },
   ]
   // mensagem de erro (ou '') das regras de cada etapa
@@ -179,14 +212,14 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
     catch (x) { setErr((x as ApiError).message) } finally { setBusy(false) }
   }
   const sel = 'w-full rounded-lg border border-border bg-surface px-3 py-2'
-  const cronLabel = CRON_PRESETS.find((p) => p.cron === f.cron)?.label ?? describeCron(f.cron)
+  const cronLabel = describeSched(f.cron)
   const review: [string, ReactNode][] = [
     ['Nome', f.name], ['Agente', agentName], ['Tipo', f.kind === 'files' ? 'Pastas e arquivos' : `Banco de dados · ${ENGINE_LABEL[db.engine] ?? db.engine}`],
     [f.kind === 'files' ? 'O que salvar' : 'Banco', f.kind === 'files' ? f.paths.join(', ') : db.mode === 'docker' ? `contêiner ${db.container}` : `${db.host}${db.port ? ':' + db.port : ''}`],
     ...(f.kind === 'files' && f.excludes.length ? [['Fica de fora', f.excludes.join(', ')] as [string, ReactNode]] : []),
     ['Agenda', `${cronLabel} · ${f.timezone}`], ['Tipo de backup', 'Completo (full) a cada execução'],
     ['Backup local', `${f.dest_subdir.startsWith('/') ? f.dest_subdir : 'pasta padrão do agente'} · ${f.keep === 0 ? 'apagado após o envio' : `mantém ${f.keep} cópia(s)`}`],
-    ['Destino', dest ? `${dest.name} · ${f.cloud_folder || 'pasta automática'} · ${[f.cloud_keep ? `${f.cloud_keep} cópia(s)` : '', f.cloud_keep_days ? `${f.cloud_keep_days} dia(s)` : ''].filter(Boolean).join(' e ')}` : 'só a cópia local'],
+    ['Storage', dest ? `${dest.name} · ${f.cloud_folder || 'pasta automática'} · ${retentionText(f.cloud_keep, f.cloud_keep_days, '').replace(/^No  /, '')}` : 'só a cópia local'],
     ['Situação', f.enabled ? 'Ativo' : 'Pausado'],
   ]
   return (
@@ -230,23 +263,12 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
         )}
       </>) : <DbSection db={db} setDb={setDb} agentId={Number(f.agent_id)} job={job} />)}
       {step === 2 && (<>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Quando">
-            <select className={sel} value={custom ? 'custom' : f.cron} onChange={(e) => { if (e.target.value === 'custom') setCustom(true); else { setCustom(false); setF({ ...f, cron: e.target.value }) } }}>
-              {CRON_PRESETS.map((p) => <option key={p.cron} value={p.cron}>{p.label}</option>)}
-              <option value="custom">Personalizado…</option>
-            </select>
-          </Field>
-          <Field label="Fuso horário">
-            <input list="zones" className={sel} value={f.timezone} onChange={(e) => setF({ ...f, timezone: e.target.value })} required />
-            <datalist id="zones">{zones.map((z) => <option key={z} value={z} />)}</datalist>
-          </Field>
-        </div>
-        {custom && (
-          <Field label="Expressão cron" hint="5 campos: minuto hora dia-do-mês mês dia-da-semana. Ex.: 30 1 * * 1-5 = dias úteis às 01:30.">
-            <Input className="font-mono" value={f.cron} onChange={(e) => setF({ ...f, cron: e.target.value })} />
-          </Field>
-        )}
+        <ScheduleEditor cron={f.cron} onChange={(cron) => setF((v) => ({ ...v, cron }))} />
+        <Field label="Fuso horário" hint="Os horários acima valem neste fuso.">
+          <select className={sel} value={f.timezone} onChange={(e) => setF({ ...f, timezone: e.target.value })}>
+            {zones.map((z) => <option key={z} value={z}>{z.replace(/_/g, ' ')}</option>)}
+          </select>
+        </Field>
         <div>
           <span className="mb-1.5 block text-sm font-medium">Tipo de backup</span>
           <div role="radiogroup" aria-label="Tipo de backup" className="grid gap-3 sm:grid-cols-2">
@@ -264,32 +286,49 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
       {step === 3 && (<>
         <LocalDirField key={f.agent_id} agentId={Number(f.agent_id)} agentName={agentName} agentVersion={agentVersion} value={f.dest_subdir}
           onChange={(dest_subdir) => setF((v) => ({ ...v, dest_subdir }))} onUnavailable={() => setNoWriteAgent(Number(f.agent_id))} />
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Cópias locais a manter" hint={f.cloud_account_id ? '0 = apagar a cópia local depois que o destino confirmar o envio.' : 'A retenção só roda depois que o novo arquivo for verificado.'}>
-            <Input type="number" min={f.cloud_account_id ? 0 : 1} max={365} value={f.keep} onChange={(e) => setF({ ...f, keep: Number(e.target.value) })} required />
-          </Field>
+        <div>
+          <span className="mb-1.5 block text-sm font-medium">Cópias no agente</span>
+          <div role="radiogroup" aria-label="Cópias no agente" className="space-y-2">
+            <Choice on={f.keep > 0} onClick={() => f.keep === 0 && setF({ ...f, keep: 3 })}>
+              Manter as últimas <Count value={f.keep || 3} min={1} max={365} onChange={(keep) => setF({ ...f, keep })} unit="cópias" /> no agente
+            </Choice>
+            {f.cloud_account_id !== 0 && (
+              <Choice on={f.keep === 0} onClick={() => setF({ ...f, keep: 0 })}>Não guardar no agente: apagar a cópia local depois que o storage confirmar o envio</Choice>
+            )}
+          </div>
         </div>
         <fieldset className="space-y-3 rounded-xl border border-border p-4">
-          <legend className="px-1 text-sm font-medium">Enviar para um destino (opcional)</legend>
-          <Field label="Destino" hint={clouds.length === 0 ? 'Nenhum destino criado. Crie um na página Destinos.' : undefined}>
-            <select className={sel} value={f.cloud_account_id} onChange={(e) => setF({ ...f, cloud_account_id: Number(e.target.value), cloud_folder: '', keep: Number(e.target.value) && f.keep === 7 ? 0 : f.keep })}>
+          <legend className="px-1 text-sm font-medium">Enviar para um storage (opcional)</legend>
+          <Field label="Storage" hint={clouds.length === 0 ? 'Nenhum storage cadastrado. Cadastre um na página Storages.' : undefined}>
+            <select className={sel} value={f.cloud_account_id} onChange={(e) => setF({ ...f, cloud_account_id: Number(e.target.value), cloud_folder: '', keep: Number(e.target.value) ? (f.keep === 7 ? 0 : f.keep) : (f.keep || 3) })}>
               <option value={0}>Só cópia local</option>
               {clouds.map((c) => <option key={c.id} value={c.id}>{c.name} ({CLOUD_LABEL[c.type]})</option>)}
             </select>
           </Field>
           {f.cloud_account_id !== 0 && (<>
-            <FolderField key={f.cloud_account_id} label="Pasta no destino" hint="Automática = Coruja Backup/<agente>/<job>. Pastas novas são criadas no primeiro backup." value={f.cloud_folder} autoText="(automática)"
+            <FolderField key={f.cloud_account_id} label="Pasta no storage" hint="Automática = Coruja Backup/<agente>/<job>. Pastas novas são criadas no primeiro backup." value={f.cloud_folder} autoText="(automática)"
               onChange={(cloud_folder) => setF((v) => ({ ...v, cloud_folder }))}
-              picker={{ title: `Pasta em ${dest?.name ?? 'destino'}`, rootLabel: dest?.name ?? 'Destino',
+              picker={{ title: `Pasta em ${dest?.name ?? 'storage'}`, rootLabel: dest?.name ?? 'Storage',
                 intro: dest?.type === 'gdrive' ? 'Por segurança, o Google Drive só mostra ao Coruja Backup as pastas criadas por ele.'
                   : dest?.type === 'dropbox' ? 'No Dropbox, o Coruja Backup só enxerga a própria pasta, em Aplicativos.'
-                  : destIsCloud ? 'Pastas da sua conta.' : `Pastas do destino, consultadas pelo agente ${agentName}.`,
+                  : destIsCloud ? 'Pastas da sua conta.' : `Pastas do storage, consultadas pelo agente ${agentName}.`,
                 load: async (path) => (await api<{ folders: string[] }>('GET', `/api/clouds/${f.cloud_account_id}/folders?agent_id=${f.agent_id}&path=${encodeURIComponent(path)}`)).folders }} />
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Cópias a manter no destino" hint="0 = não limitar por quantidade."><Input type="number" min={0} max={3650} value={f.cloud_keep} onChange={(e) => setF({ ...f, cloud_keep: Number(e.target.value) })} /></Field>
-              <Field label="Dias a manter no destino" hint="0 = não limitar por dias. Pelo menos um dos dois é obrigatório."><Input type="number" min={0} max={3650} value={f.cloud_keep_days} onChange={(e) => setF({ ...f, cloud_keep_days: Number(e.target.value) })} /></Field>
+            <div>
+              <span className="mb-1.5 block text-sm font-medium">Por quanto tempo guardar no storage</span>
+              <div role="radiogroup" aria-label="Retenção no storage" className="space-y-2">
+                <Choice on={f.cloud_keep > 0 && !f.cloud_keep_days} onClick={() => setF({ ...f, cloud_keep: f.cloud_keep || 7, cloud_keep_days: 0 })}>
+                  As últimas <Count value={f.cloud_keep || 7} min={1} max={3650} onChange={(n) => setF({ ...f, cloud_keep: n, cloud_keep_days: 0 })} unit="cópias" />
+                </Choice>
+                <Choice on={!f.cloud_keep && f.cloud_keep_days > 0} onClick={() => setF({ ...f, cloud_keep: 0, cloud_keep_days: f.cloud_keep_days || 30 })}>
+                  Tudo dos últimos <Count value={f.cloud_keep_days || 30} min={1} max={3650} onChange={(n) => setF({ ...f, cloud_keep: 0, cloud_keep_days: n })} unit="dias" />
+                </Choice>
+                <Choice on={f.cloud_keep > 0 && f.cloud_keep_days > 0} onClick={() => setF({ ...f, cloud_keep: f.cloud_keep || 7, cloud_keep_days: f.cloud_keep_days || 30 })}>
+                  No máximo <Count value={f.cloud_keep || 7} min={1} max={3650} onChange={(n) => setF({ ...f, cloud_keep: n, cloud_keep_days: f.cloud_keep_days || 30 })} unit="cópias" />
+                  {' '}e nenhuma com mais de <Count value={f.cloud_keep_days || 30} min={1} max={3650} onChange={(n) => setF({ ...f, cloud_keep: f.cloud_keep || 7, cloud_keep_days: n })} unit="dias" />
+                </Choice>
+              </div>
+              <p className="mt-2 rounded-lg bg-bg px-3 py-2 text-sm"><b>Resumo:</b> {retentionText(f.cloud_keep, f.cloud_keep_days, dest?.name ?? 'storage')} A cópia mais recente nunca é apagada, e a limpeza só roda depois que o envio novo é conferido.</p>
             </div>
-            <p className="text-xs text-muted">A retenção no destino só roda depois que o envio for conferido, e o arquivo mais novo nunca é apagado.</p>
           </>)}
         </fieldset>
       </>)}

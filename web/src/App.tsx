@@ -33,7 +33,7 @@ type NavItem = { to: string; label: string; icon: IconName; admin?: boolean }
 const NAV: { title: string; items: NavItem[] }[] = [
   { title: 'Operação', items: [
     { to: 'painel', label: 'Painel', icon: 'painel' }, { to: 'agentes', label: 'Agentes', icon: 'agentes' },
-    { to: 'jobs', label: 'Jobs', icon: 'jobs' }, { to: 'nuvem', label: 'Destinos', icon: 'destinos' }, { to: 'historico', label: 'Histórico', icon: 'historico' },
+    { to: 'jobs', label: 'Jobs', icon: 'jobs' }, { to: 'nuvem', label: 'Storages', icon: 'destinos' }, { to: 'historico', label: 'Histórico', icon: 'historico' },
   ] },
   { title: 'Administração', items: [
     { to: 'usuarios', label: 'Usuários', icon: 'usuarios', admin: true }, { to: 'notificacoes', label: 'Notificações', icon: 'notificacoes', admin: true },
@@ -48,7 +48,7 @@ export default function App() {
   const [brand, setBrand] = useState<Branding>({ name: 'Coruja Backup', theme: 'coruja', themes: [], has_logo: false })
   const [phase, setPhase] = useState<Phase>('loading')
   const [me, setMe] = useState<Me | null>(null)
-  const [version, setVersion] = useState('0.0.17')
+  const [version, setVersion] = useState('0.0.18')
   const [drawer, setDrawer] = useState(false)
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const route = useRoute()
@@ -184,7 +184,7 @@ export default function App() {
           <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-8">
             {page === 'agentes' ? <Agents me={me.user} />
               : page === 'jobs' ? <Jobs me={me.user} />
-              : page === 'nuvem' ? <Clouds me={me.user} />
+              : page === 'nuvem' || page === 'storages' ? <Clouds me={me.user} />
               : page === 'historico' ? <Runs me={me.user} jobFilter={Number(new URLSearchParams(route.split('?')[1] ?? '').get('job') ?? 0)} />
               : page === 'usuarios' && isAdmin ? <Users me={me.user} />
               : page === 'auditoria' && isAdmin ? <Audit />

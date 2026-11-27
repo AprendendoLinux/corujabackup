@@ -8,11 +8,11 @@ package agentcore
 // retrato, para irem no próximo backup.
 
 import (
-	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -27,7 +27,7 @@ const (
 	ModeFull        = "full"
 	ModeIncremental = "incremental"
 	manifestName    = ".coruja-manifest.json"
-	snapshotVersion = 1
+	snapshotVersion = 2 // 2: cada item sabe em qual arquivo da cadeia está o conteúdo (catálogo)
 )
 
 // fileMeta é o que identifica a versão de um item.
@@ -38,6 +38,13 @@ type fileMeta struct {
 	Ino   uint64 `json:"i,omitempty"`
 	Dev   uint64 `json:"d,omitempty"`
 	Mode  uint32 `json:"t,omitempty"`
+	A     int    `json:"a,omitempty"` // índice em Snapshot.Archives do .tar.gz que guarda o conteúdo
+}
+
+// sameVersion compara a versão de dois itens (sem olhar onde o conteúdo está guardado).
+func sameVersion(a, b fileMeta) bool {
+	a.A, b.A = 0, 0
+	return a == b
 }
 
 func metaOf(info fs.FileInfo) fileMeta {
@@ -54,12 +61,14 @@ func metaOf(info fs.FileInfo) fileMeta {
 
 // Snapshot é o retrato dos arquivos do último backup que terminou bem.
 type Snapshot struct {
-	Version int                 `json:"version"`
-	Sig     string              `json:"sig"`      // origens, exclusões e raiz: se mudarem, o próximo é full
-	Chain   string              `json:"chain"`    // nome do full que abriu a cadeia
-	FullDay string              `json:"full_day"` // dia (AAAA-MM-DD, fuso do job) desse full
-	Last    string              `json:"last"`     // último arquivo da cadeia
-	Files   map[string]fileMeta `json:"files"`    // caminho lógico → versão
+	Version int    `json:"version"`
+	Sig     string `json:"sig"`      // origens, exclusões e raiz: se mudarem, o próximo é full
+	Chain   string `json:"chain"`    // nome do full que abriu a cadeia
+	FullDay string `json:"full_day"` // dia (AAAA-MM-DD, fuso do job) desse full
+	Last    string `json:"last"`     // último arquivo da cadeia
+	// Archives são os .tar.gz da cadeia até este backup, em ordem (o full primeiro): Files[...].A aponta para eles.
+	Archives []string            `json:"archives"`
+	Files    map[string]fileMeta `json:"files"` // caminho lógico → versão
 }
 
 // Manifest vai dentro de cada .tar.gz de um job incremental (último item, na raiz).
@@ -81,6 +90,14 @@ type incPlan struct {
 	same  int // arquivos sem mudança (deixados de fora)
 }
 
+// current é o índice, na cadeia, do arquivo que está sendo gerado.
+func (p *incPlan) current() int {
+	if p.base == nil {
+		return 0
+	}
+	return len(p.base.Archives)
+}
+
 func (p *incPlan) kind() string {
 	if p.base == nil {
 		return ModeFull
@@ -94,7 +111,15 @@ func (p *incPlan) unchanged(logical string, m fileMeta) bool {
 		return false
 	}
 	old, ok := p.base.Files[logical]
-	return ok && old == m
+	return ok && sameVersion(old, m)
+}
+
+// archiveOf diz onde está o conteúdo de um item sem mudança (o mesmo do backup anterior).
+func (p *incPlan) archiveOf(logical string) int {
+	if p.base == nil {
+		return 0
+	}
+	return p.base.Files[logical].A
 }
 
 // jobSig resume o que define o conteúdo de um job: mudou, o próximo backup é full.
@@ -133,49 +158,23 @@ func (s *State) snapshotPath(jobID int64) string {
 	return filepath.Join(s.dir, "snapshots", strconv.FormatInt(jobID, 10)+".json.gz")
 }
 
-// LoadSnapshot devolve o retrato do job (nil se não houver ou estiver ilegível: o próximo backup é full).
+// LoadSnapshot devolve o retrato do job (nil se não houver, estiver ilegível ou for de formato antigo: o próximo
+// backup é full).
 func (s *State) LoadSnapshot(jobID int64) *Snapshot {
-	f, err := os.Open(s.snapshotPath(jobID))
+	snap, err := readSnapshotFile(s.snapshotPath(jobID))
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return nil
-	}
-	var snap Snapshot
-	if json.NewDecoder(gz).Decode(&snap) != nil || snap.Version != snapshotVersion || snap.Files == nil {
-		return nil
-	}
-	return &snap
+	return snap
 }
 
 // SaveSnapshot grava o retrato de forma atômica (permissão 600: lista os nomes dos arquivos do servidor).
 func (s *State) SaveSnapshot(jobID int64, snap *Snapshot) error {
-	p := s.snapshotPath(jobID)
-	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-		return err
-	}
-	tmp := p + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
-	}
-	gz := gzip.NewWriter(f)
-	err = json.NewEncoder(gz).Encode(snap)
-	if cerr := gz.Close(); err == nil {
-		err = cerr
-	}
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return os.Rename(tmp, p)
+	return writeSnapshotFile(s.snapshotPath(jobID), snap)
 }
+
+func jsonEncode(w io.Writer, v any) error { return json.NewEncoder(w).Encode(v) }
+func jsonDecode(r io.Reader, v any) error { return json.NewDecoder(r).Decode(v) }
 
 // DropSnapshot esquece o retrato (o próximo backup do job é full).
 func (s *State) DropSnapshot(jobID int64) { _ = os.Remove(s.snapshotPath(jobID)) }

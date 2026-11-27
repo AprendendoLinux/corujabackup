@@ -312,6 +312,36 @@ func (c *Core) rpc(ctx context.Context, m *pb.Rpc) ([]byte, error) {
 			return nil, err
 		}
 		return json.Marshal(r)
+	case "catalog_dir":
+		var req struct {
+			JobID   int64  `json:"job_id"`
+			Archive string `json:"archive"`
+			Dir     string `json:"dir"`
+		}
+		if err := json.Unmarshal(m.Payload, &req); err != nil {
+			return nil, fmt.Errorf("pedido inválido: %w", err)
+		}
+		out, err := c.catalogDirRPC(req.JobID, req.Archive, req.Dir)
+		if errors.Is(err, ErrNoCatalog) {
+			return nil, errors.New("sem catálogo: este backup ainda não tem índice neste agente")
+		}
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(out)
+	case "catalog_versions":
+		var req struct {
+			JobID int64  `json:"job_id"`
+			Path  string `json:"path"`
+		}
+		if err := json.Unmarshal(m.Payload, &req); err != nil || c.st == nil {
+			return nil, errors.New("pedido inválido")
+		}
+		v, err := c.st.Versions(req.JobID, req.Path)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"versions": v})
 	case "mikrotik_test":
 		var cfg mikrotik.Config
 		if err := json.Unmarshal(m.Payload, &cfg); err != nil {

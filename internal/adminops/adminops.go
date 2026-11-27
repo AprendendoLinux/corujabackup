@@ -38,7 +38,7 @@ func ResetPassword(ctx context.Context, st *store.Store, username, newPassword s
 		}
 	}
 	if u.Disabled {
-		if err := st.UpdateUser(ctx, u.ID, u.DisplayName, u.Role, false); err != nil {
+		if err := st.UpdateUser(ctx, u.ID, u.FirstName, u.LastName, u.Role, false); err != nil {
 			return err
 		}
 	}
@@ -60,7 +60,7 @@ func CreateAdmin(ctx context.Context, st *store.Store, username, password string
 	if err != nil {
 		return err
 	}
-	id, err := st.CreateUser(ctx, username, username, hash, "admin")
+	id, err := st.CreateUser(ctx, username, username, "", hash, "admin")
 	if errors.Is(err, store.ErrDuplicate) {
 		return fmt.Errorf("o usuário %q já existe (use reset-password)", username)
 	}

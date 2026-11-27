@@ -60,7 +60,7 @@ export const SmbIcon = ({ size = 40 }: P) => wrap(size, <>
   <path d="M4 13a4 4 0 0 1 4-4h10l4 5h18a4 4 0 0 1 4 4v18a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4z" fill="#E0A526" />
   <path d="M4 20h40v15a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4z" fill="#F5C451" />
   <circle cx="24" cy="30" r="4" fill="#fff" opacity=".9" /><path d="M14 36h20" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" opacity=".9" />
-</>, 'Pasta de rede (SMB/NFS)')
+</>, 'Pasta de rede (SMB)')
 
 export const FtpIcon = ({ size = 40 }: P) => wrap(size, <>
   <rect x="3" y="8" width="42" height="32" rx="7" fill="#2E7D5B" />
@@ -73,6 +73,12 @@ export const LocalIcon = ({ size = 40 }: P) => wrap(size, <>
   <circle cx="37" cy="34.5" r="2.4" fill="#7CE0A0" /><path d="M10 34.5h15" stroke="#C9CFDA" strokeWidth="2.6" strokeLinecap="round" />
 </>, 'Pasta local ou volume montado')
 
+export const NfsIcon = ({ size = 40 }: P) => wrap(size, <>
+  <rect x="3" y="7" width="42" height="34" rx="7" fill="#1F5FA8" />
+  <path d="M10 17h28M10 24h28M10 31h28" stroke="#5B9BE0" strokeWidth="1.6" strokeLinecap="round" />
+  <text x="24" y="29" textAnchor="middle" fontFamily="system-ui, sans-serif" fontSize="14" fontWeight="800" fill="#fff" letterSpacing=".5">NFS</text>
+</>, 'Servidor NFS')
+
 export const CLOUD_ICON: Record<string, (p: P) => ReactNode> = {
-  gdrive: GoogleDriveIcon, onedrive: OneDriveIcon, dropbox: DropboxIcon, s3: S3Icon, b2: B2Icon, box: BoxIcon, mega: MegaIcon, pcloud: PCloudIcon, sftp: SftpIcon, ftp: FtpIcon, smb: SmbIcon, local: LocalIcon,
+  gdrive: GoogleDriveIcon, onedrive: OneDriveIcon, dropbox: DropboxIcon, s3: S3Icon, b2: B2Icon, box: BoxIcon, mega: MegaIcon, pcloud: PCloudIcon, sftp: SftpIcon, ftp: FtpIcon, smb: SmbIcon, nfs: NfsIcon, local: LocalIcon,
 }

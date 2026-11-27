@@ -1,8 +1,8 @@
-import type { User } from './api'
+import { User, userName } from './api'
 
 /** Foto do usuário ou, sem foto, a inicial do nome num círculo. */
 export default function Avatar({ user, size = 36 }: { user: Pick<User, 'id' | 'username' | 'display_name' | 'avatar_version'>; size?: number }) {
-  const name = user.display_name || user.username
+  const name = userName(user)
   if (user.avatar_version) {
     return <img src={`/api/users/${user.id}/avatar?v=${user.avatar_version}`} alt="" width={size} height={size} className="shrink-0 rounded-full object-cover ring-1 ring-border" style={{ width: size, height: size }} />
   }

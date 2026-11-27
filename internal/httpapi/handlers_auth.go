@@ -29,10 +29,16 @@ func (s *Server) setupStatus(w http.ResponseWriter, r *http.Request) {
 // setup cria o primeiro administrador (só funciona enquanto não existe nenhum usuário).
 func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Username, DisplayName, Password string
-		SetupCode                       string `json:"setup_code"`
+		Username, Password string
+		SetupCode          string `json:"setup_code"`
+		nameInput
 	}
 	if !decodeLoose(w, r, &in) {
+		return
+	}
+	first, last, bad := in.resolve("", "")
+	if bad != "" {
+		writeErr(w, 400, bad)
 		return
 	}
 	if s.SetupCode != "" {
@@ -61,7 +67,7 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "erro interno")
 		return
 	}
-	id, err := s.Store.CreateFirstAdmin(r.Context(), in.Username, strings.TrimSpace(in.DisplayName), hash)
+	id, err := s.Store.CreateFirstAdmin(r.Context(), in.Username, first, last, hash)
 	if errors.Is(err, store.ErrDuplicate) {
 		writeErr(w, 409, "a configuração inicial já foi feita")
 		return
@@ -222,6 +228,33 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, cu *ctxU
 	_ = s.Store.SetPassword(r.Context(), cu.User.ID, hash)
 	_ = s.Store.DeleteUserSessions(r.Context(), cu.User.ID, cu.Session.IDHash)
 	s.Store.Audit(r.Context(), cu.User.ID, cu.User.Username, "password.changed", "", s.clientIP(r))
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+// updateMe troca o nome e o sobrenome do próprio usuário.
+func (s *Server) updateMe(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
+	var in nameInput
+	if !decodeLoose(w, r, &in) {
+		return
+	}
+	if !in.given() {
+		writeErr(w, 400, "nada para alterar")
+		return
+	}
+	first, last, bad := in.resolve(cu.User.FirstName, cu.User.LastName)
+	if bad != "" {
+		writeErr(w, 400, bad)
+		return
+	}
+	if first == "" {
+		writeErr(w, 400, "informe o nome")
+		return
+	}
+	if err := s.Store.SetUserName(r.Context(), cu.User.ID, first, last); err != nil {
+		writeErr(w, 500, "erro interno")
+		return
+	}
+	s.Store.Audit(r.Context(), cu.User.ID, cu.User.Username, "user.renamed", store.FullName(first, last), s.clientIP(r))
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 

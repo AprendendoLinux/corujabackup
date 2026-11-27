@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/AprendendoLinux/corujabackup/internal/netdest"
 	"github.com/AprendendoLinux/corujabackup/internal/pb"
 	"github.com/AprendendoLinux/corujabackup/internal/slug"
 )
@@ -39,9 +40,13 @@ type FilesJob struct {
 	Artifacts []ArtifactDir
 	// DB != nil: job de banco de dados (o executor padrão usa RunDatabase em vez de RunFiles).
 	DB *pb.DbSpec
+	// out != nil: grava o .tar.gz direto num storage (modo direto), em vez de um arquivo na pasta de backups.
+	out archiveOut
 }
 
 type Result struct {
+	// Stored é o resultado no storage quando o backup foi gravado direto nele (sem arquivo local).
+	Stored      *netdest.Result
 	OutputName  string
 	OutputPath  string
 	DestDir     string
@@ -96,42 +101,39 @@ func (c *countingWriter) Write(p []byte) (int, error) {
 // então aplica a retenção. Em qualquer falha não deixa arquivo parcial.
 func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc *time.Location, now time.Time, h Hooks) (Result, error) {
 	var res Result
-	dest := job.DestPath
-	if dest == "" {
-		var err error
-		if dest, err = SafeSubdir(backupDir, job.Subdir); err != nil {
-			return res, err
-		}
-	}
-	if err := os.MkdirAll(dest, 0o750); err != nil {
-		return res, fmt.Errorf("não foi possível criar a pasta de destino: %w", err)
-	}
-	var st syscall.Statfs_t
-	if syscall.Statfs(dest, &st) == nil {
-		h.log("info", "espaço livre no destino: %s", HumanBytes(int64(st.Bavail)*int64(st.Bsize)))
-	}
 	prefix := Slug(job.Name)
-	generated := newArtifacts(append([]ArtifactDir{{Path: dest, Prefix: prefix}}, job.Artifacts...))
+	out := job.out
+	dest := ""
+	if out == nil {
+		dest = job.DestPath
+		if dest == "" {
+			var err error
+			if dest, err = SafeSubdir(backupDir, job.Subdir); err != nil {
+				return res, err
+			}
+		}
+		if err := os.MkdirAll(dest, 0o750); err != nil {
+			return res, fmt.Errorf("não foi possível criar a pasta de destino: %w", err)
+		}
+		var st syscall.Statfs_t
+		if syscall.Statfs(dest, &st) == nil {
+			h.log("info", "espaço livre no destino: %s", HumanBytes(int64(st.Bavail)*int64(st.Bsize)))
+		}
+		out = &localOut{dest: dest}
+	}
+	arts := job.Artifacts
+	if dest != "" {
+		arts = append([]ArtifactDir{{Path: dest, Prefix: prefix}}, arts...)
+	}
+	generated := newArtifacts(arts)
 	skipInDir := map[string][]*regexp.Regexp{} // por pasta percorrida: o que o agente gerou nela
 	virtual := readVirtualMounts()
-	name := fmt.Sprintf("%s-%s.tar.gz", prefix, now.In(loc).Format("20060102-150405"))
-	for i := 0; i < 120; i++ { // duas execuções no mesmo segundo não podem sobrescrever uma à outra
-		if _, err := os.Lstat(filepath.Join(dest, name)); err != nil {
-			break
-		}
-		now = now.Add(time.Second)
-		name = fmt.Sprintf("%s-%s.tar.gz", prefix, now.In(loc).Format("20060102-150405"))
-	}
-	final := filepath.Join(dest, name)
-	tmp := filepath.Join(dest, "."+name+".tmp")
-	defer os.Remove(tmp)
-
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
+	name, w, err := out.begin(prefix, loc, now)
 	if err != nil {
 		return res, err
 	}
 	hash := sha256.New()
-	cw := &countingWriter{w: io.MultiWriter(f, hash)}
+	cw := &countingWriter{w: io.MultiWriter(w, hash)}
 	gz := gzip.NewWriter(cw)
 	tw := tar.NewWriter(gz)
 	ex := NewExcluder(job.Excludes)
@@ -139,7 +141,7 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 	var entries int64
 	last := time.Now()
 
-	fail := func(err error) (Result, error) { tw.Close(); gz.Close(); f.Close(); return res, err }
+	fail := func(err error) (Result, error) { tw.Close(); gz.Close(); out.abort(); return res, err }
 
 	for _, p := range job.Paths {
 		if ctx.Err() != nil {
@@ -292,28 +294,30 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 		return fail(err)
 	}
 	if err := gz.Close(); err != nil {
-		f.Close()
-		return res, err
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return res, err
-	}
-	if err := f.Close(); err != nil {
+		out.abort()
 		return res, err
 	}
 	res.BytesOutput = cw.n
 	res.SHA256 = hex.EncodeToString(hash.Sum(nil))
-	if err := os.Rename(tmp, final); err != nil {
+	res.OutputName, res.Prefix = name, prefix
+	h.log("info", "arquivo gerado: %s (%s, %d itens)", name, HumanBytes(res.BytesOutput), entries)
+	if d, ok := out.(*directOut); ok {
+		h.log("info", "conferindo o arquivo no storage")
+		if err := out.commit(ctx, res.SHA256, entries); err != nil {
+			return res, err
+		}
+		res.Stored = &d.result
+		if d.result.VerifiedBy == "sha256" {
+			h.log("info", "conferido no storage: SHA-256 relido e %d itens legíveis", entries)
+		} else {
+			h.log("info", "conferido no storage pelo tamanho (conferência rápida)")
+		}
+		return res, nil
+	}
+	if err := out.commit(ctx, res.SHA256, entries); err != nil {
 		return res, err
 	}
-	res.OutputName, res.OutputPath, res.DestDir, res.Prefix = name, final, dest, prefix
-	h.log("info", "arquivo gerado: %s (%s, %d itens)", name, HumanBytes(res.BytesOutput), entries)
-
-	if err := VerifyArchive(ctx, final, res.SHA256, entries); err != nil {
-		os.Remove(final)
-		return res, fmt.Errorf("verificação falhou (arquivo removido): %w", err)
-	}
+	res.OutputPath, res.DestDir = filepath.Join(dest, name), dest
 	h.log("info", "verificação ok: SHA-256 conferido e %d itens legíveis", entries)
 
 	if job.SkipRetention {
@@ -328,48 +332,6 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 type zeroReader struct{}
 
 func (zeroReader) Read(p []byte) (int, error) { clear(p); return len(p), nil }
-
-// VerifyArchive relê o arquivo inteiro: confere o SHA-256, a integridade do gzip e conta as entradas do tar.
-func VerifyArchive(ctx context.Context, path, wantSHA string, wantEntries int64) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	h := sha256.New()
-	gz, err := gzip.NewReader(io.TeeReader(f, h))
-	if err != nil {
-		return err
-	}
-	tr := tar.NewReader(gz)
-	var n int64
-	for {
-		if ctx.Err() != nil {
-			return ErrCanceled
-		}
-		_, err := tr.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		if _, err := io.Copy(io.Discard, tr); err != nil {
-			return err
-		}
-		n++
-	}
-	if _, err := io.Copy(io.Discard, io.TeeReader(f, h)); err != nil { // consome o resto (rodapé do gzip)
-		return err
-	}
-	if got := hex.EncodeToString(h.Sum(nil)); got != wantSHA {
-		return fmt.Errorf("SHA-256 diferente do gravado (%s)", got[:12])
-	}
-	if wantEntries > 0 && n != wantEntries {
-		return fmt.Errorf("o tar tem %d itens, esperado %d", n, wantEntries)
-	}
-	return nil
-}
 
 // ApplyRetention mantém as keep cópias mais novas do job (nome <prefixo>-AAAAMMDD-HHMMSS.tar.gz) e apaga as outras.
 // Só mexe em arquivos com esse padrão exato.

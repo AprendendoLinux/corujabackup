@@ -27,7 +27,9 @@ func isDup(err error) bool {
 type User struct {
 	ID              int64      `json:"id"`
 	Username        string     `json:"username"`
-	DisplayName     string     `json:"display_name"`
+	DisplayName     string     `json:"display_name"` // sempre "nome sobrenome" (ou vazio)
+	FirstName       string     `json:"first_name"`
+	LastName        string     `json:"last_name"`
 	PasswordHash    string     `json:"-"`
 	Role            string     `json:"role"`
 	TOTPSecret      string     `json:"-"`
@@ -40,13 +42,13 @@ type User struct {
 	AvatarVersion   string     `json:"avatar_version"` // vazio = sem foto
 }
 
-const userCols = "id, username, display_name, password_hash, role, COALESCE(totp_secret,''), totp_enabled, totp_last_counter, COALESCE(recovery_codes,''), disabled, created_at, last_login_at, avatar_version"
+const userCols = "id, username, display_name, password_hash, role, COALESCE(totp_secret,''), totp_enabled, totp_last_counter, COALESCE(recovery_codes,''), disabled, created_at, last_login_at, avatar_version, first_name, last_name"
 
 func scanUser(r interface{ Scan(...any) error }) (*User, error) {
 	var u User
 	var ll sql.NullTime
 	if err := r.Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.Role, &u.TOTPSecret, &u.TOTPEnabled,
-		&u.TOTPLastCounter, &u.RecoveryCodes, &u.Disabled, &u.CreatedAt, &ll, &u.AvatarVersion); err != nil {
+		&u.TOTPLastCounter, &u.RecoveryCodes, &u.Disabled, &u.CreatedAt, &ll, &u.AvatarVersion, &u.FirstName, &u.LastName); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -70,8 +72,14 @@ func (s *Store) CountActiveAdmins(ctx context.Context) (n int, err error) {
 	return
 }
 
-func (s *Store) CreateUser(ctx context.Context, username, display, hash, role string) (int64, error) {
-	res, err := s.DB.ExecContext(ctx, "INSERT INTO users (username, display_name, password_hash, role) VALUES (?,?,?,?)", username, display, hash, role)
+// FullName junta nome e sobrenome (o display_name guardado).
+func FullName(first, last string) string {
+	return strings.TrimSpace(strings.TrimSpace(first) + " " + strings.TrimSpace(last))
+}
+
+func (s *Store) CreateUser(ctx context.Context, username, first, last, hash, role string) (int64, error) {
+	res, err := s.DB.ExecContext(ctx, "INSERT INTO users (username, display_name, first_name, last_name, password_hash, role) VALUES (?,?,?,?,?,?)",
+		username, FullName(first, last), first, last, hash, role)
 	if err != nil {
 		if isDup(err) {
 			return 0, ErrDuplicate
@@ -83,7 +91,7 @@ func (s *Store) CreateUser(ctx context.Context, username, display, hash, role st
 
 // CreateFirstAdmin cria o primeiro usuário só se a tabela estiver vazia (atômico: dois pedidos simultâneos no
 // assistente inicial não criam dois administradores).
-func (s *Store) CreateFirstAdmin(ctx context.Context, username, display, hash string) (int64, error) {
+func (s *Store) CreateFirstAdmin(ctx context.Context, username, first, last, hash string) (int64, error) {
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
@@ -96,7 +104,8 @@ func (s *Store) CreateFirstAdmin(ctx context.Context, username, display, hash st
 	if n > 0 {
 		return 0, ErrDuplicate
 	}
-	res, err := tx.ExecContext(ctx, "INSERT INTO users (username, display_name, password_hash, role) VALUES (?,?,?, 'admin')", username, display, hash)
+	res, err := tx.ExecContext(ctx, "INSERT INTO users (username, display_name, first_name, last_name, password_hash, role) VALUES (?,?,?,?,?, 'admin')",
+		username, FullName(first, last), first, last, hash)
 	if err != nil {
 		return 0, err
 	}
@@ -129,8 +138,15 @@ func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) UpdateUser(ctx context.Context, id int64, display, role string, disabled bool) error {
-	_, err := s.DB.ExecContext(ctx, "UPDATE users SET display_name=?, role=?, disabled=? WHERE id=?", display, role, disabled, id)
+func (s *Store) UpdateUser(ctx context.Context, id int64, first, last, role string, disabled bool) error {
+	_, err := s.DB.ExecContext(ctx, "UPDATE users SET display_name=?, first_name=?, last_name=?, role=?, disabled=? WHERE id=?",
+		FullName(first, last), first, last, role, disabled, id)
+	return err
+}
+
+// SetUserName troca nome e sobrenome (o próprio usuário, em Minha conta).
+func (s *Store) SetUserName(ctx context.Context, id int64, first, last string) error {
+	_, err := s.DB.ExecContext(ctx, "UPDATE users SET display_name=?, first_name=?, last_name=? WHERE id=?", FullName(first, last), first, last, id)
 	return err
 }
 

@@ -896,7 +896,7 @@ type JobSpec struct {
 	CloudAccountId int64                  `protobuf:"varint,12,opt,name=cloud_account_id,json=cloudAccountId,proto3" json:"cloud_account_id,omitempty"` // 0 = sem nuvem (só cópia local)
 	CloudFolder    string                 `protobuf:"bytes,13,opt,name=cloud_folder,json=cloudFolder,proto3" json:"cloud_folder,omitempty"`             // pasta na nuvem (informativo; quem decide é o Server)
 	Db             *DbSpec                `protobuf:"bytes,14,opt,name=db,proto3" json:"db,omitempty"`                                                  // kind="database"
-	Dest           *DestSpec              `protobuf:"bytes,15,opt,name=dest,proto3" json:"dest,omitempty"`                                              // destino "direto do agente" (SFTP, FTP, SMB, pasta local); ausente nas nuvens
+	Dest           *DestSpec              `protobuf:"bytes,15,opt,name=dest,proto3" json:"dest,omitempty"`                                              // destino "direto do agente" (SFTP, FTP, SMB, NFS, pasta local); ausente nas nuvens
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -1040,11 +1040,12 @@ func (x *JobSpec) GetDest() *DestSpec {
 // disco do agente com permissão 600.
 type DestSpec struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Type          string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`     // "sftp" | "ftp" | "smb" | "local"
+	Type          string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`     // "sftp" | "ftp" | "smb" | "nfs" | "local"
 	Config        []byte                 `protobuf:"bytes,2,opt,name=config,proto3" json:"config,omitempty"` // netdest.Config em JSON
 	Folder        string                 `protobuf:"bytes,3,opt,name=folder,proto3" json:"folder,omitempty"`
 	Keep          int32                  `protobuf:"varint,4,opt,name=keep,proto3" json:"keep,omitempty"`
 	KeepDays      int32                  `protobuf:"varint,5,opt,name=keep_days,json=keepDays,proto3" json:"keep_days,omitempty"`
+	Direct        bool                   `protobuf:"varint,6,opt,name=direct,proto3" json:"direct,omitempty"` // grava o .tar.gz direto no storage, sem arquivo local (agente 0.0.19+)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1112,6 +1113,13 @@ func (x *DestSpec) GetKeepDays() int32 {
 		return x.KeepDays
 	}
 	return 0
+}
+
+func (x *DestSpec) GetDirect() bool {
+	if x != nil {
+		return x.Direct
+	}
+	return false
 }
 
 type SyncJobs struct {
@@ -2573,13 +2581,14 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\x10cloud_account_id\x18\f \x01(\x03R\x0ecloudAccountId\x12!\n" +
 	"\fcloud_folder\x18\r \x01(\tR\vcloudFolder\x12!\n" +
 	"\x02db\x18\x0e \x01(\v2\x11.coruja.v1.DbSpecR\x02db\x12'\n" +
-	"\x04dest\x18\x0f \x01(\v2\x13.coruja.v1.DestSpecR\x04dest\"\x7f\n" +
+	"\x04dest\x18\x0f \x01(\v2\x13.coruja.v1.DestSpecR\x04dest\"\x97\x01\n" +
 	"\bDestSpec\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x16\n" +
 	"\x06config\x18\x02 \x01(\fR\x06config\x12\x16\n" +
 	"\x06folder\x18\x03 \x01(\tR\x06folder\x12\x12\n" +
 	"\x04keep\x18\x04 \x01(\x05R\x04keep\x12\x1b\n" +
-	"\tkeep_days\x18\x05 \x01(\x05R\bkeepDays\"2\n" +
+	"\tkeep_days\x18\x05 \x01(\x05R\bkeepDays\x12\x16\n" +
+	"\x06direct\x18\x06 \x01(\bR\x06direct\"2\n" +
 	"\bSyncJobs\x12&\n" +
 	"\x04jobs\x18\x01 \x03(\v2\x12.coruja.v1.JobSpecR\x04jobs\"8\n" +
 	"\x06RunNow\x12\x15\n" +

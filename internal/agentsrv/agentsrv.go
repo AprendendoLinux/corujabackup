@@ -96,7 +96,7 @@ func (s *Server) specFor(j store.Job) *pb.JobSpec {
 				slog.Error("não foi possível ler o destino do job", "job", j.Name, "erro", err.Error())
 			} else if d != nil {
 				b, _ := json.Marshal(d)
-				sp.Dest = &pb.DestSpec{Type: d.Type, Config: b, Folder: j.CloudFolder, Keep: int32(j.CloudKeep), KeepDays: int32(j.CloudKeepDays)}
+				sp.Dest = &pb.DestSpec{Type: d.Type, Config: b, Folder: j.CloudFolder, Keep: int32(j.CloudKeep), KeepDays: int32(j.CloudKeepDays), Direct: j.CloudDirect}
 			}
 		}
 	}

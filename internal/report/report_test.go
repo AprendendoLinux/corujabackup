@@ -34,6 +34,23 @@ func sample() Daily {
 		Clouds:    []CloudRow{{Name: "OneDrive Umami", Type: "OneDrive", Account: "backup@umami.com.br", Status: "connected", Total: 1 << 40, Used: 900 << 30}, {Name: "Drive extra", Type: "Google Drive", Status: "error", Err: "reconecte a conta"}},
 		Attention: []string{"Arquivos do server3: o envio para a nuvem falhou", "Agente umami-server3 está offline há 3 h", "OneDrive Umami está com 88% da cota usada"}}
 	d.Version = "0.0.7"
+	var hist []RunRow // 14 dias variados para o gráfico
+	for i := 0; i < 14; i++ {
+		for k := 0; k < 3+i%3; k++ {
+			st := now.AddDate(0, 0, -i).Add(-time.Duration(k) * time.Hour)
+			status := "ok"
+			switch {
+			case i == 3 && k == 0, i == 9 && k == 1:
+				status = "failed"
+			case i == 5 && k == 2:
+				status = "missed"
+			case k == 3:
+				status = "warning"
+			}
+			hist = append(hist, RunRow{Job: "j", Status: status, StartedAt: tp(st), BytesOut: 2 << 30})
+		}
+	}
+	d.History = History(hist, now, 14, loc)
 	return d
 }
 
@@ -150,5 +167,34 @@ func TestCreditosConfiguraveisNosRelatorios(t *testing.T) {
 	b.CreditName = ""
 	if h := (RunEvent{Brand: b, Run: sample().Runs[2]}).HTML(); strings.Contains(h, "Feito por") || strings.Contains(h, "acme.example") {
 		t.Fatal("créditos desligados ainda aparecem")
+	}
+}
+
+func TestHistoryAgrupaPorDiaNoFuso(t *testing.T) {
+	loc, _ := time.LoadLocation("America/Sao_Paulo")
+	now := time.Date(2026, 11, 27, 10, 0, 0, 0, loc)
+	at := func(d, h int) *time.Time { x := time.Date(2026, 11, d, h, 0, 0, 0, loc); return &x }
+	runs := []RunRow{
+		{Status: "ok", StartedAt: at(27, 1), BytesOut: 10},
+		{Status: "warning", StartedAt: at(27, 2), BytesOut: 5},
+		{Status: "failed", StartedAt: at(26, 23), BytesOut: 99}, // 02:00 UTC do dia 27, mas dia 26 no fuso
+		{Status: "missed", Scheduled: at(25, 3)},                // perdido: só tem o horário agendado
+		{Status: "canceled", StartedAt: at(25, 4)},
+		{Status: "running", StartedAt: at(27, 9)},
+		{Status: "ok", StartedAt: at(10, 1)}, // fora da janela
+	}
+	h := History(runs, now, 3, loc)
+	if len(h) != 3 || h[0].Date != "2026-11-25" || h[2].Date != "2026-11-27" {
+		t.Fatalf("dias: %+v", h)
+	}
+	if h[2].OK != 1 || h[2].Warning != 1 || h[2].Bytes != 15 || h[1].Failed != 1 || h[1].Bytes != 0 || h[0].Missed != 1 || h[0].Canceled != 1 || h[0].Finished() != 1 {
+		t.Fatalf("contagem: %+v", h)
+	}
+	s := Sum(runs)
+	if s.Runs != 6 || s.SuccessRate() != 0.6 { // Sum não recorta por data: soma tudo o que recebe
+		t.Fatalf("totais: %+v %v", s, s.SuccessRate())
+	}
+	if v := VolumeByJob([]RunRow{{Job: "a", Status: "ok", BytesOut: 1}, {Job: "b", Status: "ok", BytesOut: 5}, {Job: "a", Status: "failed", BytesOut: 50}}); v[0].Name != "b" || v[1].Bytes != 1 {
+		t.Fatalf("volume: %+v", v)
 	}
 }

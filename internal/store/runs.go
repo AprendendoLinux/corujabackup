@@ -454,7 +454,7 @@ func (s *Store) ApplyActionLog(ctx context.Context, agentID int64, a ActionResul
 		if _, err := tx.ExecContext(ctx, "UPDATE runs SET cloud_status='ok', cloud_path=?, cloud_hash=?, cloud_verified_by=? WHERE id=?", a.CloudPath, a.CloudHash, a.CloudVerifiedBy, id); err != nil {
 			return err
 		}
-		if status == "failed" && strings.Contains(errText, "envio para a nuvem falhou") {
+		if status == "failed" && (strings.Contains(errText, "envio para a nuvem falhou") || strings.Contains(errText, "envio para o storage falhou")) {
 			if _, err := tx.ExecContext(ctx, "UPDATE runs SET status='ok', error=NULL WHERE id=?", id); err != nil {
 				return err
 			}

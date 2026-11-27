@@ -22,7 +22,8 @@ const PROVIDERS: { group: string; items: Prov[] }[] = [
     { id: 'sftp', label: 'SFTP', hint: 'Servidor por SSH', state: 'ok' },
     { id: 'ftp', label: 'FTP', hint: 'FTPS ou FTP simples', state: 'ok' },
     { id: 'smb', label: 'Pasta de rede', hint: 'SMB / CIFS (Windows, NAS)', state: 'ok' },
-    { id: 'local', label: 'Pasta local', hint: 'NFS, iSCSI ou disco montado', state: 'ok' },
+    { id: 'nfs', label: 'NFS', hint: 'Exportação NFSv3, sem montar nada', state: 'ok' },
+    { id: 'local', label: 'Pasta local', hint: 'Disco do agente, iSCSI ou USB', state: 'ok' },
   ] },
 ]
 type Defs = { gdrive?: boolean; gdrive_web?: boolean; onedrive_web?: boolean; dropbox_web?: boolean; broker?: string }

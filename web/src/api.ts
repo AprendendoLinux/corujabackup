@@ -25,9 +25,12 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
 }
 
 export type User = {
-  id: number; username: string; display_name: string; role: 'admin' | 'operator' | 'viewer'
+  id: number; username: string; display_name: string; first_name?: string; last_name?: string; role: 'admin' | 'operator' | 'viewer'
   totp_enabled: boolean; disabled: boolean; created_at: string; last_login_at: string | null; avatar_version?: string
 }
+/** Nome completo do usuário ou, sem nome, o login. */
+export const userName = (u: Pick<User, 'username' | 'display_name'>) => u.display_name || u.username
+
 export type Agent = {
   id: number; name: string; hostname: string; os: string; arch: string; agent_version: string
   docker_available: boolean; ip: string; created_at: string; last_seen_at: string | null
@@ -56,7 +59,7 @@ export type Job = {
   id: number; name: string; agent_id: number; kind: string; enabled: boolean; cron: string; timezone: string
   paths: string[]; excludes: string[]; dest_subdir: string; keep: number; version: number
   agent_name: string; agent_online: boolean; next_run_at: string | null; last_run: Run | null
-  cloud_account_id: number | null; cloud_folder: string; cloud_keep: number; cloud_keep_days: number
+  cloud_account_id: number | null; cloud_folder: string; cloud_keep: number; cloud_keep_days: number; cloud_direct?: boolean
   db: DbView | null
 }
 
@@ -73,7 +76,7 @@ export type CloudAccount = {
   quota_total: number; quota_used: number; quota_checked_at: string | null; last_error: string; created_at: string; jobs: number
 }
 export type DeviceInfo = { user_code: string; verification_uri: string; expires_at: string; interval: number }
-export const CLOUD_LABEL = { onedrive: 'OneDrive', gdrive: 'Google Drive', dropbox: 'Dropbox', sftp: 'SFTP', ftp: 'FTP', smb: 'Pasta de rede (SMB)', local: 'Pasta local' } as const
+export const CLOUD_LABEL = { onedrive: 'OneDrive', gdrive: 'Google Drive', dropbox: 'Dropbox', sftp: 'SFTP', ftp: 'FTP', smb: 'Pasta de rede (SMB)', nfs: 'NFS', local: 'Pasta local' } as const
 export const PHASE: Record<string, string> = { archiving: 'Compactando', uploading: 'Enviando para a nuvem', verifying: 'Conferindo' }
 
 export { describeSched as describeCron } from './Schedule'

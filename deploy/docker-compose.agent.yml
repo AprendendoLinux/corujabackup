@@ -3,7 +3,7 @@
 # O Server conecta no agente pela porta publicada abaixo: libere-a só para o IP do Server.
 services:
   agent:
-    image: ghcr.io/aprendendolinux/corujabackup-agent:0.0.18
+    image: ghcr.io/aprendendolinux/corujabackup-agent:0.0.19
     container_name: corujabackup-agent
     restart: always
     ports:
@@ -24,8 +24,7 @@ services:
       # local fica então na pasta padrão abaixo).
       - /:/host-rw
       - /srv/coruja-backups:/backups       # pasta de backups padrão do agente (o agente a deixa fora da origem)
-      # Destinos "pasta local" (NFS, iSCSI, disco externo): monte no host e exponha SOMENTE o que for destino em /destinos/...
-      #   - /mnt/nas:/destinos/nas
+      # Storages NFS, SMB, SFTP, FTP e "pasta local" (outro disco, iSCSI, USB) são configurados só na interface: nada a montar aqui.
       # Opcional (desligado por padrão): executar dumps DENTRO dos contêineres de banco e fazer o teste de restauração em
       # contêineres descartáveis. Dá ao agente controle total do Docker do servidor: habilite só se precisar.
       #   - /var/run/docker.sock:/var/run/docker.sock

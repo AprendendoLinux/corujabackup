@@ -75,6 +75,6 @@ Os sistemas de arquivos virtuais (`/proc`, `/sys`, `/dev` e semelhantes) entram 
 
 Na pasta escolhida para o backup local, que pode ter outros dados, ficam fora **somente os arquivos que o agente gerou**; o restante dela continua sendo salvo.
 
-O que é do próprio agente nunca entra na origem de um backup: a pasta de backups (`/backups`), a raiz de destinos locais (`/destinos`), a pasta de dados (`/var/lib/coruja-agent`, com a credencial e as senhas dos jobs) e o que estiver montado dentro delas. Assim, salvar `/srv` com os backups em `/srv/coruja-backups` não acumula cópias dentro de cópias. A execução registra no log cada pasta deixada de fora. Para guardar uma segunda cópia dos backups, use um **destino** no job, em vez de selecionar essas pastas como origem.
+O que é do próprio agente nunca entra na origem de um backup: a pasta de backups (`/backups`), a raiz de destinos locais antigos (`/destinos`), as pastas dos storages "pasta local", a pasta de dados (`/var/lib/coruja-agent`, com a credencial e as senhas dos jobs) e o que estiver montado dentro delas. Assim, salvar `/srv` com os backups em `/srv/coruja-backups` não acumula cópias dentro de cópias. A execução registra no log cada pasta deixada de fora. Para guardar uma segunda cópia dos backups, use um **destino** no job, em vez de selecionar essas pastas como origem.
 
-> Monte em `/destinos` somente o que for destino: o que estiver montado ali fica fora da origem, mesmo que tenha outros arquivos.
+> Nos agentes antigos com volumes em `/destinos`: monte ali somente o que for destino, porque o que estiver montado ali fica fora da origem, mesmo que tenha outros arquivos. Desde a 0.0.19, NFS e "pasta local" são configurados só na interface (veja docs/DESTINOS.md).

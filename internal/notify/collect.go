@@ -114,11 +114,14 @@ func lum(hex string) float64 {
 }
 
 func rowFrom(r store.Run, kind string) report.RunRow {
-	return report.RunRow{ID: r.ID, Job: r.JobName, Agent: r.AgentName, Kind: kind, Trigger: r.Trigger, Status: r.Status, StartedAt: r.StartedAt, FinishedAt: r.FinishedAt,
+	return report.RunRow{ID: r.ID, Job: r.JobName, Agent: r.AgentName, Kind: kind, Trigger: r.Trigger, Status: r.Status, StartedAt: r.StartedAt, FinishedAt: r.FinishedAt, Scheduled: r.ScheduledFor,
 		BytesOut: r.BytesOutput, Files: r.Files, CloudStatus: r.CloudStatus, CloudPath: r.CloudPath, VerifiedBy: r.CloudVerifiedBy, Error: r.Error, OutputName: r.OutputName}
 }
 
 const onlineWindow = 90 * time.Second
+
+// HistoryDays é quantos dias o gráfico do relatório mostra.
+const HistoryDays = 14
 
 // Collect monta o relatório diário das últimas 24 h (até "now").
 func Collect(ctx context.Context, st *store.Store, brand report.Brand, now time.Time, loc *time.Location) (*report.Daily, error) {
@@ -226,6 +229,13 @@ func Collect(ctx context.Context, st *store.Store, brand report.Brand, now time.
 	}
 	d.Attention = dedupe(d.Attention)
 	d.Overall = overall
+	if hist, err := st.RunsBetween(ctx, now.AddDate(0, 0, -HistoryDays), now); err == nil {
+		rows := make([]report.RunRow, 0, len(hist))
+		for _, r := range hist {
+			rows = append(rows, rowFrom(r, kind[r.JobID]))
+		}
+		d.History = report.History(rows, now, HistoryDays, loc)
+	}
 	return d, nil
 }
 

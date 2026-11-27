@@ -16,6 +16,8 @@ import (
 	"github.com/AprendendoLinux/corujabackup/internal/auth"
 	"github.com/AprendendoLinux/corujabackup/internal/cloud"
 	"github.com/AprendendoLinux/corujabackup/internal/dbdump"
+	"github.com/AprendendoLinux/corujabackup/internal/netdest"
+	"github.com/AprendendoLinux/corujabackup/internal/notify"
 	"github.com/AprendendoLinux/corujabackup/internal/sched"
 	"github.com/AprendendoLinux/corujabackup/internal/slug"
 	"github.com/AprendendoLinux/corujabackup/internal/store"
@@ -41,6 +43,7 @@ type jobIn struct {
 	CloudFolder    *string `json:"cloud_folder"`
 	CloudKeep      *int    `json:"cloud_keep"`
 	CloudKeepDays  *int    `json:"cloud_keep_days"`
+	CloudDirect    *bool   `json:"cloud_direct"`
 	ClearCloud     bool    `json:"clear_cloud"`
 
 	Kind *string `json:"kind"`
@@ -288,7 +291,10 @@ func (s *Server) applyJobIn(ctx context.Context, j *store.Job, in jobIn) string 
 		j.Keep = *in.Keep
 	}
 	if in.ClearCloud {
-		j.CloudAccountID, j.CloudFolder, j.CloudKeep, j.CloudKeepDays = nil, "", 0, 0
+		j.CloudAccountID, j.CloudFolder, j.CloudKeep, j.CloudKeepDays, j.CloudDirect = nil, "", 0, 0, false
+	}
+	if in.CloudDirect != nil {
+		j.CloudDirect = *in.CloudDirect
 	}
 	if in.CloudAccountID != nil && *in.CloudAccountID > 0 {
 		acc, err := s.Store.GetCloud(ctx, *in.CloudAccountID)
@@ -300,6 +306,24 @@ func (s *Server) applyJobIn(ctx context.Context, j *store.Job, in jobIn) string 
 		}
 		id := acc.ID
 		j.CloudAccountID = &id
+	}
+	var netDest *netdest.Config
+	if j.CloudAccountID != nil && s.Clouds != nil {
+		if d, err := s.Clouds.DestConfig(ctx, *j.CloudAccountID); err == nil && d != nil {
+			if msg := destAgentCheck(d, a); msg != "" {
+				return msg
+			}
+			netDest = d
+		}
+	}
+	if j.CloudDirect {
+		if netDest == nil {
+			return "a gravação direta só vale para storages de rede ou pasta local (nas nuvens, o backup é gerado no agente e depois enviado)"
+		}
+		if a.AgentVersion != "" && !versionAtLeast(a.AgentVersion, [3]int{0, 0, 19}) {
+			return "o agente " + a.Name + " (versão " + a.AgentVersion + ") não grava direto no storage: atualize-o para a versão 0.0.19 ou mais nova"
+		}
+		j.Keep = 0 // não há cópia no agente
 	}
 	if in.CloudKeep != nil {
 		j.CloudKeep = *in.CloudKeep
@@ -595,6 +619,30 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request, _ *ctxUser) {
 	}
 	jobs, _ := s.Store.ListJobs(r.Context())
 	writeJSON(w, 200, map[string]any{"last_24h": map[string]int{"ok": st.OK, "warning": st.Warning, "failed": st.Failed, "missed": st.Missed, "running": st.Running}, "jobs": len(jobs)})
+}
+
+// dashboard devolve os dados do painel: ?days=7|14|30 (padrão 14) e ?tz= (fuso do navegador, para agrupar por dia).
+func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, _ *ctxUser) {
+	days := 14
+	switch r.URL.Query().Get("days") {
+	case "7":
+		days = 7
+	case "30":
+		days = 30
+	}
+	loc, err := time.LoadLocation(r.URL.Query().Get("tz"))
+	if err != nil || r.URL.Query().Get("tz") == "" {
+		if loc, err = time.LoadLocation(notify.DefaultTZ); err != nil {
+			loc = time.UTC
+		}
+	}
+	o, err := notify.BuildOverview(r.Context(), s.Store, s.clock(), loc, days)
+	if err != nil {
+		writeErr(w, 500, "erro interno")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, o)
 }
 
 // ---------------------------------------------------------------- consultas ao agente (contêineres, teste de banco)

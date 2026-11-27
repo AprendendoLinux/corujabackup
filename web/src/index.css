@@ -26,6 +26,15 @@
 
 html[data-mode="dark"] { color-scheme: dark; }
 
+/* Gráficos: cores dos estados (fixas, validadas para daltonismo, sempre com legenda) e da série única. A ordem de
+   empilhamento sucesso › aviso › falha › perdido mantém vizinhas distinguíveis. */
+:root {
+  --viz-good: #0aac23; --viz-warn: #fbb315; --viz-crit: #dc3c3d; --viz-serious: #f18a59;
+  --viz-series: #257de0; --viz-grid: color-mix(in srgb, var(--border) 75%, transparent);
+  --viz-axis: color-mix(in srgb, var(--muted) 55%, var(--surface));
+}
+html[data-mode="dark"] { --viz-series: #338ced; }
+
 body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 
 /* Barra de rolagem discreta (sem setas), nas cores do tema. O Firefox e o Chrome atuais usam scrollbar-width/color;

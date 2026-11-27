@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/AprendendoLinux/corujabackup/internal/auth"
 	"github.com/AprendendoLinux/corujabackup/internal/dockerapi"
+	"github.com/AprendendoLinux/corujabackup/internal/netdest"
 	"github.com/AprendendoLinux/corujabackup/internal/pb"
 	"github.com/AprendendoLinux/corujabackup/internal/sched"
 	"github.com/AprendendoLinux/corujabackup/internal/uploader"
@@ -99,7 +101,8 @@ func New(cfg Config, st *State, log *slog.Logger) *Core {
 	}
 	c.exec = func(ctx context.Context, job FilesJob, loc *time.Location, now time.Time, h Hooks) (Result, error) {
 		var chosen string // caminho real da pasta escolhida na interface ("" = pasta de backups padrão)
-		if strings.HasPrefix(job.Subdir, "/") {
+		// no modo direto, um job de arquivos não usa pasta local; o de banco ainda precisa dela para o dump temporário
+		if strings.HasPrefix(job.Subdir, "/") && (job.out == nil || job.DB != nil) {
 			var err error
 			if chosen, err = c.localDir(job.Subdir); err != nil {
 				return Result{}, err
@@ -108,9 +111,9 @@ func New(cfg Config, st *State, log *slog.Logger) *Core {
 		}
 		if job.DB != nil {
 			if chosen != "" {
-				return RunDatabase(ctx, job.Name, job.DB, ".", c.docker, chosen, loc, now, h)
+				return runDatabase(ctx, job.Name, job.DB, ".", c.docker, chosen, loc, now, h, job.out)
 			}
-			return RunDatabase(ctx, job.Name, job.DB, job.Subdir, c.docker, c.cfg.BackupDir, loc, now, h)
+			return runDatabase(ctx, job.Name, job.DB, job.Subdir, c.docker, c.cfg.BackupDir, loc, now, h, job.out)
 		}
 		job.DestPath, job.Artifacts = chosen, c.artifactDirs()
 		job.OwnDirs = []string{c.cfg.DestDir}
@@ -389,18 +392,37 @@ func (c *Core) execute(parent context.Context, r runReq) {
 	var res Result
 	if perr := c.policyCheck(r.spec); perr != nil {
 		err = perr
+	} else if d := r.spec.Dest; d != nil && d.Direct && r.spec.CloudAccountId != 0 {
+		// modo direto: o .tar.gz vai em fluxo para o storage, sem arquivo no agente
+		var cfg netdest.Config
+		if cfg, err = destConfig(d); err == nil {
+			logf("info", "gravando direto no storage %s (%s), sem cópia no agente", cfg.Type, cfg.Label())
+			var t *netdest.Target
+			if t, err = netdest.OpenTarget(ctx, cfg, c.destEnv(), d.Folder); err == nil {
+				job.out = &directOut{t: t, job: netdest.Job{Folder: d.Folder, Keep: int(d.Keep), KeepDays: int(d.KeepDays), Now: c.now().UTC()}}
+				res, err = c.runExec(ctx, job, loc, started, base, logf)
+				t.Close()
+			}
+		}
 	} else {
-		res, err = c.exec(ctx, job, loc, started, Hooks{Logf: logf, Progress: func(p Result) {
-			pr := proto.Clone(base).(*pb.RunReport)
-			pr.State, pr.Phase, pr.BytesSource, pr.BytesOutput, pr.Files = pb.RunReport_PROGRESS, "archiving", p.BytesSource, p.BytesOutput, p.Files
-			c.trySend(&pb.AgentMessage{Body: &pb.AgentMessage_RunReport{RunReport: pr}})
-		}})
+		res, err = c.runExec(ctx, job, loc, started, base, logf)
 	}
 
 	cloudStatus, cloudErr := "none", error(nil)
 	var cinfo CloudInfo
-	if err == nil && r.spec.CloudAccountId != 0 {
-		logf("info", "enviando para a nuvem (%s)", r.spec.CloudFolder)
+	where := struct{ short, long string }{"nuvem", "a nuvem"}
+	if r.spec.Dest != nil {
+		where.short, where.long = "storage", "o storage"
+	}
+	if err == nil && res.Stored != nil {
+		st := res.Stored
+		cloudStatus, cinfo = "ok", CloudInfo{Path: st.Path, Hash: st.Hash, VerifiedBy: st.VerifiedBy, Retention: st.Retention}
+		logf("info", "storage: %s (verificado por %s)", cinfo.Path, cinfo.VerifiedBy)
+		for _, l := range cinfo.Retention {
+			logf("info", "storage: %s", l)
+		}
+	} else if err == nil && r.spec.CloudAccountId != 0 {
+		logf("info", "enviando para %s (%s)", where.long, r.spec.CloudFolder)
 		last := -1
 		cinfo, cloudErr = c.upload(ctx, r.spec, r.uid, res, Hooks{Logf: logf}, func(pct int) {
 			if pct/5 != last/5 { // a cada 5%
@@ -410,13 +432,13 @@ func (c *Core) execute(parent context.Context, r runReq) {
 		})
 		if cloudErr == nil {
 			cloudStatus = "ok"
-			logf("info", "nuvem: %s (verificado por %s)", cinfo.Path, cinfo.VerifiedBy)
+			logf("info", "%s: %s (verificado por %s)", where.short, cinfo.Path, cinfo.VerifiedBy)
 			for _, l := range cinfo.Retention {
-				logf("info", "nuvem: %s", l)
+				logf("info", "%s: %s", where.short, l)
 			}
 		} else if ctx.Err() == nil {
 			cloudStatus = "failed"
-			logf("error", "envio para a nuvem falhou: %v", cloudErr)
+			logf("error", "envio para %s falhou: %v", where.long, cloudErr)
 		}
 	}
 	if err == nil && ctx.Err() == nil {
@@ -437,7 +459,7 @@ func (c *Core) execute(parent context.Context, r runReq) {
 		fin.Status, fin.Error = "failed", err.Error()
 		logf("error", "falhou: %v", err)
 	case cloudErr != nil:
-		fin.Status, fin.Error = "failed", "o backup local foi concluído e conferido, mas o envio para a nuvem falhou: "+cloudErr.Error()
+		fin.Status, fin.Error = "failed", "o backup local foi concluído e conferido, mas o envio para "+where.long+" falhou: "+cloudErr.Error()
 		logf("error", "o arquivo local foi preservado em %s", c.shownPath(res.OutputPath))
 	case res.Warnings > 0:
 		fin.Status = "warning"
@@ -452,6 +474,15 @@ func (c *Core) execute(parent context.Context, r runReq) {
 	fin.Logs = logs
 	lmu.Unlock()
 	c.deliver(fin)
+}
+
+// runExec roda o executor informando o andamento da compactação.
+func (c *Core) runExec(ctx context.Context, job FilesJob, loc *time.Location, started time.Time, base *pb.RunReport, logf func(level, f string, a ...any)) (Result, error) {
+	return c.exec(ctx, job, loc, started, Hooks{Logf: logf, Progress: func(p Result) {
+		pr := proto.Clone(base).(*pb.RunReport)
+		pr.State, pr.Phase, pr.BytesSource, pr.BytesOutput, pr.Files = pb.RunReport_PROGRESS, "archiving", p.BytesSource, p.BytesOutput, p.Files
+		c.trySend(&pb.AgentMessage{Body: &pb.AgentMessage_RunReport{RunReport: pr}})
+	}})
 }
 
 // localRetention aplica a retenção local depois do fim do backup. Com keep=0 (só faz sentido com nuvem) o arquivo local
@@ -647,6 +678,16 @@ func (c *Core) artifactDirs() []ArtifactDir {
 		if strings.HasPrefix(j.DestSubdir, "/") {
 			if p, err := c.localDir(j.DestSubdir); err == nil {
 				out = append(out, ArtifactDir{Path: p, Prefix: Slug(j.Name)})
+			}
+		}
+		// storage "pasta local" com caminho escolhido: os backups enviados para lá também ficam fora das origens
+		if j.Dest != nil && j.Dest.Type == netdest.TypeLocal {
+			if cfg, err := destConfig(j.Dest); err == nil && cfg.Normalize() == nil && cfg.Path != "" {
+				if p, err := c.localDir(cfg.Path); err == nil {
+					if folder, err := netdest.CleanPath(j.Dest.Folder); err == nil {
+						out = append(out, ArtifactDir{Path: filepath.Join(p, filepath.FromSlash(cfg.BasePath), filepath.FromSlash(folder)), Prefix: Slug(j.Name)})
+					}
+				}
 			}
 		}
 	}

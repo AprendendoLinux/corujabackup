@@ -2,7 +2,7 @@
 #   docker compose -f docker-compose.dev.yml up -d --build      ->  http://187.110.161.52:8081
 services:
   server:
-    build: { context: ., target: server, args: { VERSION: "0.0.18" } }
+    build: { context: ., target: server, args: { VERSION: "0.0.19" } }
     container_name: corujabackup-dev-server
     restart: unless-stopped
     ports: ["8081:8080"]   # interface web (o Server é quem conecta nos agentes)

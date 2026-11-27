@@ -13,8 +13,10 @@ export function agentHasDiskPicker(version = '') {
   return a > 0 || b > 0 || c >= 14
 }
 
-export function LocalDirField({ agentId, agentName, agentVersion, value, onChange, onUnavailable }: {
+export function LocalDirField({ agentId, agentName, agentVersion, value, onChange, onUnavailable, storage }: {
   agentId: number; agentName: string; agentVersion: string; value: string; onChange: (v: string) => void
+  /** escolha da pasta de um storage "pasta local" (em vez da pasta do backup local de um job) */
+  storage?: boolean
   /** chamado quando a stack do agente não tem a montagem gravável: aí não se pode exigir a escolha */
   onUnavailable: () => void
 }) {
@@ -43,14 +45,15 @@ export function LocalDirField({ agentId, agentName, agentVersion, value, onChang
     return { folders: r.entries.map((e) => e.name), free: r.free, total: r.total, used: r.used, mount: r.mount, fs: r.fs, blocked: r.blocked, disks: r.disks }
   }
   const legacy = value && !chosen ? `pasta padrão do agente › ${value}` : ''
+  const fallback = storage ? '' : ' Até lá, o backup local fica na pasta padrão dele.'
   return (
     <div className="space-y-2">
-      <FolderField label="Pasta do backup local no agente" value={chosen ? value.slice(1) : ''} autoText={legacy || (supported ? 'Escolha uma pasta do agente…' : 'pasta padrão do agente')}
-        prefix="/" resetLabel="Limpar a escolha" disabledReason={supported ? undefined : noMount ? `${noMount[0].toUpperCase()}${noMount.slice(1)}. Até lá, o backup local fica na pasta padrão dele.`
-          : 'Para escolher a pasta e ver o espaço livre, atualize este agente para a versão 0.0.14 ou mais nova. Até lá, o backup local fica na pasta padrão dele.'}
-        hint="Onde o arquivo do backup é gerado e onde ficam as cópias locais. A retenção só apaga os arquivos deste job."
+      <FolderField label={storage ? 'Pasta do storage' : 'Pasta do backup local no agente'} value={chosen ? value.slice(1) : ''} autoText={legacy || (supported ? 'Escolha uma pasta do agente…' : storage ? 'indisponível neste agente' : 'pasta padrão do agente')}
+        prefix="/" resetLabel="Limpar a escolha" disabledReason={supported ? undefined : noMount ? `${noMount[0].toUpperCase()}${noMount.slice(1)}.${fallback}`
+          : `Para escolher a pasta e ver o espaço livre, atualize este agente para a versão 0.0.14 ou mais nova.${fallback}`}
+        hint={storage ? 'Qualquer pasta da máquina do agente: outro disco, um volume iSCSI ou um HD USB já montados. Cada job grava numa subpasta dela.' : 'Onde o arquivo do backup é gerado e onde ficam as cópias locais. A retenção só apaga os arquivos deste job.'}
         onChange={(v) => onChange(v ? '/' + v.replace(/^\/+/, '') : '')}
-        picker={{ title: `Pasta do backup local em ${agentName}`, intro: 'Discos e pastas do agente. O espaço mostrado é o do disco onde a pasta fica.', rootLabel: 'Raiz', load: (p) => load(p) }} />
+        picker={{ title: storage ? `Pasta do storage em ${agentName}` : `Pasta do backup local em ${agentName}`, intro: 'Discos e pastas do agente. O espaço mostrado é o do disco onde a pasta fica.', rootLabel: 'Raiz', load: (p) => load(p) }} />
       {space?.total ? <SpaceBar free={space.free ?? 0} total={space.total} usedBytes={space.used} mount={space.mount} fs={space.fs} /> : null}
       {space && !space.exists && <p className="text-xs text-muted">Esta pasta será criada no primeiro backup.</p>}
       {space?.blocked && <p className="text-xs text-danger">{space.blocked}</p>}

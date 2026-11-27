@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/AprendendoLinux/corujabackup/internal/agentsrv"
+	"github.com/AprendendoLinux/corujabackup/internal/bkname"
 	"github.com/AprendendoLinux/corujabackup/internal/cloud"
 	"github.com/AprendendoLinux/corujabackup/internal/pb"
+	"github.com/AprendendoLinux/corujabackup/internal/slug"
 	"github.com/AprendendoLinux/corujabackup/internal/store"
 )
 
@@ -126,12 +128,50 @@ func (s *Server) extractRun(w http.ResponseWriter, r *http.Request, cu *ctxUser)
 		writeErr(w, 400, "nome de pasta inválido: use letras, números, ponto, hífen e sublinhado")
 		return
 	}
-	err := s.Agents.Action(run.AgentID, &pb.AgentAction{Kind: "extract", RunUid: run.UID, JobId: job.ID, FileName: run.OutputName, Subdir: job.DestSubdir, Target: in.Target})
+	act := &pb.AgentAction{Kind: "extract", RunUid: run.UID, JobId: job.ID, FileName: run.OutputName, Subdir: job.DestSubdir, Target: in.Target}
+	if _, inc, _ := bkname.Parse(run.OutputName, slug.Of(job.Name)); inc {
+		// incremental: o agente precisa do full e de todos os incrementais anteriores da cadeia, em ordem
+		chain, shas, msg := s.chainFor(r, job, run)
+		if msg != "" {
+			writeErr(w, 409, msg)
+			return
+		}
+		act.Chain, act.ChainSha256 = chain, shas
+	}
+	err := s.Agents.Action(run.AgentID, act)
 	if s.actionErr(w, err) {
 		return
 	}
 	s.Store.Audit(r.Context(), cu.User.ID, cu.User.Username, "run.extract", run.JobName+" / "+run.OutputName+" -> "+in.Target, s.clientIP(r))
 	writeJSON(w, 202, map[string]string{"target": in.Target})
+}
+
+// chainFor monta a cadeia (full + incrementais até run) a partir das execuções bem-sucedidas do job.
+func (s *Server) chainFor(r *http.Request, job *store.Job, run *store.Run) ([]string, []string, string) {
+	runs, err := s.Store.ListRuns(r.Context(), job.ID, "", 5000)
+	if err != nil {
+		return nil, nil, "erro interno"
+	}
+	var files []bkname.File
+	sha := map[string]string{}
+	for _, x := range runs {
+		if (x.Status == "ok" || x.Status == "warning") && x.OutputName != "" {
+			files = append(files, bkname.File{Name: x.OutputName})
+			sha[x.OutputName] = x.SHA256
+		}
+	}
+	chain := bkname.ChainUpTo(files, slug.Of(job.Name), run.OutputName)
+	if len(chain) == 0 {
+		return nil, nil, "esta execução não terminou bem e não pode ser restaurada"
+	}
+	if _, inc, _ := bkname.Parse(chain[0], slug.Of(job.Name)); inc {
+		return nil, nil, "a cadeia deste incremental está incompleta: o backup full dela não está mais no histórico"
+	}
+	shas := make([]string, len(chain))
+	for i, n := range chain {
+		shas[i] = sha[n]
+	}
+	return chain, shas, ""
 }
 
 func (s *Server) actionErr(w http.ResponseWriter, err error) bool {

@@ -14,14 +14,16 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/AprendendoLinux/corujabackup/internal/bkname"
 	"github.com/AprendendoLinux/corujabackup/internal/netdest"
 )
 
 type archiveOut interface {
 	// begin escolhe um nome livre (<prefixo>-AAAAMMDD-HHMMSS.tar.gz) e começa a gravar.
-	begin(prefix string, loc *time.Location, now time.Time) (name string, w io.Writer, err error)
+	begin(prefix string, loc *time.Location, now time.Time, inc bool) (name string, w io.Writer, err error)
 	// commit encerra a gravação, confere o conteúdo e só então publica o arquivo com o nome final.
 	commit(ctx context.Context, sha string, entries int64) error
 	// abort desiste e não deixa nada pela metade.
@@ -30,16 +32,24 @@ type archiveOut interface {
 
 // archiveName monta o nome do arquivo, avançando o horário enquanto o nome já existir (duas execuções no mesmo segundo
 // não podem sobrescrever uma à outra).
-func archiveName(prefix string, loc *time.Location, now time.Time, taken func(string) bool) string {
+func archiveName(prefix string, loc *time.Location, now time.Time, inc bool, taken func(string) bool) string {
 	name := ""
 	for i := 0; i < 120; i++ {
-		name = fmt.Sprintf("%s-%s.tar.gz", prefix, now.In(loc).Format("20060102-150405"))
+		name = bkname.Name(prefix, now.In(loc), inc)
 		if !taken(name) {
 			break
 		}
 		now = now.Add(time.Second)
 	}
 	return name
+}
+
+// twin é o nome "irmão" (full ↔ incremental) com o mesmo carimbo.
+func twin(name string) string {
+	if strings.HasSuffix(name, bkname.IncSuffix+".tar.gz") {
+		return strings.TrimSuffix(name, bkname.IncSuffix+".tar.gz") + ".tar.gz"
+	}
+	return strings.TrimSuffix(name, ".tar.gz") + bkname.IncSuffix + ".tar.gz"
 }
 
 // ---------------------------------------------------------------- arquivo local
@@ -49,8 +59,13 @@ type localOut struct {
 	f                      *os.File
 }
 
-func (o *localOut) begin(prefix string, loc *time.Location, now time.Time) (string, io.Writer, error) {
-	o.name = archiveName(prefix, loc, now, func(n string) bool { _, err := os.Lstat(filepath.Join(o.dest, n)); return err == nil })
+func (o *localOut) begin(prefix string, loc *time.Location, now time.Time, inc bool) (string, io.Writer, error) {
+	o.name = archiveName(prefix, loc, now, inc, func(n string) bool {
+		// o carimbo não pode repetir nem entre full e incremental (a cadeia é ordenada por ele)
+		_, e1 := os.Lstat(filepath.Join(o.dest, n))
+		_, e2 := os.Lstat(filepath.Join(o.dest, twin(n)))
+		return e1 == nil || e2 == nil
+	})
 	o.final, o.tmp = filepath.Join(o.dest, o.name), filepath.Join(o.dest, "."+o.name+".tmp")
 	f, err := os.OpenFile(o.tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
 	if err != nil {
@@ -100,8 +115,8 @@ type directOut struct {
 	result netdest.Result
 }
 
-func (o *directOut) begin(prefix string, loc *time.Location, now time.Time) (string, io.Writer, error) {
-	name := archiveName(prefix, loc, now, o.t.Exists)
+func (o *directOut) begin(prefix string, loc *time.Location, now time.Time, inc bool) (string, io.Writer, error) {
+	name := archiveName(prefix, loc, now, inc, func(n string) bool { return o.t.Exists(n) || o.t.Exists(twin(n)) })
 	o.u = o.t.Create(name)
 	o.job.Name, o.job.Prefix = name, prefix
 	return name, o.u, nil

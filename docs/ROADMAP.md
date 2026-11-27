@@ -19,7 +19,9 @@
 - [x] **Agenda por cliques e partições (0.0.18):** agenda sem cron, partições com uso na escolha da pasta local, retenção em opções e Storages.
 - [x] **NFS, pasta local livre e gravação direta (0.0.19):** NFSv3 por cliente embutido no agente (sem montar nada), pasta local escolhida no navegador de pastas, opção de gravar o backup direto no storage (sem arquivo no agente) e nome e sobrenome dos usuários.
 - [ ] **Fase 9, parte 3:** vários destinos por job; compatíveis com S3; SharePoint.
-- [ ] **Fase 10 – Full/Incremental e MikroTik (versão seguinte):** motor `tar.gz` em blocos com índice e catálogo; agenda full + incrementais; retenção por cadeia; jobs de MikroTik (SSH: `.rsc` e `.backup`).
+- [x] **Período à escolha (0.0.20):** seletor com atalhos e calendário no Painel e no Histórico.
+- [x] **Fase 10, parte 1 – Full + incrementais (0.0.21):** full no dia da semana escolhido, incrementais por data/tamanho/inode com lista do que foi apagado, retenção por cadeia, restauração da cadeia em ordem e "Executar backup full agora".
+- [ ] **Fase 10, parte 2 – MikroTik (0.0.22):** jobs de MikroTik pelo agente via SSH: export `.rsc` (com ou sem dados sensíveis) e arquivo `.backup` protegido por senha.
 - [ ] **Fase 11 – Restauração inteligente (versão posterior):** árvore de arquivos, linha do tempo de versões, restauração de arquivos selecionados e de bancos pela interface.
 - [ ] **Fase 12 – Piloto:** instalação em ambiente real, só com autorização e em paralelo ao backup existente; validação com contas reais de nuvem e Telegram.
 

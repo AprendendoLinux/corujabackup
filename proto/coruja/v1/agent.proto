@@ -91,6 +91,8 @@ message JobSpec {
   string cloud_folder = 13;        // pasta na nuvem (informativo; quem decide é o Server)
   DbSpec db = 14;                  // kind="database"
   DestSpec dest = 15;              // destino "direto do agente" (SFTP, FTP, SMB, NFS, pasta local); ausente nas nuvens
+  string backup_mode = 16;         // "full" (padrão) | "incremental": full no dia da semana abaixo, incrementais nos outros
+  int32 full_weekday = 17;         // incremental: 0 = domingo ... 6 = sábado (no fuso do job)
 }
 
 // DestSpec: o agente envia, confere e aplica a retenção. A configuração (com credenciais) viaja só pelo canal TLS e fica no
@@ -106,7 +108,7 @@ message DestSpec {
 
 message SyncJobs { repeated JobSpec jobs = 1; }
 
-message RunNow { int64 job_id = 1; string run_uid = 2; }
+message RunNow { int64 job_id = 1; string run_uid = 2; bool force_full = 3; }
 message CancelRun { string run_uid = 1; }
 message ReportAck { string run_uid = 1; }
 
@@ -138,6 +140,7 @@ message RunReport {
   string cloud_path = 20;
   string cloud_hash = 21;
   string cloud_verified_by = 22;
+  string backup_kind = 23;         // "full" | "incremental"
 }
 
 // ---- Fase 3: envio para a nuvem ------------------------------------------------------------------------------------
@@ -226,6 +229,8 @@ message AgentAction {
   string subdir = 6;
   string target = 7;               // extract: nome da pasta em <backups>/restores/
   string sha256 = 8;               // fetch: hash esperado do arquivo trazido do destino
+  repeated string chain = 9;       // extract de um incremental: arquivos da cadeia em ordem (o full primeiro; o último é file_name)
+  repeated string chain_sha256 = 10; // SHA-256 de cada arquivo de chain (para conferir o que for trazido do storage)
 }
 
 message ActionLog {

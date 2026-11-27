@@ -897,6 +897,8 @@ type JobSpec struct {
 	CloudFolder    string                 `protobuf:"bytes,13,opt,name=cloud_folder,json=cloudFolder,proto3" json:"cloud_folder,omitempty"`             // pasta na nuvem (informativo; quem decide é o Server)
 	Db             *DbSpec                `protobuf:"bytes,14,opt,name=db,proto3" json:"db,omitempty"`                                                  // kind="database"
 	Dest           *DestSpec              `protobuf:"bytes,15,opt,name=dest,proto3" json:"dest,omitempty"`                                              // destino "direto do agente" (SFTP, FTP, SMB, NFS, pasta local); ausente nas nuvens
+	BackupMode     string                 `protobuf:"bytes,16,opt,name=backup_mode,json=backupMode,proto3" json:"backup_mode,omitempty"`                // "full" (padrão) | "incremental": full no dia da semana abaixo, incrementais nos outros
+	FullWeekday    int32                  `protobuf:"varint,17,opt,name=full_weekday,json=fullWeekday,proto3" json:"full_weekday,omitempty"`            // incremental: 0 = domingo ... 6 = sábado (no fuso do job)
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -1036,6 +1038,20 @@ func (x *JobSpec) GetDest() *DestSpec {
 	return nil
 }
 
+func (x *JobSpec) GetBackupMode() string {
+	if x != nil {
+		return x.BackupMode
+	}
+	return ""
+}
+
+func (x *JobSpec) GetFullWeekday() int32 {
+	if x != nil {
+		return x.FullWeekday
+	}
+	return 0
+}
+
 // DestSpec: o agente envia, confere e aplica a retenção. A configuração (com credenciais) viaja só pelo canal TLS e fica no
 // disco do agente com permissão 600.
 type DestSpec struct {
@@ -1170,6 +1186,7 @@ type RunNow struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	JobId         int64                  `protobuf:"varint,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
 	RunUid        string                 `protobuf:"bytes,2,opt,name=run_uid,json=runUid,proto3" json:"run_uid,omitempty"`
+	ForceFull     bool                   `protobuf:"varint,3,opt,name=force_full,json=forceFull,proto3" json:"force_full,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1216,6 +1233,13 @@ func (x *RunNow) GetRunUid() string {
 		return x.RunUid
 	}
 	return ""
+}
+
+func (x *RunNow) GetForceFull() bool {
+	if x != nil {
+		return x.ForceFull
+	}
+	return false
 }
 
 type CancelRun struct {
@@ -1400,6 +1424,7 @@ type RunReport struct {
 	CloudPath       string                 `protobuf:"bytes,20,opt,name=cloud_path,json=cloudPath,proto3" json:"cloud_path,omitempty"`
 	CloudHash       string                 `protobuf:"bytes,21,opt,name=cloud_hash,json=cloudHash,proto3" json:"cloud_hash,omitempty"`
 	CloudVerifiedBy string                 `protobuf:"bytes,22,opt,name=cloud_verified_by,json=cloudVerifiedBy,proto3" json:"cloud_verified_by,omitempty"`
+	BackupKind      string                 `protobuf:"bytes,23,opt,name=backup_kind,json=backupKind,proto3" json:"backup_kind,omitempty"` // "full" | "incremental"
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -1584,6 +1609,13 @@ func (x *RunReport) GetCloudHash() string {
 func (x *RunReport) GetCloudVerifiedBy() string {
 	if x != nil {
 		return x.CloudVerifiedBy
+	}
+	return ""
+}
+
+func (x *RunReport) GetBackupKind() string {
+	if x != nil {
+		return x.BackupKind
 	}
 	return ""
 }
@@ -2291,8 +2323,10 @@ type AgentAction struct {
 	JobId         int64                  `protobuf:"varint,4,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
 	FileName      string                 `protobuf:"bytes,5,opt,name=file_name,json=fileName,proto3" json:"file_name,omitempty"` // arquivo de backup (no padrão do job) na pasta de destino do agente
 	Subdir        string                 `protobuf:"bytes,6,opt,name=subdir,proto3" json:"subdir,omitempty"`
-	Target        string                 `protobuf:"bytes,7,opt,name=target,proto3" json:"target,omitempty"` // extract: nome da pasta em <backups>/restores/
-	Sha256        string                 `protobuf:"bytes,8,opt,name=sha256,proto3" json:"sha256,omitempty"` // fetch: hash esperado do arquivo trazido do destino
+	Target        string                 `protobuf:"bytes,7,opt,name=target,proto3" json:"target,omitempty"`                               // extract: nome da pasta em <backups>/restores/
+	Sha256        string                 `protobuf:"bytes,8,opt,name=sha256,proto3" json:"sha256,omitempty"`                               // fetch: hash esperado do arquivo trazido do destino
+	Chain         []string               `protobuf:"bytes,9,rep,name=chain,proto3" json:"chain,omitempty"`                                 // extract de um incremental: arquivos da cadeia em ordem (o full primeiro; o último é file_name)
+	ChainSha256   []string               `protobuf:"bytes,10,rep,name=chain_sha256,json=chainSha256,proto3" json:"chain_sha256,omitempty"` // SHA-256 de cada arquivo de chain (para conferir o que for trazido do storage)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2381,6 +2415,20 @@ func (x *AgentAction) GetSha256() string {
 		return x.Sha256
 	}
 	return ""
+}
+
+func (x *AgentAction) GetChain() []string {
+	if x != nil {
+		return x.Chain
+	}
+	return nil
+}
+
+func (x *AgentAction) GetChainSha256() []string {
+	if x != nil {
+		return x.ChainSha256
+	}
+	return nil
 }
 
 type ActionLog struct {
@@ -2563,7 +2611,7 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\x03Ack\x12\x17\n" +
 	"\aunix_ms\x18\x01 \x01(\x03R\x06unixMs\"!\n" +
 	"\aRevoked\x12\x16\n" +
-	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xac\x03\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xf0\x03\n" +
 	"\aJobSpec\x12\x15\n" +
 	"\x06job_id\x18\x01 \x01(\x03R\x05jobId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
@@ -2581,7 +2629,10 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\x10cloud_account_id\x18\f \x01(\x03R\x0ecloudAccountId\x12!\n" +
 	"\fcloud_folder\x18\r \x01(\tR\vcloudFolder\x12!\n" +
 	"\x02db\x18\x0e \x01(\v2\x11.coruja.v1.DbSpecR\x02db\x12'\n" +
-	"\x04dest\x18\x0f \x01(\v2\x13.coruja.v1.DestSpecR\x04dest\"\x97\x01\n" +
+	"\x04dest\x18\x0f \x01(\v2\x13.coruja.v1.DestSpecR\x04dest\x12\x1f\n" +
+	"\vbackup_mode\x18\x10 \x01(\tR\n" +
+	"backupMode\x12!\n" +
+	"\ffull_weekday\x18\x11 \x01(\x05R\vfullWeekday\"\x97\x01\n" +
 	"\bDestSpec\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x16\n" +
 	"\x06config\x18\x02 \x01(\fR\x06config\x12\x16\n" +
@@ -2590,10 +2641,12 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\tkeep_days\x18\x05 \x01(\x05R\bkeepDays\x12\x16\n" +
 	"\x06direct\x18\x06 \x01(\bR\x06direct\"2\n" +
 	"\bSyncJobs\x12&\n" +
-	"\x04jobs\x18\x01 \x03(\v2\x12.coruja.v1.JobSpecR\x04jobs\"8\n" +
+	"\x04jobs\x18\x01 \x03(\v2\x12.coruja.v1.JobSpecR\x04jobs\"W\n" +
 	"\x06RunNow\x12\x15\n" +
 	"\x06job_id\x18\x01 \x01(\x03R\x05jobId\x12\x17\n" +
-	"\arun_uid\x18\x02 \x01(\tR\x06runUid\"$\n" +
+	"\arun_uid\x18\x02 \x01(\tR\x06runUid\x12\x1d\n" +
+	"\n" +
+	"force_full\x18\x03 \x01(\bR\tforceFull\"$\n" +
 	"\tCancelRun\x12\x17\n" +
 	"\arun_uid\x18\x01 \x01(\tR\x06runUid\"$\n" +
 	"\tReportAck\x12\x17\n" +
@@ -2602,7 +2655,7 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\x03seq\x18\x01 \x01(\x05R\x03seq\x12\x17\n" +
 	"\aunix_ms\x18\x02 \x01(\x03R\x06unixMs\x12\x14\n" +
 	"\x05level\x18\x03 \x01(\tR\x05level\x12\x12\n" +
-	"\x04text\x18\x04 \x01(\tR\x04text\"\xf5\x05\n" +
+	"\x04text\x18\x04 \x01(\tR\x04text\"\x96\x06\n" +
 	"\tRunReport\x12\x17\n" +
 	"\arun_uid\x18\x01 \x01(\tR\x06runUid\x12\x15\n" +
 	"\x06job_id\x18\x02 \x01(\x03R\x05jobId\x120\n" +
@@ -2632,7 +2685,9 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"cloud_path\x18\x14 \x01(\tR\tcloudPath\x12\x1d\n" +
 	"\n" +
 	"cloud_hash\x18\x15 \x01(\tR\tcloudHash\x12*\n" +
-	"\x11cloud_verified_by\x18\x16 \x01(\tR\x0fcloudVerifiedBy\"0\n" +
+	"\x11cloud_verified_by\x18\x16 \x01(\tR\x0fcloudVerifiedBy\x12\x1f\n" +
+	"\vbackup_kind\x18\x17 \x01(\tR\n" +
+	"backupKind\"0\n" +
 	"\x05State\x12\v\n" +
 	"\aSTARTED\x10\x00\x12\f\n" +
 	"\bPROGRESS\x10\x01\x12\f\n" +
@@ -2712,7 +2767,7 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x0e\n" +
 	"\x02ok\x18\x02 \x01(\bR\x02ok\x12\x14\n" +
 	"\x05error\x18\x03 \x01(\tR\x05error\x12\x18\n" +
-	"\apayload\x18\x04 \x01(\fR\apayload\"\xc6\x01\n" +
+	"\apayload\x18\x04 \x01(\fR\apayload\"\xff\x01\n" +
 	"\vAgentAction\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x17\n" +
@@ -2721,7 +2776,10 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\tfile_name\x18\x05 \x01(\tR\bfileName\x12\x16\n" +
 	"\x06subdir\x18\x06 \x01(\tR\x06subdir\x12\x16\n" +
 	"\x06target\x18\a \x01(\tR\x06target\x12\x16\n" +
-	"\x06sha256\x18\b \x01(\tR\x06sha256\"\xb1\x02\n" +
+	"\x06sha256\x18\b \x01(\tR\x06sha256\x12\x14\n" +
+	"\x05chain\x18\t \x03(\tR\x05chain\x12!\n" +
+	"\fchain_sha256\x18\n" +
+	" \x03(\tR\vchainSha256\"\xb1\x02\n" +
 	"\tActionLog\x12\x17\n" +
 	"\arun_uid\x18\x01 \x01(\tR\x06runUid\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x14\n" +

@@ -34,7 +34,7 @@ type AgentHub interface {
 	Online() map[int64]time.Time
 	Revoke(id int64, reason string)
 	PushJobs(ctx context.Context, agentID int64)
-	RunNow(agentID, jobID int64, runUID string) error
+	RunNow(agentID, jobID int64, runUID string, forceFull bool) error
 	CancelRun(agentID int64, runUID string) error
 	Call(ctx context.Context, agentID int64, kind string, payload []byte, timeout time.Duration) ([]byte, error)
 	Action(agentID int64, act *pb.AgentAction) error

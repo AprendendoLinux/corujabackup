@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/AprendendoLinux/corujabackup/internal/bkname"
 	"io"
 	"net/http"
 	"net/url"
@@ -114,47 +115,18 @@ func escPath(p string) string {
 	return strings.Join(segs, "/")
 }
 
-// Retention decide quais arquivos remover da nuvem. Considera só nomes <prefixo>-AAAAMMDD-HHMMSS.tar.gz; mantém sempre
-// pelo menos o mais novo. Remove o que passar de keep (se >0) E/OU for mais velho que keepDays (se >0).
+// Retention decide quais arquivos remover da nuvem, por cadeia (um full e os incrementais dele): mantém as keep cadeias
+// mais novas (se >0) e/ou apaga as mais velhas que keepDays (se >0); a mais nova nunca é removida.
 func Retention(files []RemoteFile, prefix string, keep, keepDays int, now time.Time) []RemoteFile {
-	var mine []RemoteFile
+	in := make([]bkname.File, 0, len(files))
+	byName := map[string]RemoteFile{}
 	for _, f := range files {
-		if _, ok := parseBackupName(f.Name, prefix); ok {
-			mine = append(mine, f)
-		}
-	}
-	// ordem cronológica pelo carimbo no nome (mais novo primeiro)
-	for i := 1; i < len(mine); i++ {
-		for j := i; j > 0 && mine[j].Name > mine[j-1].Name; j-- {
-			mine[j], mine[j-1] = mine[j-1], mine[j]
-		}
+		in = append(in, bkname.File{Name: f.Name, Modified: f.Modified})
+		byName[f.Name] = f
 	}
 	var del []RemoteFile
-	for i, f := range mine {
-		if i == 0 {
-			continue // o mais novo nunca é removido
-		}
-		old := false
-		if keep > 0 && i >= keep {
-			old = true
-		}
-		if keepDays > 0 {
-			if ts, ok := parseBackupName(f.Name, prefix); ok && now.Sub(ts) > time.Duration(keepDays)*24*time.Hour {
-				old = true
-			}
-		}
-		if old {
-			del = append(del, f)
-		}
+	for _, f := range bkname.Retention(in, prefix, keep, keepDays, now) {
+		del = append(del, byName[f.Name])
 	}
 	return del
-}
-
-func parseBackupName(name, prefix string) (time.Time, bool) {
-	if !strings.HasPrefix(name, prefix+"-") || !strings.HasSuffix(name, ".tar.gz") {
-		return time.Time{}, false
-	}
-	stamp := strings.TrimSuffix(strings.TrimPrefix(name, prefix+"-"), ".tar.gz")
-	t, err := time.Parse("20060102-150405", stamp)
-	return t, err == nil
 }

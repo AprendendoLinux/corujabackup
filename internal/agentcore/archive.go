@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,11 +14,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/AprendendoLinux/corujabackup/internal/bkname"
 	"github.com/AprendendoLinux/corujabackup/internal/netdest"
 	"github.com/AprendendoLinux/corujabackup/internal/pb"
 	"github.com/AprendendoLinux/corujabackup/internal/slug"
@@ -42,11 +43,16 @@ type FilesJob struct {
 	DB *pb.DbSpec
 	// out != nil: grava o .tar.gz direto num storage (modo direto), em vez de um arquivo na pasta de backups.
 	out archiveOut
+	// inc != nil: job incremental (com inc.base nil, este backup é o full que abre uma cadeia).
+	inc *incPlan
 }
 
 type Result struct {
 	// Stored é o resultado no storage quando o backup foi gravado direto nele (sem arquivo local).
-	Stored      *netdest.Result
+	Stored *netdest.Result
+	// Kind é "full" ou "incremental"; Snapshot é o novo retrato (jobs incrementais), gravado só se a execução terminar bem.
+	Kind        string
+	Snapshot    *Snapshot
 	OutputName  string
 	OutputPath  string
 	DestDir     string
@@ -128,7 +134,11 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 	generated := newArtifacts(arts)
 	skipInDir := map[string][]*regexp.Regexp{} // por pasta percorrida: o que o agente gerou nela
 	virtual := readVirtualMounts()
-	name, w, err := out.begin(prefix, loc, now)
+	inc := job.inc
+	if inc != nil {
+		inc.next = &Snapshot{Version: snapshotVersion, Files: map[string]fileMeta{}}
+	}
+	name, w, err := out.begin(prefix, loc, now, inc != nil && inc.base != nil)
 	if err != nil {
 		return res, err
 	}
@@ -221,6 +231,18 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 				res.Warnings++
 				return nil
 			}
+			meta := metaOf(info)
+			record := func() {
+				if inc != nil {
+					inc.next.Files[logical] = meta
+				}
+			}
+			// incremental: o que não mudou desde o backup anterior fica de fora (mas continua no retrato)
+			if inc != nil && !mode.IsDir() && inc.unchanged(logical, meta) {
+				record()
+				inc.same++
+				return after
+			}
 			link := ""
 			if mode&fs.ModeSymlink != 0 {
 				if link, err = os.Readlink(cur); err != nil {
@@ -263,6 +285,11 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 					}
 					h.log("warn", "arquivo mudou durante o backup: %s", logical)
 					res.Warnings++
+				} else {
+					record() // só entra no retrato o que foi lido por inteiro
+				}
+				if inc != nil {
+					inc.reads++
 				}
 				res.BytesSource += hdr.Size
 				res.Files++
@@ -270,6 +297,7 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 				if err := tw.WriteHeader(hdr); err != nil {
 					return err
 				}
+				record()
 				if mode.IsDir() {
 					res.Files++
 				}
@@ -289,6 +317,26 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 	}
 	if entries == 0 {
 		return fail(errors.New("nada foi salvo: nenhuma das origens existe ou todas foram excluídas"))
+	}
+	if inc != nil {
+		m := Manifest{Format: 1, Kind: inc.kind(), Chain: name, Created: now.In(loc).Format(time.RFC3339), Deleted: deletedSince(inc.base, inc.next)}
+		if inc.base != nil {
+			m.Chain, m.Base = inc.base.Chain, inc.base.Last
+		}
+		b, _ := json.MarshalIndent(m, "", "  ")
+		if err := tw.WriteHeader(&tar.Header{Name: manifestName, Mode: 0o640, Size: int64(len(b)), ModTime: now, Typeflag: tar.TypeReg}); err != nil {
+			return fail(err)
+		}
+		if _, err := tw.Write(b); err != nil {
+			return fail(err)
+		}
+		entries++
+		if inc.base != nil {
+			h.log("info", "incremental sobre %s: %d arquivo(s) novo(s) ou alterado(s), %d sem mudança, %d apagado(s) desde o anterior", inc.base.Last, inc.reads, inc.same, len(m.Deleted))
+		}
+		inc.next.Sig, inc.next.Chain, inc.next.Last = "", m.Chain, name
+		res.Snapshot = inc.next
+		res.Kind = inc.kind()
 	}
 	if err := tw.Close(); err != nil {
 		return fail(err)
@@ -333,27 +381,24 @@ type zeroReader struct{}
 
 func (zeroReader) Read(p []byte) (int, error) { clear(p); return len(p), nil }
 
-// ApplyRetention mantém as keep cópias mais novas do job (nome <prefixo>-AAAAMMDD-HHMMSS.tar.gz) e apaga as outras.
-// Só mexe em arquivos com esse padrão exato.
+// ApplyRetention mantém as keep cadeias mais novas do job (um full e os incrementais dele; num job só de fulls, as keep
+// cópias mais novas) e apaga as outras. Só mexe em arquivos com o padrão de nome do job.
 func ApplyRetention(dir, prefix string, keep int) []string {
-	re := regexp.MustCompile("^" + regexp.QuoteMeta(prefix) + `-\d{8}-\d{6}\.tar\.gz$`)
 	ents, err := os.ReadDir(dir)
 	if err != nil || keep < 1 {
 		return nil
 	}
-	var names []string
+	var files []bkname.File
 	for _, e := range ents {
-		if !e.IsDir() && re.MatchString(e.Name()) {
-			names = append(names, e.Name())
+		if !e.IsDir() {
+			files = append(files, bkname.File{Name: e.Name()})
 		}
 	}
-	sort.Strings(names) // o carimbo de data no nome ordena cronologicamente
 	var removed []string
-	for len(names) > keep {
-		if os.Remove(filepath.Join(dir, names[0])) == nil {
-			removed = append(removed, names[0])
+	for _, f := range bkname.Retention(files, prefix, keep, 0, time.Time{}) {
+		if os.Remove(filepath.Join(dir, f.Name)) == nil {
+			removed = append(removed, f.Name)
 		}
-		names = names[1:]
 	}
 	return removed
 }

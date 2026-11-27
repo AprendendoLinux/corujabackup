@@ -240,7 +240,7 @@ func session(ctx, base context.Context, log *slog.Logger, st *Credentials, core 
 			case m.GetSyncJobs() != nil:
 				core.SyncJobs(m.GetSyncJobs().Jobs)
 			case m.GetRunNow() != nil:
-				core.Enqueue(m.GetRunNow().JobId, m.GetRunNow().RunUid, "manual", time.Time{})
+				core.EnqueueRun(m.GetRunNow().JobId, m.GetRunNow().RunUid, "manual", time.Time{}, m.GetRunNow().ForceFull)
 			case m.GetCancelRun() != nil:
 				core.Cancel(m.GetCancelRun().RunUid)
 			case m.GetAction() != nil:

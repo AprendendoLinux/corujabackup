@@ -60,6 +60,7 @@ type Core struct {
 	cfg   Config
 	st    *State
 	dl    downloader
+	cf    fetcher
 	log   *slog.Logger
 	now   func() time.Time
 	exec  Executor

@@ -4,6 +4,7 @@
 package cloudtest
 
 import (
+	"bytes"
 	"crypto/md5" //nolint:gosec
 	"encoding/hex"
 	"encoding/json"
@@ -14,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/AprendendoLinux/corujabackup/internal/cloud"
 )
@@ -35,6 +38,7 @@ type session struct {
 // Common reúne o estado e os ganchos de falha compartilhados pelos dois falsos.
 type Common struct {
 	*httptest.Server
+	Served   atomic.Int64 // bytes de conteúdo entregues nos downloads (com ou sem Range)
 	mu       sync.Mutex
 	Files    map[string]*File // chave: caminho completo
 	Folders  map[string]string
@@ -313,8 +317,7 @@ func (g *Graph) serve(w http.ResponseWriter, r *http.Request) {
 		defer g.mu.Unlock()
 		for _, f := range g.Files {
 			if f.ID == strings.TrimPrefix(r.URL.Path, "/download/") {
-				w.Header().Set("Content-Length", strconv.Itoa(len(f.Content)))
-				_, _ = w.Write(f.Content)
+				serveRange(w, r, f.Content, &g.Served)
 				return
 			}
 		}
@@ -551,8 +554,7 @@ func (d *Drive) serve(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimPrefix(pth, "/drive/v3/files/")
 		for _, f := range d.Files {
 			if f.ID == id {
-				w.Header().Set("Content-Length", strconv.Itoa(len(f.Content)))
-				_, _ = w.Write(f.Content)
+				serveRange(w, r, f.Content, &d.Served)
 				return
 			}
 		}
@@ -587,4 +589,22 @@ func (d *Drive) serve(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, 400, map[string]any{"error": "rota não suportada pelo falso: " + r.Method + " " + pth})
 	}
+}
+
+// serveRange entrega o conteúdo respeitando o cabeçalho Range (como os provedores reais) e soma o que foi entregue.
+func serveRange(w http.ResponseWriter, r *http.Request, content []byte, served *atomic.Int64) {
+	cw := &countingRW{ResponseWriter: w}
+	http.ServeContent(cw, r, "", time.Time{}, bytes.NewReader(content))
+	served.Add(cw.n)
+}
+
+type countingRW struct {
+	http.ResponseWriter
+	n int64
+}
+
+func (c *countingRW) Write(p []byte) (int, error) {
+	n, err := c.ResponseWriter.Write(p)
+	c.n += int64(n)
+	return n, err
 }

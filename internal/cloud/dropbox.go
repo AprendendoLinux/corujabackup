@@ -300,6 +300,10 @@ func (d *Dropbox) Delete(ctx context.Context, folder string, f RemoteFile) error
 }
 
 func (d *Dropbox) Open(ctx context.Context, folder, name string) (io.ReadCloser, int64, error) {
+	return d.OpenRange(ctx, folder, name, 0, 0)
+}
+
+func (d *Dropbox) OpenRange(ctx context.Context, folder, name string, off, n int64) (io.ReadCloser, int64, error) {
 	tok, err := d.TS.Access(ctx)
 	if err != nil {
 		return nil, 0, err
@@ -310,16 +314,17 @@ func (d *Dropbox) Open(ctx context.Context, folder, name string) (io.ReadCloser,
 	}
 	req.Header.Set("Authorization", "Bearer "+tok)
 	req.Header.Set("Dropbox-API-Arg", ASCIIJSON(map[string]string{"path": "/" + folder + "/" + name}))
+	setRange(req, off, n)
 	cl := *d.http()
 	cl.Timeout = 0 // download grande: quem limita é o contexto
 	resp, err := cl.Do(req)
 	if err != nil {
 		return nil, 0, err
 	}
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != 200 && resp.StatusCode != http.StatusPartialContent {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
 		resp.Body.Close()
 		return nil, 0, dbxFail("baixar arquivo", resp.StatusCode, b)
 	}
-	return resp.Body, resp.ContentLength, nil
+	return fitRange(resp, off, n)
 }

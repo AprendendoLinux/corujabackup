@@ -561,6 +561,53 @@ func hashRemote(ctx context.Context, conn Conn, dir, name string) (string, error
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// OpenStream abre um arquivo do destino para leitura em fluxo, a partir de off (restauração seletiva: sem gravar o
+// arquivo inteiro no agente). Fechar o leitor encerra a conexão.
+func OpenStream(ctx context.Context, c Config, env Env, folder, name string, off int64) (io.ReadCloser, error) {
+	folder, err := CleanPath(folder)
+	if err != nil {
+		return nil, err
+	}
+	conn, _, err := Dial(ctx, c, env)
+	if err != nil {
+		return nil, err
+	}
+	rc, err := conn.Open(ctx, folder, name)
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("não foi possível abrir o arquivo no destino: %w", err)
+	}
+	if off > 0 {
+		skipped := false
+		if sk, ok := rc.(io.Seeker); ok {
+			_, err = sk.Seek(off, io.SeekStart)
+			skipped = err == nil
+		}
+		if !skipped { // sem posicionamento: lê e descarta até o início do trecho
+			_, err = io.CopyN(io.Discard, &ctxReader{ctx: ctx, r: rc}, off)
+		}
+		if err != nil {
+			rc.Close()
+			conn.Close()
+			return nil, fmt.Errorf("não foi possível chegar ao trecho do arquivo no destino: %w", err)
+		}
+	}
+	return &streamConn{ReadCloser: rc, conn: conn}, nil
+}
+
+type streamConn struct {
+	io.ReadCloser
+	conn Conn
+}
+
+func (s *streamConn) Close() error {
+	err := s.ReadCloser.Close()
+	if cerr := s.conn.Close(); err == nil {
+		err = cerr
+	}
+	return err
+}
+
 // Fetch traz um arquivo do destino para localPath (restauração), conferindo o SHA-256 quando informado.
 func Fetch(ctx context.Context, c Config, env Env, folder, name, localPath, wantSHA string) (int64, error) {
 	folder, err := CleanPath(folder)

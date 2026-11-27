@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.28] - Restaurar direto da nuvem, lendo só o necessário
+- **Restaurar direto da nuvem:** quando o backup não está mais no agente (job sem cópia local, ou a retenção local já o removeu) e foi para uma conta de nuvem (Dropbox, Google Drive ou OneDrive), a restauração, a extração e o download buscam o arquivo sozinhos: o agente pede ao Server, que o lê da nuvem (só ele tem as credenciais) e o entrega num canal próprio. O agente só recebe arquivos dos próprios jobs que constam como enviados à nuvem. Antes, a restauração falhava pedindo para baixar os arquivos à mão.
+- **Backup em blocos, com índice:** os backups de pastas e arquivos agora são gravados em blocos gzip independentes de ~64 MB, e o catálogo guarda onde cada arquivo está. Continua sendo um `.tar.gz` comum (`tar -xzf`, `gzip -t`), só ~0,1% maior. Para restaurar ou baixar poucos arquivos, o agente lê **só os blocos onde eles estão**: um arquivo de 10 MB dentro de um backup de 100 GB na nuvem baixa ~64 MB, não 100 GB (vale também no disco do agente e nos storages de rede). Cada bloco é conferido pelo SHA-256 do catálogo **antes** de ser usado. Os incrementais reaproveitam o índice do full para o que não mudou.
+- **Sem precisar de espaço para o backup inteiro:** a restauração e o download por seleção leem em fluxo, sem gravar o arquivo de backup no agente. Em backups anteriores a esta versão (sem índice), a leitura para assim que todos os itens escolhidos foram encontrados. O log mostra quantos blocos e quantos bytes foram lidos.
+- **Exige Server e agente 0.0.28.** A extração completa e a restauração de bancos ainda trazem o arquivo inteiro (precisam dele todo), agora também da nuvem, com o andamento a cada 10%.
+
 ## [0.0.27] - Restaurar numa pasta escolhida
 - **Restaurar numa pasta escolhida do servidor:** na restauração dos itens marcados (e em "Restaurar esta versão"), a nova opção **Numa pasta do servidor** abre o navegador de pastas do agente, com o espaço livre do disco e a criação de pasta nova. Os itens entram na pasta a partir de onde estavam (ex.: `/home/ana/.ssh` → `/root/restaurado/.ssh`); arquivos com o mesmo nome lá são substituídos e o resto da pasta não é tocado. Só administradores, com confirmação e registro na auditoria; precisa do volume `/:/host-rw` e respeita `CORUJA_BACKUP_ROOTS`. **Exige agente 0.0.27.**
 

@@ -11,6 +11,21 @@ service AgentService {
   // Download para o navegador (0.0.24): o agente envia o conteúdo pedido (ação "download") num fluxo próprio, com o
   // controle de fluxo do HTTP/2 — um navegador lento segura só este download, não o canal principal.
   rpc Download(stream DownloadChunk) returns (DownloadDone);
+  // Arquivo de backup que só está na nuvem (0.0.28): numa restauração, o agente pede ao Server, que o lê da conta de
+  // nuvem (só ele tem as credenciais) e o entrega neste fluxo. Só arquivos de jobs do próprio agente.
+  rpc FetchBackup(FetchRequest) returns (stream FetchChunk);
+}
+
+message FetchRequest {
+  int64 job_id = 1;
+  string file_name = 2;
+  int64 offset = 3;                // início do trecho (0 = do começo)
+  int64 length = 4;                // tamanho do trecho (0 = até o fim)
+}
+// FetchChunk: o primeiro traz o tamanho do que será entregue (o arquivo ou o trecho); os seguintes, só dados.
+message FetchChunk {
+  int64 size = 1;
+  bytes data = 2;
 }
 
 // DownloadChunk: o primeiro traz o id do pedido e o nome do arquivo entregue; error encerra com falha.

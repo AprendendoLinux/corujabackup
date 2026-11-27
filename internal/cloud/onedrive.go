@@ -326,6 +326,10 @@ func (o *OneDrive) Delete(ctx context.Context, folder string, f RemoteFile) erro
 }
 
 func (o *OneDrive) Open(ctx context.Context, folder, name string) (io.ReadCloser, int64, error) {
+	return o.OpenRange(ctx, folder, name, 0, 0)
+}
+
+func (o *OneDrive) OpenRange(ctx context.Context, folder, name string, off, n int64) (io.ReadCloser, int64, error) {
 	tok, err := o.TS.Access(ctx)
 	if err != nil {
 		return nil, 0, err
@@ -340,6 +344,7 @@ func (o *OneDrive) Open(ctx context.Context, folder, name string) (io.ReadCloser
 		return nil, 0, err
 	}
 	req.Header.Set("Authorization", "Bearer "+tok)
+	setRange(req, off, n)
 	resp, err := c.Do(req)
 	if err != nil {
 		return nil, 0, err
@@ -354,6 +359,7 @@ func (o *OneDrive) Open(ctx context.Context, folder, name string) (io.ReadCloser
 		if err != nil {
 			return nil, 0, err
 		}
+		setRange(next, off, n)
 		if resp, err = c.Do(next); err != nil {
 			return nil, 0, err
 		}
@@ -367,5 +373,5 @@ func (o *OneDrive) Open(ctx context.Context, folder, name string) (io.ReadCloser
 		resp.Body.Close()
 		return nil, 0, &APIError{Status: resp.StatusCode, Body: string(b), Op: "baixar arquivo OneDrive"}
 	}
-	return resp.Body, resp.ContentLength, nil
+	return fitRange(resp, off, n)
 }

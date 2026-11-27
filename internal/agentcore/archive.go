@@ -2,7 +2,6 @@ package agentcore
 
 import (
 	"archive/tar"
-	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -151,14 +150,26 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 	}
 	hash := sha256.New()
 	cw := &countingWriter{w: io.MultiWriter(w, hash)}
-	gz := gzip.NewWriter(cw)
-	tw := tar.NewWriter(gz)
+	bg := newBlockGz(cw, blockTarget)
+	tw := tar.NewWriter(bg)
+	// cada item começa num bloco novo quando o atual já passou do tamanho alvo (blocos sempre com itens inteiros)
+	writeHeader := func(hdr *tar.Header) error {
+		if bg.full() {
+			if err := tw.Flush(); err != nil {
+				return err
+			}
+			if err := bg.cut(); err != nil {
+				return err
+			}
+		}
+		return tw.WriteHeader(hdr)
+	}
 	ex := NewExcluder(job.Excludes)
 	own := findOwnDirs(append([]string{backupDir}, job.OwnDirs...)...)
 	var entries int64
 	last := time.Now()
 
-	fail := func(err error) (Result, error) { tw.Close(); gz.Close(); out.abort(); return res, err }
+	fail := func(err error) (Result, error) { tw.Close(); bg.Close(); out.abort(); return res, err }
 
 	for _, p := range job.Paths {
 		if ctx.Err() != nil {
@@ -244,7 +255,7 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 			// incremental: o que não mudou desde o backup anterior fica de fora (mas continua no retrato, apontando
 			// para o arquivo da cadeia que guarda o conteúdo)
 			if inc != nil && !mode.IsDir() && inc.unchanged(logical, meta) {
-				meta.A = inc.archiveOf(logical)
+				meta.A, meta.B = inc.archiveOf(logical)
 				record()
 				inc.same++
 				return after
@@ -278,9 +289,10 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 					return nil
 				}
 				defer src.Close()
-				if err := tw.WriteHeader(hdr); err != nil {
+				if err := writeHeader(hdr); err != nil {
 					return err
 				}
+				meta.B = bg.current()
 				n, err := io.Copy(tw, io.LimitReader(ctxRd(ctx, src), hdr.Size))
 				if err != nil {
 					return err
@@ -300,9 +312,10 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 				res.BytesSource += hdr.Size
 				res.Files++
 			} else {
-				if err := tw.WriteHeader(hdr); err != nil {
+				if err := writeHeader(hdr); err != nil {
 					return err
 				}
+				meta.B = bg.current()
 				record()
 				if mode.IsDir() {
 					res.Files++
@@ -330,7 +343,7 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 			m.Chain, m.Base = inc.base.Chain, inc.base.Last
 		}
 		b, _ := json.MarshalIndent(m, "", "  ")
-		if err := tw.WriteHeader(&tar.Header{Name: manifestName, Mode: 0o640, Size: int64(len(b)), ModTime: now, Typeflag: tar.TypeReg}); err != nil {
+		if err := writeHeader(&tar.Header{Name: manifestName, Mode: 0o640, Size: int64(len(b)), ModTime: now, Typeflag: tar.TypeReg}); err != nil {
 			return fail(err)
 		}
 		if _, err := tw.Write(b); err != nil {
@@ -352,10 +365,18 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 	if err := tw.Close(); err != nil {
 		return fail(err)
 	}
-	if err := gz.Close(); err != nil {
+	if err := bg.Close(); err != nil {
 		out.abort()
 		return res, err
 	}
+	// índice de blocos: os dos arquivos anteriores da cadeia (do retrato base) e os deste
+	cat.next.Blocks = map[string][]Block{}
+	if inc != nil && inc.base != nil {
+		for k, v := range inc.base.Blocks {
+			cat.next.Blocks[k] = v
+		}
+	}
+	cat.next.Blocks[name] = bg.blocks
 	res.BytesOutput = cw.n
 	res.SHA256 = hex.EncodeToString(hash.Sum(nil))
 	res.OutputName, res.Prefix = name, prefix

@@ -211,6 +211,10 @@ func session(ctx, base context.Context, log *slog.Logger, st *Credentials, core 
 		return pb.NewAgentServiceClient(conn).Download(metadata.AppendToOutgoingContext(c, "authorization", auth))
 	})
 	defer core.SetDownloader(nil)
+	core.SetFetcher(func(c context.Context, req *pb.FetchRequest) (grpc.ServerStreamingClient[pb.FetchChunk], error) {
+		return pb.NewAgentServiceClient(conn).FetchBackup(metadata.AppendToOutgoingContext(c, "authorization", auth), req)
+	})
+	defer core.SetFetcher(nil)
 	in := make(chan *pb.ServerMessage)
 	rerr := make(chan error, 1)
 	go func() {

@@ -39,11 +39,20 @@ type fileMeta struct {
 	Dev   uint64 `json:"d,omitempty"`
 	Mode  uint32 `json:"t,omitempty"`
 	A     int    `json:"a,omitempty"` // índice em Snapshot.Archives do .tar.gz que guarda o conteúdo
+	B     int    `json:"b,omitempty"` // bloco desse .tar.gz onde o item começa (1 = o primeiro; 0 = sem índice de blocos)
+}
+
+// Block é um bloco gzip independente de um .tar.gz (0.0.28): começa e termina na divisa entre itens do tar, então dá
+// para ler só ele (um trecho do arquivo) e ainda ter um tar válido. H é o SHA-256 dos bytes comprimidos do bloco.
+type Block struct {
+	O int64  `json:"o"` // início no arquivo
+	E int64  `json:"e"` // fim (exclusivo)
+	H string `json:"h"`
 }
 
 // sameVersion compara a versão de dois itens (sem olhar onde o conteúdo está guardado).
 func sameVersion(a, b fileMeta) bool {
-	a.A, b.A = 0, 0
+	a.A, b.A, a.B, b.B = 0, 0, 0, 0
 	return a == b
 }
 
@@ -69,6 +78,8 @@ type Snapshot struct {
 	// Archives são os .tar.gz da cadeia até este backup, em ordem (o full primeiro): Files[...].A aponta para eles.
 	Archives []string            `json:"archives"`
 	Files    map[string]fileMeta `json:"files"` // caminho lógico → versão
+	// Blocks: por arquivo da cadeia, os blocos gzip dele (só os gerados a partir da 0.0.28; os antigos não têm índice).
+	Blocks map[string][]Block `json:"blocks,omitempty"`
 }
 
 // Manifest vai dentro de cada .tar.gz de um job incremental (último item, na raiz).
@@ -114,12 +125,13 @@ func (p *incPlan) unchanged(logical string, m fileMeta) bool {
 	return ok && sameVersion(old, m)
 }
 
-// archiveOf diz onde está o conteúdo de um item sem mudança (o mesmo do backup anterior).
-func (p *incPlan) archiveOf(logical string) int {
+// archiveOf diz onde está o conteúdo de um item sem mudança (o mesmo do backup anterior): o arquivo da cadeia e o bloco.
+func (p *incPlan) archiveOf(logical string) (int, int) {
 	if p.base == nil {
-		return 0
+		return 0, 0
 	}
-	return p.base.Files[logical].A
+	m := p.base.Files[logical]
+	return m.A, m.B
 }
 
 // jobSig resume o que define o conteúdo de um job: mudou, o próximo backup é full.

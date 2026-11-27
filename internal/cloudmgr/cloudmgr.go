@@ -490,6 +490,11 @@ func (m *Manager) VerifyAndRetain(ctx context.Context, j *store.Job, fileName st
 
 // Open baixa um arquivo da conta de nuvem (restauração/download).
 func (m *Manager) Open(ctx context.Context, accountID int64, folder, name string) (io.ReadCloser, int64, error) {
+	return m.OpenRange(ctx, accountID, folder, name, 0, 0)
+}
+
+// OpenRange baixa só o trecho [off, off+n) de um arquivo da conta de nuvem (n <= 0 = até o fim).
+func (m *Manager) OpenRange(ctx context.Context, accountID int64, folder, name string, off, n int64) (io.ReadCloser, int64, error) {
 	f, err := cloud.CleanFolder(folder)
 	if err != nil {
 		return nil, 0, err
@@ -498,7 +503,7 @@ func (m *Manager) Open(ctx context.Context, accountID int64, folder, name string
 	if err != nil {
 		return nil, 0, err
 	}
-	return p.Open(ctx, f, name)
+	return p.OpenRange(ctx, f, name, off, n)
 }
 
 // OpenConfigForTest expõe a configuração decifrada (somente para testes).

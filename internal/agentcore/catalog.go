@@ -270,7 +270,12 @@ func catalogFromArchive(ctx context.Context, file, name string) (*Snapshot, erro
 		return nil, err
 	}
 	defer f.Close()
-	gz, err := gzip.NewReader(f)
+	return catalogFromReader(ctx, f, name)
+}
+
+// catalogFromReader é catalogFromArchive lendo o .tar.gz em fluxo (do agente, da nuvem ou do storage).
+func catalogFromReader(ctx context.Context, r io.Reader, name string) (*Snapshot, error) {
+	gz, err := gzip.NewReader(r)
 	if err != nil {
 		return nil, err
 	}

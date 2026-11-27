@@ -13,6 +13,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"math/rand"
 	"net"
 	"net/url"
 	"os"
@@ -844,4 +845,95 @@ func TestDestinoDeRedeDePontaAPonta(t *testing.T) {
 	if sum := sha256.Sum256(b); hex.EncodeToString(sum[:]) != run.SHA256 {
 		t.Fatal("o arquivo trazido difere do backup")
 	}
+}
+
+// Backup que só está na nuvem (sem cópia local): a restauração de um arquivo pede ao Server só o bloco dele (um trecho
+// do arquivo na nuvem), conferido pelo SHA-256 do catálogo; a extração completa traz o arquivo inteiro. Conteúdo
+// adulterado na nuvem é recusado, e o agente só recebe arquivos que constam como enviados.
+func TestRestaurarDeBackupQueSoEstaNaNuvem(t *testing.T) {
+	defer agentcore.SetBlockTargetForTest(agentcore.SetBlockTargetForTest(64 << 10))
+	fake := cloudtest.NewGraph("cid")
+	defer fake.Close()
+	r := newRig(t, cloudmgr.Endpoints{MSDevice: fake.URL + "/devicecode", MSToken: fake.URL + "/token", Graph: fake.GraphURL()})
+	big := make([]byte, 2<<20)
+	rand.New(rand.NewSource(1)).Read(big)
+	os.WriteFile(filepath.Join(r.hostDir, "srv", "app", "grande.bin"), big, 0o644)
+	cid := r.connectCloud(cloud.TypeOneDrive, cloudmgr.AccountConfig{ClientID: "cid", HardDelete: true})
+	jid := r.newJob("so-nuvem", cid, 0, 3) // sem cópia local
+	run := r.runNow(jid)
+	if run.Status != "ok" || run.CloudStatus != "ok" {
+		t.Fatalf("execução: %+v\n%s", run, r.logs(run))
+	}
+	if _, err := os.Stat(filepath.Join(r.bkDir, "e2e", run.OutputName)); err == nil {
+		t.Fatal("o arquivo não deveria ter ficado no agente")
+	}
+	ctx := context.Background()
+	waitLog := func(want string) string {
+		t.Helper()
+		var l string
+		for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
+			x, _ := r.st.RunByUID(ctx, run.UID)
+			if l = r.logs(x); strings.Contains(l, want) {
+				return l
+			}
+		}
+		t.Fatalf("esperava %q no log:\n%s", want, l)
+		return ""
+	}
+	act := func(kind, target string, paths ...string) *pb.AgentAction {
+		return &pb.AgentAction{Kind: kind, RunUid: run.UID, JobId: jid, FileName: run.OutputName, Subdir: "e2e", Sha256: run.SHA256,
+			Chain: []string{run.OutputName}, ChainSha256: []string{run.SHA256}, Paths: paths, Target: target}
+	}
+	// um arquivo pequeno: só o bloco dele sai da nuvem
+	fake.Served.Store(0)
+	if err := r.srv.Action(r.agent.ID, act("restore_files", "um-arquivo", "/srv/app/index.html")); err != nil {
+		t.Fatal(err)
+	}
+	l := waitLog("restauração concluída")
+	if !strings.Contains(l, "(nuvem) só 1 de ") {
+		t.Fatalf("deveria ler só um bloco da nuvem:\n%s", l)
+	}
+	if b, err := os.ReadFile(filepath.Join(r.bkDir, "restores", "um-arquivo", "srv", "app", "index.html")); err != nil || string(b) != "olá mundo" {
+		t.Fatalf("restaurado: %q %v", b, err)
+	}
+	if got := fake.Served.Load(); got == 0 || got > 256<<10 || run.BytesOutput < 2<<20 {
+		t.Fatalf("da nuvem saíram %d bytes de um backup de %d", got, run.BytesOutput)
+	}
+	if ents, _ := os.ReadDir(filepath.Join(r.bkDir, "e2e")); len(ents) != 0 {
+		t.Fatalf("nada deveria ser gravado na pasta do job: %v", ents)
+	}
+	// extração completa: o arquivo inteiro vem da nuvem e é apagado no fim
+	if err := r.srv.Action(r.agent.ID, act("extract", "completo")); err != nil {
+		t.Fatal(err)
+	}
+	waitLog("extração concluída")
+	if b, err := os.ReadFile(filepath.Join(r.bkDir, "restores", "completo", "srv", "app", "grande.bin")); err != nil || !bytes.Equal(b, big) {
+		t.Fatalf("extração completa: %v", err)
+	}
+	if ents, _ := os.ReadDir(filepath.Join(r.bkDir, "e2e")); len(ents) != 0 {
+		t.Fatalf("o que veio da nuvem deveria ser apagado no fim: %v", ents)
+	}
+	// conteúdo adulterado na nuvem: recusado, sem deixar pasta de restauração
+	key := "Coruja Backup/srv-e2e/so-nuvem/" + run.OutputName
+	orig := append([]byte(nil), fake.Files[key].Content...)
+	bad := append([]byte(nil), orig...)
+	for i := range bad {
+		bad[i] ^= 0x5a
+	}
+	fake.Files[key].Content = bad
+	if err := r.srv.Action(r.agent.ID, act("restore_files", "adulterado", "/srv/app/index.html")); err != nil {
+		t.Fatal(err)
+	}
+	waitLog("não confere com o catálogo")
+	if _, err := os.Stat(filepath.Join(r.bkDir, "restores", "adulterado")); err == nil {
+		t.Fatal("pasta de restauração não deveria existir")
+	}
+	fake.Files[key].Content = orig
+	// arquivo que não é de uma execução enviada à nuvem: o Server não entrega
+	a := act("extract", "inexistente")
+	a.FileName, a.Chain, a.Sha256, a.ChainSha256 = "so-nuvem-20200101-000000.tar.gz", nil, "", nil
+	if err := r.srv.Action(r.agent.ID, a); err != nil {
+		t.Fatal(err)
+	}
+	waitLog("não consta como enviado à nuvem")
 }

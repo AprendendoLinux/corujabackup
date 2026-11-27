@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/AprendendoLinux/corujabackup/internal/cloud"
 )
@@ -16,6 +17,7 @@ import (
 // Dropbox é um Dropbox falso: OAuth (PKCE e renovação com escopo), conta, arquivos e sessões de upload em partes.
 type Dropbox struct {
 	*httptest.Server
+	Served   atomic.Int64 // bytes de conteúdo entregues nos downloads
 	mu       sync.Mutex
 	Key      string
 	Files    map[string][]byte // caminho completo ("/pasta/nome")
@@ -224,8 +226,7 @@ func (d *Dropbox) serve(w http.ResponseWriter, r *http.Request) {
 			conflict(w, "path/not_found/", nil)
 			return
 		}
-		w.Header().Set("Content-Length", fmt.Sprint(len(c)))
-		_, _ = w.Write(c)
+		serveRange(w, r, c, &d.Served)
 	default:
 		writeJSON(w, 404, map[string]any{"error_summary": "rota desconhecida " + r.URL.Path})
 	}

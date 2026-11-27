@@ -62,16 +62,18 @@ func (s *State) pruneCatalogs(jobID int64) {
 	if err != nil {
 		return
 	}
-	var names []string
-	for _, e := range ents {
-		if strings.HasSuffix(e.Name(), ".json.gz") {
-			names = append(names, e.Name())
+	for _, suffix := range []string{".tar.gz.json.gz", ".tar.gz.dbs.json"} {
+		var names []string
+		for _, e := range ents {
+			if strings.HasSuffix(e.Name(), suffix) {
+				names = append(names, e.Name())
+			}
 		}
-	}
-	sort.Strings(names) // o carimbo no nome ordena cronologicamente
-	for len(names) > maxCatalogs {
-		_ = os.Remove(filepath.Join(s.catalogDir(jobID), names[0]))
-		names = names[1:]
+		sort.Strings(names) // o carimbo no nome ordena cronologicamente
+		for len(names) > maxCatalogs {
+			_ = os.Remove(filepath.Join(s.catalogDir(jobID), names[0]))
+			names = names[1:]
+		}
 	}
 }
 

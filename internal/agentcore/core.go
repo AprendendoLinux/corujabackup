@@ -59,6 +59,7 @@ type runReq struct {
 type Core struct {
 	cfg   Config
 	st    *State
+	dl    downloader
 	log   *slog.Logger
 	now   func() time.Time
 	exec  Executor
@@ -506,6 +507,11 @@ func (c *Core) execute(parent context.Context, r runReq) {
 	default:
 		fin.Status = "ok"
 		logf("info", "concluído com sucesso em %s", c.now().Sub(started).Round(time.Second))
+	}
+	if c.st != nil && res.DBs != nil && res.OutputName != "" && (fin.Status == "ok" || fin.Status == "warning") {
+		if err := c.st.SaveDBContents(r.spec.JobId, res.OutputName, res.DBs); err != nil {
+			logf("warn", "não foi possível guardar a lista de bancos do backup: %v", err)
+		}
 	}
 	// catálogo do backup (navegar, versões e restaurar selecionados): também só quando terminou bem
 	if c.st != nil && res.Snapshot != nil && res.OutputName != "" && (fin.Status == "ok" || fin.Status == "warning") {

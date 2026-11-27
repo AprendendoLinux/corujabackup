@@ -1,12 +1,20 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"mime"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/AprendendoLinux/corujabackup/internal/agentsrv"
+	"github.com/AprendendoLinux/corujabackup/internal/auth"
+	"github.com/AprendendoLinux/corujabackup/internal/dbdump"
 	"github.com/AprendendoLinux/corujabackup/internal/pb"
 	"github.com/AprendendoLinux/corujabackup/internal/store"
 )
@@ -145,4 +153,206 @@ func (s *Server) restoreRun(w http.ResponseWriter, r *http.Request, cu *ctxUser)
 	}
 	s.Store.Audit(r.Context(), cu.User.ID, cu.User.Username, "run.restore_files", fmt.Sprintf("%s / %s -> %s: %s", run.JobName, run.OutputName, where, sample), s.clientIP(r))
 	writeJSON(w, 202, map[string]any{"target": in.Target, "original": in.Original})
+}
+
+// ---------------------------------------------------------------- download para o navegador
+
+var downloadAgent = [3]int{0, 0, 24}
+
+type readyDownload struct {
+	rc     io.ReadCloser
+	name   string
+	userID int64
+	exp    time.Time
+}
+
+var (
+	dlMu     sync.Mutex
+	dlTokens = map[string]*readyDownload{}
+)
+
+// purgeDownloads fecha os downloads preparados e não buscados (o agente desiste do envio).
+func purgeDownloads(now time.Time) {
+	dlMu.Lock()
+	defer dlMu.Unlock()
+	for k, d := range dlTokens {
+		if now.After(d.exp) {
+			d.rc.Close()
+			delete(dlTokens, k)
+		}
+	}
+}
+
+// prepareDownload pede ao agente os itens escolhidos (um arquivo como está ou um .zip) e espera o início do envio;
+// devolve o endereço, de uso único, que o navegador abre para baixar.
+func (s *Server) prepareDownload(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
+	run, job, ok := s.runForAction(w, r)
+	if !ok || !filesRun(w, job) {
+		return
+	}
+	if a, err := s.Store.AgentByID(r.Context(), run.AgentID); err == nil && a.AgentVersion != "" && !versionAtLeast(a.AgentVersion, downloadAgent) {
+		writeErr(w, 422, "o agente "+a.Name+" (versão "+a.AgentVersion+") não envia downloads ao navegador: atualize-o para a versão 0.0.24 ou mais nova")
+		return
+	}
+	var in struct {
+		Paths []string `json:"paths"`
+		Zip   bool     `json:"zip"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if len(in.Paths) == 0 || len(in.Paths) > 5000 {
+		writeErr(w, 400, "escolha o que baixar (até 5000 itens)")
+		return
+	}
+	for _, p := range in.Paths {
+		if !strings.HasPrefix(p, "/") || len(p) > 4096 || strings.ContainsRune(p, 0) {
+			writeErr(w, 400, "caminho inválido: "+p)
+			return
+		}
+	}
+	chain, shas, msg := s.chainFor(r, job, run)
+	if msg != "" {
+		writeErr(w, 409, msg)
+		return
+	}
+	act := &pb.AgentAction{RunUid: run.UID, JobId: job.ID, FileName: run.OutputName, Subdir: job.DestSubdir, Sha256: run.SHA256,
+		Chain: chain, ChainSha256: shas, Paths: in.Paths, Zip: in.Zip}
+	// o pedido do navegador pode acabar antes do download: o fluxo vive no contexto do Server, até ser buscado ou expirar
+	rc, name, err := s.Agents.FetchDownload(context.WithoutCancel(r.Context()), run.AgentID, act, 90*time.Second)
+	if err != nil {
+		if errors.Is(err, agentsrv.ErrOffline) {
+			writeErr(w, 409, "o agente está offline")
+			return
+		}
+		writeErr(w, 422, err.Error())
+		return
+	}
+	purgeDownloads(time.Now())
+	tok := auth.NewUUID()
+	dlMu.Lock()
+	dlTokens[tok] = &readyDownload{rc: rc, name: name, userID: cu.User.ID, exp: time.Now().Add(2 * time.Minute)}
+	dlMu.Unlock()
+	sample := strings.Join(in.Paths[:min(len(in.Paths), 5)], ", ")
+	if len(in.Paths) > 5 {
+		sample += fmt.Sprintf(" e mais %d", len(in.Paths)-5)
+	}
+	s.Store.Audit(r.Context(), cu.User.ID, cu.User.Username, "run.download_files", fmt.Sprintf("%s / %s: %s", run.JobName, run.OutputName, sample), s.clientIP(r))
+	writeJSON(w, 200, map[string]string{"url": "/api/downloads/" + tok, "name": name})
+}
+
+// serveDownload entrega o download preparado (uma vez, só a quem pediu).
+func (s *Server) serveDownload(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
+	tok := r.PathValue("token")
+	dlMu.Lock()
+	d := dlTokens[tok]
+	if d != nil && d.userID == cu.User.ID {
+		delete(dlTokens, tok)
+	} else {
+		d = nil
+	}
+	dlMu.Unlock()
+	if d == nil || time.Now().After(d.exp) {
+		if d != nil {
+			d.rc.Close()
+		}
+		writeErr(w, 404, "download expirado ou já baixado: peça de novo")
+		return
+	}
+	defer d.rc.Close()
+	h := w.Header()
+	ct := "application/octet-stream"
+	if strings.HasSuffix(d.name, ".zip") {
+		ct = "application/zip"
+	}
+	h.Set("Content-Type", ct)
+	h.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": d.name}))
+	h.Set("Cache-Control", "no-store")
+	h.Set("X-Content-Type-Options", "nosniff")
+	_, _ = io.Copy(w, d.rc)
+}
+
+// ---------------------------------------------------------------- restauração de bancos (0.0.24)
+
+func dbRun(w http.ResponseWriter, job *store.Job) bool {
+	if job.Kind != "database" {
+		writeErr(w, 409, "esta execução não é de um job de banco de dados")
+		return false
+	}
+	return true
+}
+
+// runDatabases lista os bancos contidos num backup de banco.
+func (s *Server) runDatabases(w http.ResponseWriter, r *http.Request, _ *ctxUser) {
+	run, job, ok := s.runForAction(w, r)
+	if !ok || !dbRun(w, job) {
+		return
+	}
+	if a, err := s.Store.AgentByID(r.Context(), run.AgentID); err == nil && a.AgentVersion != "" && !versionAtLeast(a.AgentVersion, downloadAgent) {
+		writeErr(w, 422, "o agente "+a.Name+" (versão "+a.AgentVersion+") não restaura bancos pela interface: atualize-o para a versão 0.0.24 ou mais nova")
+		return
+	}
+	payload, _ := json.Marshal(map[string]any{"job_id": job.ID, "archive": run.OutputName, "subdir": job.DestSubdir, "sha256": run.SHA256})
+	s.agentCall(w, r, run.AgentID, "db_contents", payload, 5*time.Minute)
+}
+
+// restoreDatabases restaura bancos de um backup no servidor do job: num banco novo (operador) ou sobrescrevendo um
+// existente (só administrador).
+func (s *Server) restoreDatabases(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
+	run, job, ok := s.runForAction(w, r)
+	if !ok || !dbRun(w, job) {
+		return
+	}
+	if a, err := s.Store.AgentByID(r.Context(), run.AgentID); err == nil && a.AgentVersion != "" && !versionAtLeast(a.AgentVersion, downloadAgent) {
+		writeErr(w, 422, "o agente "+a.Name+" (versão "+a.AgentVersion+") não restaura bancos pela interface: atualize-o para a versão 0.0.24 ou mais nova")
+		return
+	}
+	var in struct {
+		Databases []struct {
+			Source string `json:"source"`
+			Target string `json:"target"`
+		} `json:"databases"`
+		Overwrite bool `json:"overwrite"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if len(in.Databases) == 0 || len(in.Databases) > 200 {
+		writeErr(w, 400, "escolha os bancos a restaurar")
+		return
+	}
+	if in.Overwrite && cu.User.Role != "admin" {
+		writeErr(w, 403, "só administradores sobrescrevem bancos existentes")
+		return
+	}
+	act := &pb.AgentAction{Kind: "restore_db", RunUid: run.UID, JobId: job.ID, FileName: run.OutputName, Subdir: job.DestSubdir, Sha256: run.SHA256, Original: in.Overwrite}
+	seen := map[string]bool{}
+	var desc []string
+	for _, d := range in.Databases {
+		d.Source, d.Target = strings.TrimSpace(d.Source), strings.TrimSpace(d.Target)
+		if !dbdump.ValidName(d.Source) || !dbdump.ValidName(d.Target) {
+			writeErr(w, 400, "nome de banco inválido: use letras, números, ponto, hífen e sublinhado")
+			return
+		}
+		if d.Source == d.Target && !in.Overwrite {
+			writeErr(w, 400, "restaurar com o mesmo nome do original sobrescreve o banco: escolha outro nome ou marque sobrescrever")
+			return
+		}
+		if seen[d.Target] {
+			writeErr(w, 400, "dois bancos com o mesmo destino: "+d.Target)
+			return
+		}
+		seen[d.Target] = true
+		act.Paths, act.Targets = append(act.Paths, d.Source), append(act.Targets, d.Target)
+		desc = append(desc, d.Source+" -> "+d.Target)
+	}
+	if s.actionErr(w, s.Agents.Action(run.AgentID, act)) {
+		return
+	}
+	mode := "banco novo"
+	if in.Overwrite {
+		mode = "SOBRESCREVENDO"
+	}
+	s.Store.Audit(r.Context(), cu.User.ID, cu.User.Username, "run.restore_db", fmt.Sprintf("%s / %s (%s): %s", run.JobName, run.OutputName, mode, strings.Join(desc, ", ")), s.clientIP(r))
+	writeJSON(w, 202, map[string]bool{"ok": true})
 }

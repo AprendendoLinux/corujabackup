@@ -30,7 +30,7 @@ export default function Restore({ me, jobParam }: { me: User; jobParam: number }
   const [runs, setRuns] = useState<Run[] | null>(null)
   const [runId, setRunId] = useState(0)
   const [err, setErr] = useState('')
-  useEffect(() => { api<{ jobs: Job[] }>('GET', '/api/jobs').then((r) => { setJobs(r.jobs); if (!jobParam) { const f = r.jobs.find((j) => j.kind === 'files'); if (f) setJobId(f.id) } }).catch((x) => setErr((x as ApiError).message)) }, [jobParam])
+  useEffect(() => { api<{ jobs: Job[] }>('GET', '/api/jobs').then((r) => { setJobs(r.jobs); if (!jobParam) { const f = r.jobs.find((j) => j.kind !== 'mikrotik'); if (f) setJobId(f.id) } }).catch((x) => setErr((x as ApiError).message)) }, [jobParam])
   useEffect(() => {
     setRuns(null); setRunId(0)
     if (!jobId) return
@@ -57,14 +57,14 @@ export default function Restore({ me, jobParam }: { me: User; jobParam: number }
     <div className="space-y-5">
       <div>
         <h1 className="text-2xl font-semibold">Restaurar</h1>
-        <p className="mt-1 text-sm text-muted">Escolha um backup na linha do tempo, navegue nos arquivos como estavam naquele momento e restaure só o que precisar.</p>
+        <p className="mt-1 text-sm text-muted">Escolha um backup na linha do tempo: navegue nos arquivos como estavam naquele momento e restaure ou baixe só o que precisar, ou restaure bancos de dados.</p>
       </div>
       <div className="flex flex-wrap items-center gap-3">
         <select aria-label="Job" className={sel} value={jobId} onChange={(e) => setJobId(Number(e.target.value))}>
           <option value={0}>Escolha um job…</option>
-          {jobs.map((j) => <option key={j.id} value={j.id} disabled={j.kind !== 'files'}>{j.name}{j.kind !== 'files' ? (j.kind === 'database' ? ' (banco: use o Histórico)' : ' (MikroTik: use o Histórico)') : ''}</option>)}
+          {jobs.map((j) => <option key={j.id} value={j.id} disabled={j.kind === 'mikrotik'}>{j.name}{j.kind === 'database' ? ' (banco de dados)' : j.kind === 'mikrotik' ? ' (MikroTik: use o Histórico)' : ''}</option>)}
         </select>
-        {job && <span className="text-sm text-muted">{job.agent_name} · {job.backup_mode === 'incremental' ? 'full + incrementais' : 'completo a cada execução'}</span>}
+        {job && <span className="text-sm text-muted">{job.agent_name} · {job.kind === 'database' ? 'banco de dados' : job.backup_mode === 'incremental' ? 'full + incrementais' : 'completo a cada execução'}</span>}
       </div>
       <ErrorBox message={err} />
       {jobId !== 0 && runs && runs.length === 0 && <Card><p className="text-sm text-muted">Este job ainda não tem backups concluídos.</p></Card>}
@@ -94,7 +94,8 @@ export default function Restore({ me, jobParam }: { me: User; jobParam: number }
               ))}
             </ol>
           </Card>
-          {run && <Browser key={run.id} me={me} job={job} run={run} byArchive={byArchive} onPick={(id) => setRunId(id)} />}
+          {run && job.kind === 'database' && <DbRestore key={run.id} me={me} run={run} />}
+          {run && job.kind === 'files' && <Browser key={run.id} me={me} job={job} run={run} byArchive={byArchive} onPick={(id) => setRunId(id)} />}
         </div>
       )}
     </div>
@@ -108,8 +109,10 @@ function Browser({ me, job, run, byArchive, onPick }: { me: User; job: Job; run:
   const [noIndex, setNoIndex] = useState(false)
   const [indexing, setIndexing] = useState(false)
   const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [kinds] = useState(() => new Map<string, boolean>()) // caminho → é pasta
   const [versions, setVersions] = useState<string | null>(null)
-  const [restoring, setRestoring] = useState(false)
+  const [restoreReq, setRestoreReq] = useState<{ run: Run; paths: string[] } | null>(null)
+  const [dlBusy, setDlBusy] = useState(false)
   const load = useCallback((d: string) => {
     setErr('')
     api<Listing>('GET', `/api/runs/${run.id}/browse?dir=${encodeURIComponent(d)}`).then((r) => { setList(r); setNoIndex(false); setIndexing(false) }).catch((x) => {
@@ -127,6 +130,15 @@ function Browser({ me, job, run, byArchive, onPick }: { me: User; job: Job; run:
   }, [indexing, dir, load])
   const crumbs = dir === '/' ? [] : dir.split('/').slice(1)
   const covered = (p: string) => [...picked].some((x) => p === x || p.startsWith(x + '/'))
+  async function download(r: Run, paths: string[], zip: boolean) {
+    setErr(''); setDlBusy(true)
+    try {
+      const d = await api<{ url: string; name: string }>('POST', `/api/runs/${r.id}/download`, { paths, zip })
+      const a = document.createElement('a')
+      a.href = d.url; a.download = d.name; document.body.appendChild(a); a.click(); a.remove()
+    } catch (x) { setErr((x as ApiError).message) } finally { setDlBusy(false) }
+  }
+  const onlyFile = picked.size === 1 && kinds.get([...picked][0]) === false
   function toggle(p: string) {
     const n = new Set([...picked].filter((x) => !x.startsWith(p + '/')))
     if (picked.has(p)) n.delete(p); else n.add(p)
@@ -165,7 +177,7 @@ function Browser({ me, job, run, byArchive, onPick }: { me: User; job: Job; run:
                 <tr>
                   <th className="w-8 py-2"><input type="checkbox" aria-label="Marcar tudo nesta pasta" checked={allHere && list.entries.length > 0} onChange={() => {
                     const n = new Set(picked)
-                    for (const e of list.entries) { const p = join(dir, e.name); if (allHere) n.delete(p); else if (!covered(p)) n.add(p) }
+                    for (const e of list.entries) { const p = join(dir, e.name); kinds.set(p, e.dir); if (allHere) n.delete(p); else if (!covered(p)) n.add(p) }
                     setPicked(n)
                   }} /></th>
                   <th className="py-2">Nome</th><th className="py-2 text-right">Tamanho</th><th className="px-3 py-2">Modificado</th><th className="py-2" />
@@ -179,14 +191,14 @@ function Browser({ me, job, run, byArchive, onPick }: { me: User; job: Job; run:
                   const inherited = covered(p) && !picked.has(p)
                   return (
                     <tr key={e.name} className="border-b border-border last:border-0 hover:bg-bg">
-                      <td className="py-1.5"><input type="checkbox" aria-label={`Marcar ${e.name}`} checked={covered(p)} disabled={inherited} onChange={() => toggle(p)} /></td>
+                      <td className="py-1.5"><input type="checkbox" aria-label={`Marcar ${e.name}`} checked={covered(p)} disabled={inherited} onChange={() => { kinds.set(p, e.dir); toggle(p) }} /></td>
                       <td className="py-1.5">
                         {e.dir
                           ? <button type="button" className="flex items-center gap-2 text-left hover:underline" onClick={() => setDir(p)}><FolderIcon /><span className="font-medium">{e.name}</span></button>
                           : <span className="flex items-center gap-2"><FileIcon /><span>{e.name}{e.link && <span className="ml-1 text-xs text-muted">(atalho)</span>}</span></span>}
                         {list.incremental && e.here && <span className="ml-7 text-[11px] text-accent">{e.dir ? 'tem mudanças neste backup' : 'mudou neste backup'}</span>}
                       </td>
-                      <td className="py-1.5 text-right tabular-nums text-muted">{e.dir ? (e.files ? `${e.files} arq.` : '') : fmtBytes(e.size)}</td>
+                      <td className="py-1.5 text-right tabular-nums text-muted">{e.dir ? (e.files ? <span title={`${e.files.toLocaleString('pt-BR')} arquivo(s)`}>{e.size ? fmtBytes(e.size) : '0 B'}<span className="block text-[11px]">{e.files.toLocaleString('pt-BR')} arq.</span></span> : '') : fmtBytes(e.size)}</td>
                       <td className="px-3 py-1.5 tabular-nums text-muted">{e.dir ? '' : fmtUnix(e.modified)}</td>
                       <td className="py-1.5 text-right">{!e.dir && !e.link && <button type="button" className="text-xs text-primary hover:underline" onClick={() => setVersions(p)}>versões</button>}</td>
                     </tr>
@@ -200,16 +212,27 @@ function Browser({ me, job, run, byArchive, onPick }: { me: User; job: Job; run:
       {picked.size > 0 && (
         <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 border-t border-border bg-surface/95 px-4 py-3 backdrop-blur">
           <div className="min-w-0 text-sm"><b>{picked.size}</b> item(ns) marcado(s): <span className="text-muted">{[...picked].slice(0, 3).join(', ')}{picked.size > 3 ? '…' : ''}</span></div>
-          <div className="flex gap-2"><Button variant="ghost" onClick={() => setPicked(new Set())}>Limpar</Button><Button onClick={() => setRestoring(true)}>Restaurar…</Button></div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="ghost" onClick={() => setPicked(new Set())}>Limpar</Button>
+            <Button variant="ghost" disabled={dlBusy} onClick={() => download(run, [...picked], !onlyFile)}>{dlBusy ? 'Preparando…' : onlyFile ? '⬇ Baixar arquivo' : '⬇ Baixar .zip'}</Button>
+            <Button onClick={() => setRestoreReq({ run, paths: [...picked] })}>Restaurar…</Button>
+          </div>
         </div>
       )}
-      {versions && <Modal title="Versões do arquivo" onClose={() => setVersions(null)}><Versions job={job} path={versions} byArchive={byArchive} onRestore={(runId) => { setVersions(null); onPick(runId) }} /></Modal>}
-      {restoring && <Modal title="Restaurar os itens marcados" onClose={() => setRestoring(false)}><RestoreForm me={me} run={run} paths={[...picked]} onDone={() => setPicked(new Set())} /></Modal>}
+      {versions && <Modal title="Versões do arquivo" onClose={() => setVersions(null)}><Versions job={job} path={versions} byArchive={byArchive} dlBusy={dlBusy}
+        onOpen={(runId) => { setVersions(null); onPick(runId) }}
+        onRestore={(r) => { const p = versions; setVersions(null); setRestoreReq({ run: r, paths: [p] }) }}
+        onDownload={(r) => download(r, [versions], false)} /></Modal>}
+      {restoreReq && <Modal title={restoreReq.run.id === run.id ? 'Restaurar os itens marcados' : 'Restaurar esta versão'} onClose={() => setRestoreReq(null)}>
+        <RestoreForm me={me} run={restoreReq.run} paths={restoreReq.paths} onDone={() => { if (restoreReq.run.id === run.id) setPicked(new Set()) }} /></Modal>}
     </Card>
   )
 }
 
-function Versions({ job, path, byArchive, onRestore }: { job: Job; path: string; byArchive: Map<string, Run>; onRestore: (runId: number) => void }) {
+function Versions({ job, path, byArchive, onOpen, onRestore, onDownload, dlBusy }: {
+  job: Job; path: string; byArchive: Map<string, Run>; dlBusy: boolean
+  onOpen: (runId: number) => void; onRestore: (r: Run) => void; onDownload: (r: Run) => void
+}) {
   const [vs, setVs] = useState<Version[] | null>(null)
   const [err, setErr] = useState('')
   useEffect(() => { api<{ versions: Version[] }>('GET', `/api/jobs/${job.id}/versions?path=${encodeURIComponent(path)}`).then((r) => setVs(r.versions)).catch((x) => setErr((x as ApiError).message)) }, [job.id, path])
@@ -229,13 +252,19 @@ function Versions({ job, path, byArchive, onRestore }: { job: Job; path: string;
                   <div className="font-medium">{i === 0 ? 'Versão mais recente' : `Versão de ${fmtUnix(v.modified)}`}</div>
                   <div className="text-xs text-muted">modificado em {fmtUnix(v.modified)} · {fmtBytes(v.size)} · presente em {v.backups} backup(s)</div>
                 </div>
-                {r ? <Button variant="ghost" onClick={() => onRestore(r.id)}>Abrir este backup</Button> : <span className="text-xs text-muted">backup fora do histórico</span>}
+                {r ? (
+                  <div className="flex flex-wrap gap-2">
+                    <Button onClick={() => onRestore(r)}>Restaurar esta versão</Button>
+                    <Button variant="ghost" disabled={dlBusy} onClick={() => onDownload(r)}>{dlBusy ? 'Preparando…' : '⬇ Baixar'}</Button>
+                    <button type="button" className="text-xs text-primary hover:underline" onClick={() => onOpen(r.id)}>abrir o backup</button>
+                  </div>
+                ) : <span className="text-xs text-muted">backup fora do histórico</span>}
               </li>
             )
           })}
         </ol>
       )}
-      <p className="text-xs text-muted">Ao abrir um backup, marque o arquivo e use “Restaurar…”.</p>
+      <p className="text-xs text-muted">“Restaurar esta versão” restaura só este arquivo, na versão escolhida; “Baixar” entrega o arquivo ao navegador.</p>
     </div>
   )
 }
@@ -275,7 +304,7 @@ function RestoreForm({ me, run, paths: initial, onDone }: { me: User; run: Run; 
   }, [logs, done, run.id, onDone])
   return (
     <div className="space-y-4 text-sm">
-      <p>{paths.length} item(ns) do backup de <b>{fmtWhen(run.started_at)}</b>. Pastas marcadas incluem tudo o que há dentro delas.</p>
+      <p>{paths.length} item(ns) do backup <b>{run.backup_kind === 'incremental' ? 'incremental' : 'full'}</b> de <b>{run.started_at ? new Date(run.started_at).toLocaleString('pt-BR') : '—'}</b> <span className="text-muted">({run.output_name})</span>. Pastas marcadas incluem tudo o que há dentro delas.</p>
       <fieldset className="space-y-2" disabled={busy || done !== ''}>
         <label className={`flex items-start gap-2.5 rounded-lg border p-3 ${!original ? 'border-primary' : 'border-border'}`}>
           <input type="radio" name="destino" className="mt-1" checked={!original} onChange={() => setOriginal(false)} />
@@ -297,5 +326,106 @@ function RestoreForm({ me, run, paths: initial, onDone }: { me: User; run: Run; 
       {done === 'ok' && <div className="rounded-lg border border-ok/40 bg-ok/10 px-3 py-2 text-ok">Restauração concluída.</div>}
       {done === '' && <Button variant={original ? 'danger' : 'primary'} onClick={go} disabled={busy || (!original && !target.trim())}>{busy ? 'Restaurando…' : original ? 'Restaurar e sobrescrever' : 'Restaurar na pasta'}</Button>}
     </div>
+  )
+}
+
+type DbFile = { name: string; database?: string; bytes: number; tables: number }
+type DbContents = { engine: string; version: string; files: DbFile[] }
+const ENGINE: Record<string, string> = { mysql: 'MySQL', mariadb: 'MariaDB', postgres: 'PostgreSQL', mongodb: 'MongoDB' }
+
+/** Restaurar bancos de um backup de banco, no servidor do job: num banco novo (padrão) ou sobrescrevendo. */
+function DbRestore({ me, run }: { me: User; run: Run }) {
+  const [contents, setContents] = useState<DbContents | null>(null)
+  const [err, setErr] = useState('')
+  const [chosen, setChosen] = useState<Record<string, boolean>>({})
+  const [targets, setTargets] = useState<Record<string, string>>({})
+  const [overwrite, setOverwrite] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [logs, setLogs] = useState<RunLog[] | null>(null)
+  const [done, setDone] = useState<'' | 'ok' | 'failed'>('')
+  const since = useRef(0)
+  const stamp = (run.started_at ?? '').slice(0, 10).replace(/-/g, '')
+  useEffect(() => {
+    api<DbContents>('GET', `/api/runs/${run.id}/databases`).then((c) => {
+      setContents(c)
+      const t: Record<string, string> = {}
+      for (const f of c.files) if (f.database) t[f.database] = `${f.database}_restaurado_${stamp}`
+      setTargets(t)
+    }).catch((x) => setErr((x as ApiError).message))
+  }, [run.id, stamp])
+  const dbs = (contents?.files ?? []).filter((f) => f.database)
+  const picked = dbs.filter((f) => chosen[f.database!])
+  async function go() {
+    const list = picked.map((f) => ({ source: f.database!, target: overwrite ? f.database! : (targets[f.database!] ?? '').trim() }))
+    const msg = overwrite
+      ? `Os bancos ${list.map((d) => d.source).join(', ')} serão APAGADOS no servidor e recriados como estavam neste backup. Tudo o que mudou neles depois do backup será perdido.`
+      : `Os bancos serão criados no servidor do job: ${list.map((d) => `${d.source} → ${d.target}`).join(', ')}. Os originais não são alterados.`
+    if (!(await confirmar({ title: overwrite ? 'Sobrescrever os bancos?' : 'Restaurar em bancos novos?', message: msg, confirmLabel: overwrite ? 'Apagar e restaurar' : 'Restaurar', danger: overwrite }))) return
+    setErr(''); setBusy(true)
+    try {
+      const before = await api<{ logs: RunLog[] }>('GET', `/api/runs/${run.id}`)
+      since.current = Math.max(10000, ...before.logs.map((l) => l.seq))
+      await api('POST', `/api/runs/${run.id}/restore-db`, { databases: list, overwrite })
+      setLogs([])
+    } catch (x) { setErr((x as ApiError).message); setBusy(false) }
+  }
+  useEffect(() => {
+    if (logs === null || done) return
+    const t = setInterval(async () => {
+      try {
+        const d = await api<{ logs: RunLog[] }>('GET', `/api/runs/${run.id}`)
+        const fresh = d.logs.filter((l) => l.seq > since.current)
+        setLogs(fresh)
+        if (fresh.some((l) => l.text.startsWith('restauração de bancos concluída'))) { setDone('ok'); setBusy(false) }
+        else if (fresh.some((l) => l.level === 'error')) { setDone('failed'); setBusy(false) }
+      } catch { /* tenta de novo */ }
+    }, 2000)
+    return () => clearInterval(t)
+  }, [logs, done, run.id])
+  return (
+    <Card className="min-w-0 space-y-4 text-sm">
+      <div>
+        <h2 className="font-semibold">{fmtWhen(run.started_at)} <span className="ml-1 align-middle"><Badge tone="ok">Banco de dados</Badge></span></h2>
+        <p className="text-xs text-muted">{run.output_name}{contents ? ` · ${ENGINE[contents.engine] ?? contents.engine} ${contents.version}` : ''}</p>
+      </div>
+      <ErrorBox message={err} />
+      {!contents && !err && <span className="inline-flex items-center gap-2 text-muted"><Spinner /> Lendo o conteúdo do backup…</span>}
+      {contents && (<>
+        <p className="text-muted">A restauração roda no <b>mesmo servidor do job</b> (o contêiner ou o servidor de banco de onde o backup saiu), com as credenciais do job.</p>
+        <div role="radiogroup" aria-label="Como restaurar" className="grid gap-2 sm:grid-cols-2">
+          <label className={`flex items-start gap-2.5 rounded-lg border p-3 ${!overwrite ? 'border-primary' : 'border-border'}`}>
+            <input type="radio" className="mt-1" checked={!overwrite} disabled={busy || done !== ''} onChange={() => setOverwrite(false)} />
+            <span><b className="block">Em bancos novos (seguro)</b><span className="text-xs text-muted">Cria um banco com outro nome ao lado do original, para conferir ou copiar dados. Nada existente é alterado.</span></span>
+          </label>
+          <label className={`flex items-start gap-2.5 rounded-lg border p-3 ${overwrite ? 'border-danger' : 'border-border'} ${me.role !== 'admin' ? 'opacity-60' : ''}`}>
+            <input type="radio" className="mt-1" checked={overwrite} disabled={me.role !== 'admin' || busy || done !== ''} onChange={() => setOverwrite(true)} />
+            <span><b className="block">Sobrescrever os originais</b><span className="text-xs text-muted">{me.role === 'admin' ? 'Apaga o banco e o recria como estava no backup. O que mudou depois é perdido.' : 'Só administradores sobrescrevem bancos.'}</span></span>
+          </label>
+        </div>
+        <table className="w-full">
+          <thead className="border-b border-border text-left text-xs text-muted"><tr><th className="w-8 py-2" /><th className="py-2">Banco no backup</th><th className="py-2 text-right">Tamanho</th><th className="px-3 py-2 text-right">Tabelas</th><th className="py-2">Restaurar como</th></tr></thead>
+          <tbody>
+            {dbs.map((f) => (
+              <tr key={f.database} className="border-b border-border last:border-0">
+                <td className="py-2"><input type="checkbox" aria-label={`Restaurar ${f.database}`} checked={!!chosen[f.database!]} disabled={busy || done !== ''} onChange={(e) => setChosen({ ...chosen, [f.database!]: e.target.checked })} /></td>
+                <td className="py-2 font-mono">{f.database}</td>
+                <td className="py-2 text-right tabular-nums text-muted">{fmtBytes(f.bytes)}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-muted">{f.tables}</td>
+                <td className="py-2">{overwrite ? <span className="font-mono text-danger">{f.database} (sobrescreve)</span>
+                  : <Input className="font-mono" aria-label={`Nome do banco restaurado para ${f.database}`} value={targets[f.database!] ?? ''} disabled={busy || done !== ''} onChange={(e) => setTargets({ ...targets, [f.database!]: e.target.value })} />}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {logs !== null && (
+          <div className="max-h-56 overflow-y-auto rounded-lg bg-bg p-3 font-mono text-xs">
+            {logs.length === 0 && <span className="inline-flex items-center gap-2 text-muted"><Spinner /> Aguardando o agente…</span>}
+            {logs.map((l) => <div key={l.seq} className={l.level === 'error' ? 'text-danger' : l.level === 'warn' ? 'text-accent' : ''}>{l.text}</div>)}
+          </div>
+        )}
+        {done === 'ok' && <div className="rounded-lg border border-ok/40 bg-ok/10 px-3 py-2 text-ok">Restauração concluída.</div>}
+        {done === '' && <Button variant={overwrite ? 'danger' : 'primary'} disabled={busy || picked.length === 0} onClick={go}>{busy ? 'Restaurando…' : overwrite ? `Apagar e restaurar ${picked.length} banco(s)` : `Restaurar ${picked.length} banco(s)`}</Button>}
+      </>)}
+    </Card>
   )
 }

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.24] - Restauração de bancos e downloads
+- **Restaurar bancos de dados pela interface** (MySQL, MariaDB, PostgreSQL e MongoDB): na página Restaurar, escolha o backup, marque os bancos e restaure no mesmo servidor do job. O padrão é **num banco novo** (`<banco>_restaurado_<data>`), sem tocar no original; administradores também podem **sobrescrever o original** (o banco é apagado e recriado como no backup), com confirmação e registro na auditoria. No fim, a quantidade de tabelas/coleções é comparada com a do backup. No Histórico, **Restaurar banco…** leva direto à página.
+- **Baixar pelo navegador:** na navegação de um backup, **Baixar arquivo** (um arquivo, como está) ou **Baixar .zip** (arquivos e pastas marcados), com cada item na versão daquele backup, inclusive nos incrementais. O conteúdo vem do agente em fluxo, num canal próprio que não atrapalha o resto, e nada fica gravado no Server. Endereço de uso único, registro na auditoria.
+- **Restaurar esta versão** e **Baixar** direto na lista de versões de um arquivo.
+- **Tamanho de cada pasta** (MB/GB e quantidade de arquivos) na navegação.
+- Backups de banco anteriores a esta versão também funcionam: a lista de bancos é lida do próprio arquivo.
+- **Exige agente 0.0.24** para downloads e restauração de bancos.
+
 ## [0.0.23] - Restauração por seleção
 - **Nova página Restaurar:** escolha o job e um ponto na **linha do tempo** (cada backup, agrupado por dia, full ou incremental) e **navegue nos arquivos como estavam naquele momento**, pasta por pasta, com tamanho e data. Nos incrementais, o que mudou naquele backup aparece marcado.
 - **Versões de um arquivo:** veja todas as versões de um arquivo nos backups do job (data, tamanho e em quantos backups aparece) e abra o backup de qualquer uma delas.

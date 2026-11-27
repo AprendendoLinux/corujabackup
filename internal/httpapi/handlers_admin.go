@@ -35,8 +35,16 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request, _ *ctxUser) {
 }
 
 func (s *Server) createUser(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
-	var in struct{ Username, DisplayName, Password, Role string }
+	var in struct {
+		Username, Password, Role string
+		nameInput
+	}
 	if !decodeLoose(w, r, &in) {
+		return
+	}
+	first, last, bad := in.resolve("", "")
+	if bad != "" {
+		writeErr(w, 400, bad)
 		return
 	}
 	in.Username = strings.ToLower(strings.TrimSpace(in.Username))
@@ -49,7 +57,7 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request, cu *ctxUser)
 		return
 	}
 	hash, _ := auth.HashPassword(in.Password)
-	id, err := s.Store.CreateUser(r.Context(), in.Username, strings.TrimSpace(in.DisplayName), hash, in.Role)
+	id, err := s.Store.CreateUser(r.Context(), in.Username, first, last, hash, in.Role)
 	if errors.Is(err, store.ErrDuplicate) {
 		writeErr(w, 409, "já existe um usuário com esse nome")
 		return
@@ -69,7 +77,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, cu *ctxUser)
 		return
 	}
 	var in struct {
-		DisplayName *string `json:"display_name"`
+		nameInput
 		Role        *string `json:"role"`
 		Disabled    *bool   `json:"disabled"`
 		NewPassword *string `json:"new_password"`
@@ -83,9 +91,11 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, cu *ctxUser)
 		writeErr(w, 404, "usuário não encontrado")
 		return
 	}
-	display, role, disabled := u.DisplayName, u.Role, u.Disabled
-	if in.DisplayName != nil {
-		display = strings.TrimSpace(*in.DisplayName)
+	role, disabled := u.Role, u.Disabled
+	first, last, bad := in.resolve(u.FirstName, u.LastName)
+	if bad != "" {
+		writeErr(w, 400, bad)
+		return
 	}
 	if in.Role != nil {
 		if !validRole(*in.Role) {
@@ -105,7 +115,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, cu *ctxUser)
 			return
 		}
 	}
-	if err := s.Store.UpdateUser(r.Context(), id, display, role, disabled); err != nil {
+	if err := s.Store.UpdateUser(r.Context(), id, first, last, role, disabled); err != nil {
 		writeErr(w, 500, "erro interno")
 		return
 	}

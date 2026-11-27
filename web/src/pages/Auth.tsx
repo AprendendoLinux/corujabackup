@@ -20,7 +20,7 @@ function Shell({ title, children }: { title: string; children: React.ReactNode }
 }
 
 export function Setup({ onDone }: { onDone: () => void }) {
-  const [f, setF] = useState({ username: '', display_name: '', password: '', confirm: '', setup_code: '' })
+  const [f, setF] = useState({ username: '', first_name: '', last_name: '', password: '', confirm: '', setup_code: '' })
   const [needsCode, setNeedsCode] = useState(false)
   useEffect(() => { api<{ needs_code: boolean }>('GET', '/api/setup/status').then((r) => setNeedsCode(!!r.needs_code)).catch(() => {}) }, [])
   const [err, setErr] = useState('')
@@ -29,7 +29,7 @@ export function Setup({ onDone }: { onDone: () => void }) {
     e.preventDefault()
     if (f.password !== f.confirm) return setErr('As senhas não conferem.')
     setBusy(true); setErr('')
-    try { await api('POST', '/api/setup', { username: f.username, display_name: f.display_name, password: f.password, setup_code: f.setup_code }); onDone() }
+    try { await api('POST', '/api/setup', { username: f.username, first_name: f.first_name, last_name: f.last_name, password: f.password, setup_code: f.setup_code }); onDone() }
     catch (x) { setErr((x as ApiError).message) } finally { setBusy(false) }
   }
   return (
@@ -38,7 +38,10 @@ export function Setup({ onDone }: { onDone: () => void }) {
       <form onSubmit={submit} className="space-y-3">
         {needsCode && <Field label="Código de configuração" hint="Mostrado nos logs do Server a cada início: docker logs corujabackup-server (procure “CONFIGURAÇÃO INICIAL PENDENTE”). Evita que um estranho crie o administrador antes de você."><Input autoFocus autoComplete="off" value={f.setup_code} onChange={(e) => setF({ ...f, setup_code: e.target.value })} required /></Field>}
         <Field label="Usuário" hint="3 a 64 caracteres: letras minúsculas, números, ponto, hífen ou sublinhado"><Input autoFocus={!needsCode} value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} required /></Field>
-        <Field label="Nome de exibição"><Input value={f.display_name} onChange={(e) => setF({ ...f, display_name: e.target.value })} /></Field>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Nome"><Input autoComplete="given-name" maxLength={60} value={f.first_name} onChange={(e) => setF({ ...f, first_name: e.target.value })} required /></Field>
+          <Field label="Sobrenome"><Input autoComplete="family-name" maxLength={60} value={f.last_name} onChange={(e) => setF({ ...f, last_name: e.target.value })} /></Field>
+        </div>
         <Field label="Senha" hint="Mínimo de 10 caracteres"><Input type="password" autoComplete="new-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} required /></Field>
         <Field label="Confirme a senha"><Input type="password" autoComplete="new-password" value={f.confirm} onChange={(e) => setF({ ...f, confirm: e.target.value })} required /></Field>
         <ErrorBox message={err} />

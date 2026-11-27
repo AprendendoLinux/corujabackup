@@ -9,6 +9,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -125,7 +126,7 @@ func exercise(t *testing.T, c Config, env Env) {
 	}
 
 	// senha errada tem mensagem clara
-	if c.Type != TypeLocal {
+	if c.Type != TypeLocal && c.Type != TypeNFS {
 		bad := c
 		bad.Password = "errada"
 		if _, err := Test(ctx, bad, env); err == nil {
@@ -152,6 +153,71 @@ func TestDestinoLocal(t *testing.T) {
 	}
 	if es, _ := os.ReadDir(outside); len(es) != 0 {
 		t.Fatalf("nada poderia ter sido escrito fora: %v", es)
+	}
+}
+
+// Pasta local escolhida na interface: um caminho absoluto da máquina do agente, traduzido pelo agente (HostDir).
+func TestDestinoPastaEscolhida(t *testing.T) {
+	host := t.TempDir() // faz o papel do "/" da máquina do agente (montado em /host-rw)
+	env := Env{HostDir: func(abs string) (string, error) { return filepath.Join(host, abs), nil }}
+	exercise(t, Config{Type: TypeLocal, Path: "/mnt/hd2/backups"}, env)
+	if st, err := os.Stat(filepath.Join(host, "mnt/hd2/backups")); err != nil || !st.IsDir() {
+		t.Fatal("a pasta escolhida deveria ter sido criada", err)
+	}
+	tr, err := Test(context.Background(), Config{Type: TypeLocal, Path: "/mnt/hd2/backups"}, env)
+	if err != nil || tr.Total <= 0 || tr.Free <= 0 {
+		t.Fatalf("o teste deveria informar o espaço: %+v %v", tr, err)
+	}
+	if _, err := Test(context.Background(), Config{Type: TypeLocal, Path: "/mnt/x"}, Env{}); err == nil || !strings.Contains(err.Error(), "/:/host-rw") {
+		t.Fatalf("sem a montagem gravável deveria explicar: %v", err)
+	}
+	for _, p := range []string{"/", "/proc/x", "relativa", "/a/../b"} {
+		c := Config{Type: TypeLocal, Path: p}
+		if err := c.Normalize(); err == nil {
+			t.Errorf("%q deveria ser recusado", p)
+		}
+	}
+	c := Config{Type: TypeLocal, Path: "/mnt//hd2/"}
+	if err := c.Normalize(); err != nil || c.Path != "/mnt/hd2" || c.Label() != "pasta /mnt/hd2" {
+		t.Fatalf("normalização: %v %+v", err, c)
+	}
+}
+
+// TestNFSReal: CORUJA_TEST_NFS=host:porta:/exportação (porta vazia = portmapper).
+func TestNFSReal(t *testing.T) {
+	parts := strings.SplitN(netHost(t, "CORUJA_TEST_NFS"), ":", 3)
+	if len(parts) != 3 {
+		t.Fatal("formato: host:porta:/exportação")
+	}
+	port := 0
+	if parts[1] != "" {
+		port, _ = strconv.Atoi(parts[1])
+	}
+	c := Config{Type: TypeNFS, Host: parts[0], Port: port, Export: parts[2], BasePath: path.Join(os.Getenv("CORUJA_TEST_NFS_BASE"), "base")}
+	if v := os.Getenv("CORUJA_TEST_NFS_UID"); v != "" { // com root_squash: o dono da pasta de teste
+		n, _ := strconv.Atoi(v)
+		c.UID, c.GID = &n, &n
+	}
+	exercise(t, c, Env{})
+	// cancelamento no meio do envio não deixa o temporário para trás
+	src, sha := localFile(t, 8<<20)
+	ctx, cancel := context.WithCancel(context.Background())
+	_, err := Send(ctx, c, Env{}, Job{Folder: "cancelado", LocalPath: src, Name: "web-20260105-010101.tar.gz", SHA256: sha, Prefix: "web", Keep: 1, Now: time.Now()},
+		func(sent, _ int64) {
+			if sent > 1<<20 {
+				cancel()
+			}
+		})
+	if err == nil {
+		t.Fatal("o envio cancelado deveria falhar")
+	}
+	conn, _, err := Dial(context.Background(), c, Env{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if files, _ := conn.List("cancelado"); len(files) != 0 {
+		t.Fatalf("restou na pasta após o cancelamento: %+v", files)
 	}
 }
 
@@ -187,11 +253,17 @@ func TestSMBReal(t *testing.T) {
 
 func TestNormalize(t *testing.T) {
 	bad := []Config{{Type: "x"}, {Type: TypeFTP, Host: "ftp://x", User: "a"}, {Type: TypeFTP, Host: "x", User: ""}, {Type: TypeSFTP, Host: "x", User: "a"},
-		{Type: TypeSMB, Host: "x", User: "a", Share: "a/b"}, {Type: TypeFTP, Host: "x", User: "a\r\nDELE y"}, {Type: TypeLocal, BasePath: "../x"}}
+		{Type: TypeSMB, Host: "x", User: "a", Share: "a/b"}, {Type: TypeFTP, Host: "x", User: "a\r\nDELE y"}, {Type: TypeLocal, BasePath: "../x"},
+		{Type: TypeNFS, Host: "x", Export: "relativa"}, {Type: TypeNFS, Host: "x", Export: "/a/../b"}, {Type: TypeNFS, Host: "", Export: "/x"},
+		{Type: TypeNFS, Host: "x", Export: "/x", Port: 70000}, {Type: TypeNFS, Host: "x", Export: "/x", UID: new(-1)}}
 	for i, c := range bad {
 		if err := c.Normalize(); err == nil {
 			t.Errorf("caso %d deveria falhar: %+v", i, c)
 		}
+	}
+	n := Config{Type: TypeNFS, Host: "nas", Export: "/srv/backups/", User: "ignorado", Password: "x"}
+	if err := n.Normalize(); err != nil || n.Port != 0 || n.Export != "/srv/backups" || n.User != "" || n.Password != "" || n.Label() != "nas:/srv/backups" {
+		t.Fatalf("NFS: %v %+v", err, n)
 	}
 	c := Config{Type: TypeFTP, Host: "10.0.0.1", User: "a"}
 	if err := c.Normalize(); err != nil || c.TLS != TLSExplicit || c.Port != 21 || c.Verify != VerifyFull {

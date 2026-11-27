@@ -56,6 +56,7 @@ type RunRow struct {
 	Status      string // ok warning failed canceled missed running queued
 	StartedAt   *time.Time
 	FinishedAt  *time.Time
+	Scheduled   *time.Time // horário agendado (as perdidas só têm este)
 	BytesOut    int64
 	Files       int64
 	CloudStatus string // none ok failed
@@ -106,6 +107,7 @@ type Daily struct {
 	Agents    []AgentRow
 	Clouds    []CloudRow
 	Attention []string
+	History   []DayStat // últimos 14 dias, para o gráfico do PDF
 }
 
 // RunEvent é a notificação de uma execução (falha, aviso ou sucesso).

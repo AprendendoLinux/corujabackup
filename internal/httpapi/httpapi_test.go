@@ -1510,3 +1510,51 @@ func TestEscapeDeRotulosDasMetricas(t *testing.T) {
 		t.Fatalf("%q", got)
 	}
 }
+
+func TestNomeESobrenome(t *testing.T) {
+	e := newEnv(t)
+	adm := setupAdmin(e)
+	adm.mustOK("POST", "/api/users", map[string]any{"username": "maria", "password": pw, "role": "viewer", "first_name": "  Maria ", "last_name": "da   Silva"})
+	adm.mustOK("POST", "/api/users", map[string]any{"username": "antigo", "password": pw, "role": "viewer", "display_name": "João Pedro Souza"})
+	users := adm.mustOK("GET", "/api/users", nil)["users"].([]any)
+	got := map[string][3]string{}
+	for _, x := range users {
+		u := x.(map[string]any)
+		got[u["username"].(string)] = [3]string{u["first_name"].(string), u["last_name"].(string), u["display_name"].(string)}
+	}
+	if got["maria"] != [3]string{"Maria", "da Silva", "Maria da Silva"} || got["antigo"] != [3]string{"João", "Pedro Souza", "João Pedro Souza"} {
+		t.Fatalf("nomes: %v", got)
+	}
+
+	m := e.client()
+	m.mustOK("POST", "/api/login", map[string]string{"username": "maria", "password": pw})
+	m.mustOK("PATCH", "/api/me", map[string]any{"first_name": "Maria Clara", "last_name": "Souza"})
+	me := m.mustOK("GET", "/api/me", nil)["user"].(map[string]any)
+	if me["display_name"] != "Maria Clara Souza" || me["first_name"] != "Maria Clara" || me["last_name"] != "Souza" {
+		t.Fatalf("depois de trocar: %v", me)
+	}
+	if code, _ := m.do("PATCH", "/api/me", map[string]any{"first_name": " "}); code != 400 {
+		t.Fatalf("nome vazio deveria ser recusado: %d", code)
+	}
+	if code, _ := m.do("PATCH", "/api/me", map[string]any{"first_name": strings.Repeat("a", 61)}); code != 400 {
+		t.Fatalf("nome longo demais deveria ser recusado: %d", code)
+	}
+	if code, _ := m.do("PATCH", "/api/me", map[string]any{"role": "admin"}); code != 400 {
+		t.Fatalf("PATCH /api/me não muda perfil: %d", code)
+	}
+}
+
+func TestPainel(t *testing.T) {
+	e := newEnv(t)
+	adm := setupAdmin(e)
+	for _, days := range []string{"7", "30", "x"} {
+		m := adm.mustOK("GET", "/api/dashboard?days="+days+"&tz=America/Sao_Paulo", nil)
+		want := map[string]int{"7": 7, "30": 30, "x": 14}[days]
+		if h, _ := m["history"].([]any); len(h) != want || m["totals"] == nil || m["previous"] == nil {
+			t.Fatalf("days=%s: %v", days, m)
+		}
+	}
+	if code, _ := adm.do("GET", "/api/dashboard?tz=Lugar/Nenhum", nil); code != 200 {
+		t.Fatalf("fuso inválido deveria cair no padrão: %d", code)
+	}
+}

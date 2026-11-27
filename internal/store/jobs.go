@@ -26,20 +26,21 @@ type Job struct {
 	CloudFolder    string    `json:"cloud_folder"`
 	CloudKeep      int       `json:"cloud_keep"`
 	CloudKeepDays  int       `json:"cloud_keep_days"`
+	CloudDirect    bool      `json:"cloud_direct"` // grava direto no storage do agente, sem arquivo local
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 
 	DBSealed string `json:"-"` // configuração do banco (com senha), cifrada
 }
 
-const jobCols = "id, name, agent_id, kind, enabled, cron, timezone, paths, excludes, dest_subdir, keep_copies, version, created_at, updated_at, cloud_account_id, cloud_folder, cloud_keep, cloud_keep_days, COALESCE(db_config,'')"
+const jobCols = "id, name, agent_id, kind, enabled, cron, timezone, paths, excludes, dest_subdir, keep_copies, version, created_at, updated_at, cloud_account_id, cloud_folder, cloud_keep, cloud_keep_days, COALESCE(db_config,''), cloud_direct"
 
 func scanJob(r interface{ Scan(...any) error }) (*Job, error) {
 	var j Job
 	var p, e string
 	var ca sql.NullInt64
 	if err := r.Scan(&j.ID, &j.Name, &j.AgentID, &j.Kind, &j.Enabled, &j.Cron, &j.Timezone, &p, &e, &j.DestSubdir, &j.Keep, &j.Version, &j.CreatedAt, &j.UpdatedAt,
-		&ca, &j.CloudFolder, &j.CloudKeep, &j.CloudKeepDays, &j.DBSealed); err != nil {
+		&ca, &j.CloudFolder, &j.CloudKeep, &j.CloudKeepDays, &j.DBSealed, &j.CloudDirect); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -69,8 +70,8 @@ func jsonList(v []string) string {
 }
 
 func (s *Store) CreateJob(ctx context.Context, j *Job) (int64, error) {
-	res, err := s.DB.ExecContext(ctx, "INSERT INTO jobs (name, agent_id, kind, enabled, cron, timezone, paths, excludes, dest_subdir, keep_copies, cloud_account_id, cloud_folder, cloud_keep, cloud_keep_days, db_config) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-		j.Name, j.AgentID, j.Kind, j.Enabled, j.Cron, j.Timezone, jsonList(j.Paths), jsonList(j.Excludes), j.DestSubdir, j.Keep, j.CloudAccountID, j.CloudFolder, j.CloudKeep, j.CloudKeepDays, nullStr(j.DBSealed))
+	res, err := s.DB.ExecContext(ctx, "INSERT INTO jobs (name, agent_id, kind, enabled, cron, timezone, paths, excludes, dest_subdir, keep_copies, cloud_account_id, cloud_folder, cloud_keep, cloud_keep_days, db_config, cloud_direct) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+		j.Name, j.AgentID, j.Kind, j.Enabled, j.Cron, j.Timezone, jsonList(j.Paths), jsonList(j.Excludes), j.DestSubdir, j.Keep, j.CloudAccountID, j.CloudFolder, j.CloudKeep, j.CloudKeepDays, nullStr(j.DBSealed), j.CloudDirect)
 	if err != nil {
 		if isDup(err) {
 			return 0, ErrDuplicate
@@ -82,8 +83,8 @@ func (s *Store) CreateJob(ctx context.Context, j *Job) (int64, error) {
 
 // UpdateJob grava as alterações e incrementa a versão (o agente descarta agendas antigas).
 func (s *Store) UpdateJob(ctx context.Context, j *Job) error {
-	_, err := s.DB.ExecContext(ctx, "UPDATE jobs SET name=?, agent_id=?, enabled=?, cron=?, timezone=?, paths=?, excludes=?, dest_subdir=?, keep_copies=?, cloud_account_id=?, cloud_folder=?, cloud_keep=?, cloud_keep_days=?, db_config=?, version=version+1 WHERE id=?",
-		j.Name, j.AgentID, j.Enabled, j.Cron, j.Timezone, jsonList(j.Paths), jsonList(j.Excludes), j.DestSubdir, j.Keep, j.CloudAccountID, j.CloudFolder, j.CloudKeep, j.CloudKeepDays, nullStr(j.DBSealed), j.ID)
+	_, err := s.DB.ExecContext(ctx, "UPDATE jobs SET name=?, agent_id=?, enabled=?, cron=?, timezone=?, paths=?, excludes=?, dest_subdir=?, keep_copies=?, cloud_account_id=?, cloud_folder=?, cloud_keep=?, cloud_keep_days=?, db_config=?, cloud_direct=?, version=version+1 WHERE id=?",
+		j.Name, j.AgentID, j.Enabled, j.Cron, j.Timezone, jsonList(j.Paths), jsonList(j.Excludes), j.DestSubdir, j.Keep, j.CloudAccountID, j.CloudFolder, j.CloudKeep, j.CloudKeepDays, nullStr(j.DBSealed), j.CloudDirect, j.ID)
 	if isDup(err) {
 		return ErrDuplicate
 	}

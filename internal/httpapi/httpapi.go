@@ -109,6 +109,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/logout", s.logout)
 	// autenticadas
 	mux.HandleFunc("GET /api/me", s.authed(roleAny, s.me))
+	mux.HandleFunc("PATCH /api/me", s.authed(roleAny, s.updateMe))
 	mux.HandleFunc("POST /api/me/password", s.authed(roleAny, s.changePassword))
 	mux.HandleFunc("POST /api/me/avatar", s.authed(roleAny, s.uploadAvatar))
 	mux.HandleFunc("DELETE /api/me/avatar", s.authed(roleAny, s.deleteAvatar))
@@ -179,6 +180,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/runs/{id}/reupload", s.authed(roleOperator, s.reuploadRun))
 	mux.HandleFunc("POST /api/runs/{id}/extract", s.authed(roleOperator, s.extractRun))
 	mux.HandleFunc("GET /api/stats", s.authed(roleAny, s.stats))
+	mux.HandleFunc("GET /api/dashboard", s.authed(roleAny, s.dashboard))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"error": "rota inexistente"})
 	})

@@ -1,10 +1,12 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,6 +45,10 @@ func (s *Server) testDestination(w http.ResponseWriter, r *http.Request, _ *ctxU
 	}
 	if err := cfg.Normalize(); err != nil {
 		writeErr(w, 400, err.Error())
+		return
+	}
+	if msg := s.destAgentCheckID(r.Context(), &cfg, in.AgentID); msg != "" {
+		writeErr(w, 422, msg)
 		return
 	}
 	payload, _ := json.Marshal(cfg)
@@ -100,4 +106,48 @@ func (s *Server) fetchRun(w http.ResponseWriter, r *http.Request, cu *ctxUser) {
 	}
 	s.Store.Audit(r.Context(), cu.User.ID, cu.User.Username, "run.fetch", run.JobName+" / "+name, s.clientIP(r))
 	writeJSON(w, 202, map[string]bool{"ok": true})
+}
+
+// versionAtLeast compara versões "X.Y.Z" (ignora sufixos como -dev). Versão ilegível conta como recente.
+func versionAtLeast(v string, want [3]int) bool {
+	v, _, _ = strings.Cut(strings.TrimPrefix(strings.TrimSpace(v), "v"), "-")
+	parts := strings.Split(v, ".")
+	if len(parts) != 3 {
+		return true
+	}
+	for i := range 3 {
+		n, err := strconv.Atoi(parts[i])
+		if err != nil {
+			return true
+		}
+		if n != want[i] {
+			return n > want[i]
+		}
+	}
+	return true
+}
+
+// destAgentCheck recusa storages que o agente ainda não entende (um agente antigo ignoraria a pasta escolhida e
+// gravaria em outro lugar).
+func destAgentCheck(cfg *netdest.Config, a *store.Agent) string {
+	if cfg == nil || a == nil {
+		return ""
+	}
+	newer := cfg.Type == netdest.TypeNFS || (cfg.Type == netdest.TypeLocal && cfg.Path != "")
+	if newer && a.AgentVersion != "" && !versionAtLeast(a.AgentVersion, [3]int{0, 0, 19}) {
+		kind := "NFS"
+		if cfg.Type == netdest.TypeLocal {
+			kind = "pasta local escolhida"
+		}
+		return "o agente " + a.Name + " (versão " + a.AgentVersion + ") não suporta storages " + kind + ": atualize-o para a versão 0.0.19 ou mais nova"
+	}
+	return ""
+}
+
+func (s *Server) destAgentCheckID(ctx context.Context, cfg *netdest.Config, agentID int64) string {
+	a, err := s.Store.AgentByID(ctx, agentID)
+	if err != nil {
+		return ""
+	}
+	return destAgentCheck(cfg, a)
 }

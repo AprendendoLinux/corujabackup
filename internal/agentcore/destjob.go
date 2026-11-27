@@ -13,7 +13,9 @@ import (
 	"github.com/AprendendoLinux/corujabackup/internal/pb"
 )
 
-func (c *Core) destEnv() netdest.Env { return netdest.Env{LocalRoot: c.cfg.DestDir} }
+func (c *Core) destEnv() netdest.Env {
+	return netdest.Env{LocalRoot: c.cfg.DestDir, HostDir: c.localDir}
+}
 
 func destConfig(d *pb.DestSpec) (netdest.Config, error) {
 	var cfg netdest.Config

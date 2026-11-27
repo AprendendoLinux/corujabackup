@@ -24,7 +24,7 @@ func TestResetDeSenhaCriacaoDeAdminERecusas(t *testing.T) {
 	}
 	u, _ := st.UserByUsername(ctx, "admin1")
 	st.SetTOTP(ctx, u.ID, "SEGREDO", true, "[]")
-	st.UpdateUser(ctx, u.ID, "", "admin", true) // desativado
+	st.UpdateUser(ctx, u.ID, "", "", "admin", true) // desativado
 	st.CreateSession(ctx, auth.SHA256Hex("tok"), u.ID, false, time.Now().Add(time.Hour), "1.1.1.1", "x")
 
 	if err := ResetPassword(ctx, st, "naoexiste", "nova-senha-1234", false); err == nil {

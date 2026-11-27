@@ -6,6 +6,7 @@ import { FolderField, PathList, TreePicker } from '../Picker'
 import { LocalDirField, agentHasDiskPicker } from '../LocalDir'
 import { Wizard } from '../Wizard'
 import { ScheduleEditor, describeSched } from '../Schedule'
+import Icon from '../Icon'
 
 export default function Jobs({ me }: { me: User }) {
   const [jobs, setJobs] = useState<Job[]>([])
@@ -146,6 +147,7 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
     dest_subdir: job?.dest_subdir ?? '', keep: job?.keep ?? 7, enabled: job?.enabled ?? true,
     kind: job?.kind ?? 'files',
     cloud_account_id: job?.cloud_account_id ?? 0, cloud_folder: job?.cloud_folder ?? '', cloud_keep: job?.cloud_keep ?? 7, cloud_keep_days: job?.cloud_keep_days ?? 0,
+    cloud_direct: job?.cloud_direct ?? false,
   })
   const [db, setDb] = useState<DbState>({
     engine: job?.db?.engine ?? 'mysql', mode: job?.db?.mode ?? 'docker', container: job?.db?.container ?? '', host: job?.db?.host ?? '', port: job?.db?.port ?? 0,
@@ -162,6 +164,7 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
   const agentVersion = agents.find((a) => a.id === Number(f.agent_id))?.agent_version ?? ''
   const dest = clouds.find((c) => c.id === f.cloud_account_id)
   const destIsCloud = !!dest && ['gdrive', 'onedrive', 'dropbox'].includes(dest.type)
+  const direct = !!dest && !destIsCloud && f.cloud_direct // grava direto no storage, sem arquivo no agente
   const allZones: string[] = (Intl as any).supportedValuesOf ? (Intl as any).supportedValuesOf('timeZone') : ['America/Sao_Paulo', 'UTC']
   // fusos do Brasil primeiro; o do job aparece mesmo que o navegador não o conheça
   const zones = [...new Set([f.timezone, ...allZones.filter((z) => z.startsWith('America/') && /Sao_Paulo|Manaus|Recife|Fortaleza|Belem|Bahia|Cuiaba|Campo_Grande|Porto_Velho|Boa_Vista|Rio_Branco|Noronha|Maceio|Araguaina|Santarem|Eirunepe/.test(z)), ...allZones])]
@@ -190,7 +193,7 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
     if (i === 3) {
       // job novo (ou que trocou de agente): a pasta local é escolhida no painel; jobs antigos podem continuar na pasta padrão
       const mustChoose = !job || job.agent_id !== Number(f.agent_id)
-      if (mustChoose && agentHasDiskPicker(agentVersion) && noWriteAgent !== Number(f.agent_id) && !f.dest_subdir.startsWith('/')) return 'Escolha a pasta do backup local no agente.'
+      if (!direct && mustChoose && agentHasDiskPicker(agentVersion) && noWriteAgent !== Number(f.agent_id) && !f.dest_subdir.startsWith('/')) return 'Escolha a pasta do backup local no agente.'
       if (f.cloud_account_id && !f.cloud_keep && !f.cloud_keep_days) return 'Defina a retenção no destino: quantidade de cópias e/ou número de dias.'
     }
     return ''
@@ -205,7 +208,7 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
     for (let i = 0; i < 4; i++) { const m = check(i); if (m) { setStep(i); setErr(m); return } }
     setErr(''); setBusy(true)
     const body: Record<string, unknown> = { name: f.name, agent_id: Number(f.agent_id), kind: f.kind, paths: f.paths, excludes: f.excludes, cron: f.cron, timezone: f.timezone, dest_subdir: f.dest_subdir, keep: Number(f.keep), enabled: f.enabled }
-    if (f.cloud_account_id) Object.assign(body, { cloud_account_id: Number(f.cloud_account_id), cloud_folder: f.cloud_folder, cloud_keep: Number(f.cloud_keep), cloud_keep_days: Number(f.cloud_keep_days) })
+    if (f.cloud_account_id) Object.assign(body, { cloud_account_id: Number(f.cloud_account_id), cloud_folder: f.cloud_folder, cloud_keep: Number(f.cloud_keep), cloud_keep_days: Number(f.cloud_keep_days), cloud_direct: direct })
     else Object.assign(body, { clear_cloud: true })
     if (f.kind === 'database') body.db = dbPayload(db)
     try { job ? await api('PATCH', `/api/jobs/${job.id}`, body) : await api('POST', '/api/jobs', body); onDone() }
@@ -218,7 +221,7 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
     [f.kind === 'files' ? 'O que salvar' : 'Banco', f.kind === 'files' ? f.paths.join(', ') : db.mode === 'docker' ? `contêiner ${db.container}` : `${db.host}${db.port ? ':' + db.port : ''}`],
     ...(f.kind === 'files' && f.excludes.length ? [['Fica de fora', f.excludes.join(', ')] as [string, ReactNode]] : []),
     ['Agenda', `${cronLabel} · ${f.timezone}`], ['Tipo de backup', 'Completo (full) a cada execução'],
-    ['Backup local', `${f.dest_subdir.startsWith('/') ? f.dest_subdir : 'pasta padrão do agente'} · ${f.keep === 0 ? 'apagado após o envio' : `mantém ${f.keep} cópia(s)`}`],
+    ['Backup local', direct ? 'nenhum: gravado direto no storage' : `${f.dest_subdir.startsWith('/') ? f.dest_subdir : 'pasta padrão do agente'} · ${f.keep === 0 ? 'apagado após o envio' : `mantém ${f.keep} cópia(s)`}`],
     ['Storage', dest ? `${dest.name} · ${f.cloud_folder || 'pasta automática'} · ${retentionText(f.cloud_keep, f.cloud_keep_days, '').replace(/^No  /, '')}` : 'só a cópia local'],
     ['Situação', f.enabled ? 'Ativo' : 'Pausado'],
   ]
@@ -284,6 +287,13 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={f.enabled} onChange={(e) => setF({ ...f, enabled: e.target.checked })} /> Job ativo (roda sozinho na agenda)</label>
       </>)}
       {step === 3 && (<>
+        {direct ? (
+          <div className="flex items-start gap-3 rounded-xl border border-primary/40 bg-primary/5 p-4 text-sm">
+            <span className="mt-0.5 text-primary"><Icon name="destinos" /></span>
+            <div><b>Gravação direta no storage.</b> Nada fica guardado no agente: o arquivo é gravado em {dest?.name}, relido e conferido lá antes de valer.
+              {f.kind === 'database' && ' O dump do banco ainda passa por uma pasta temporária do agente, apagada ao final.'}</div>
+          </div>
+        ) : (<>
         <LocalDirField key={f.agent_id} agentId={Number(f.agent_id)} agentName={agentName} agentVersion={agentVersion} value={f.dest_subdir}
           onChange={(dest_subdir) => setF((v) => ({ ...v, dest_subdir }))} onUnavailable={() => setNoWriteAgent(Number(f.agent_id))} />
         <div>
@@ -297,14 +307,28 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
             )}
           </div>
         </div>
+        </>)}
         <fieldset className="space-y-3 rounded-xl border border-border p-4">
           <legend className="px-1 text-sm font-medium">Enviar para um storage (opcional)</legend>
           <Field label="Storage" hint={clouds.length === 0 ? 'Nenhum storage cadastrado. Cadastre um na página Storages.' : undefined}>
-            <select className={sel} value={f.cloud_account_id} onChange={(e) => setF({ ...f, cloud_account_id: Number(e.target.value), cloud_folder: '', keep: Number(e.target.value) ? (f.keep === 7 ? 0 : f.keep) : (f.keep || 3) })}>
+            <select className={sel} value={f.cloud_account_id} onChange={(e) => setF({ ...f, cloud_account_id: Number(e.target.value), cloud_folder: '', cloud_direct: false, keep: Number(e.target.value) ? (f.keep === 7 ? 0 : f.keep) : (f.keep || 3) })}>
               <option value={0}>Só cópia local</option>
               {clouds.map((c) => <option key={c.id} value={c.id}>{c.name} ({CLOUD_LABEL[c.type]})</option>)}
             </select>
           </Field>
+          {f.cloud_account_id !== 0 && !destIsCloud && (
+            <div>
+              <span className="mb-1.5 block text-sm font-medium">Como gravar</span>
+              <div role="radiogroup" aria-label="Como gravar no storage" className="space-y-2">
+                <Choice on={!f.cloud_direct} onClick={() => setF({ ...f, cloud_direct: false, keep: f.keep || 3 })}>
+                  Gerar no agente e depois enviar <span className="text-muted">(permite manter cópias no agente, para restaurar mais rápido)</span>
+                </Choice>
+                <Choice on={f.cloud_direct} onClick={() => setF({ ...f, cloud_direct: true })}>
+                  Gravar direto no storage <span className="text-muted">(sem arquivo no agente: ideal quando falta espaço nele)</span>
+                </Choice>
+              </div>
+            </div>
+          )}
           {f.cloud_account_id !== 0 && (<>
             <FolderField key={f.cloud_account_id} label="Pasta no storage" hint="Automática = Coruja Backup/<agente>/<job>. Pastas novas são criadas no primeiro backup." value={f.cloud_folder} autoText="(automática)"
               onChange={(cloud_folder) => setF((v) => ({ ...v, cloud_folder }))}

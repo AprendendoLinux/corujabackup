@@ -1,5 +1,5 @@
-// Package netdest implementa os destinos "diretos do agente": SFTP, FTP/FTPS, SMB/CIFS e pasta local (volume montado no
-// host, o que cobre NFS e iSCSI). Quem envia, confere e aplica a retenção é o AGENTE, que é quem alcança a rede onde o
+// Package netdest implementa os destinos "diretos do agente": SFTP, FTP/FTPS, SMB/CIFS, NFS (cliente embutido) e pasta
+// local (qualquer pasta da máquina do agente, o que cobre iSCSI e discos externos já montados). Quem envia, confere e aplica a retenção é o AGENTE, que é quem alcança a rede onde o
 // destino está.
 package netdest
 
@@ -27,6 +27,7 @@ const (
 	TypeFTP   = "ftp"
 	TypeSMB   = "smb"
 	TypeLocal = "local"
+	TypeNFS   = "nfs"
 
 	// Modos de TLS do FTP.
 	TLSExplicit = "explicit" // FTPS (AUTH TLS), recomendado
@@ -42,7 +43,7 @@ const (
 
 // Is informa se o tipo é um destino direto do agente.
 func Is(typ string) bool {
-	return typ == TypeSFTP || typ == TypeFTP || typ == TypeSMB || typ == TypeLocal
+	return typ == TypeSFTP || typ == TypeFTP || typ == TypeSMB || typ == TypeLocal || typ == TypeNFS
 }
 
 // Config descreve um destino. Viaja para o agente pelo canal TLS e fica cifrada no Server.
@@ -59,6 +60,10 @@ type Config struct {
 	Share      string `json:"share,omitempty"`       // SMB
 	Domain     string `json:"domain,omitempty"`      // SMB
 	BasePath   string `json:"base_path,omitempty"`   // pasta base dentro do destino
+	Export     string `json:"export,omitempty"`      // NFS: caminho exportado no servidor
+	UID        *int   `json:"uid,omitempty"`         // NFS: usuário (AUTH_SYS) que grava; vazio = 0
+	GID        *int   `json:"gid,omitempty"`         // NFS: grupo
+	Path       string `json:"path,omitempty"`        // pasta local: caminho absoluto na máquina do agente
 	Verify     string `json:"verify,omitempty"`
 }
 
@@ -66,6 +71,32 @@ var (
 	hostRE  = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9.\-]{0,251}[A-Za-z0-9])?$|^[0-9a-fA-F:]+$`)
 	shareRE = regexp.MustCompile(`^[^\\/:*?"<>|\x00]{1,80}$`)
 )
+
+// forbiddenLocal são pastas virtuais ou voláteis do sistema, onde um backup não pode ser gravado.
+var forbiddenLocal = []string{"/proc", "/sys", "/dev", "/run"}
+
+// CleanAbs valida um caminho absoluto da máquina do agente para receber backups e o devolve normalizado.
+func CleanAbs(p string) (string, error) {
+	p = strings.TrimSpace(p)
+	if !strings.HasPrefix(p, "/") || len(p) > 1024 || strings.ContainsAny(p, "\x00\r\n") {
+		return "", fmt.Errorf("pasta inválida: %q (use um caminho absoluto, ex.: /mnt/backups)", p)
+	}
+	for _, s := range strings.Split(p, "/") {
+		if s == ".." {
+			return "", fmt.Errorf("pasta inválida: %q", p)
+		}
+	}
+	clean := path.Clean(p)
+	if clean == "/" {
+		return "", errors.New("escolha uma pasta: os backups não podem ficar direto na raiz")
+	}
+	for _, f := range forbiddenLocal {
+		if clean == f || strings.HasPrefix(clean, f+"/") {
+			return "", fmt.Errorf("%s é uma pasta do sistema e não pode receber backups", clean)
+		}
+	}
+	return clean, nil
+}
 
 // DefaultPort devolve a porta padrão do protocolo.
 func DefaultPort(c Config) int {
@@ -119,6 +150,11 @@ func (c *Config) Normalize() error {
 		return errors.New("usuário ou senha com caracteres inválidos")
 	}
 	if c.Type == TypeLocal {
+		if c.Path != "" {
+			if c.Path, err = CleanAbs(c.Path); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 	if !Is(c.Type) {
@@ -134,6 +170,9 @@ func (c *Config) Normalize() error {
 		if c.TLS != TLSExplicit && c.TLS != TLSImplicit && c.TLS != TLSNone {
 			return errors.New("modo de TLS inválido")
 		}
+	}
+	if c.Type == TypeNFS {
+		return c.normalizeNFS()
 	}
 	if c.Port == 0 {
 		c.Port = DefaultPort(*c)
@@ -153,11 +192,42 @@ func (c *Config) Normalize() error {
 	return nil
 }
 
+func (c *Config) normalizeNFS() error {
+	c.User, c.Password, c.PrivateKey, c.Share, c.Domain = "", "", "", "", ""
+	ex := strings.TrimSpace(c.Export)
+	if !strings.HasPrefix(ex, "/") || len(ex) > 1024 || strings.ContainsAny(ex, "\x00\r\n\\") {
+		return errors.New("informe a exportação NFS como caminho absoluto (ex.: /srv/backups)")
+	}
+	for _, s := range strings.Split(ex, "/") {
+		if s == ".." {
+			return errors.New("exportação NFS inválida")
+		}
+	}
+	c.Export = path.Clean(ex)
+	if c.Port < 0 || c.Port > 65535 {
+		return errors.New("porta inválida")
+	}
+	for _, id := range []*int{c.UID, c.GID} {
+		if id != nil && (*id < 0 || *id > 1<<31-1) {
+			return errors.New("UID/GID inválido")
+		}
+	}
+	return nil
+}
+
 // Label é um resumo legível (sem segredos).
 func (c Config) Label() string {
 	switch c.Type {
 	case TypeLocal:
+		if c.Path != "" {
+			return "pasta " + c.Path
+		}
 		return "pasta /" + strings.TrimPrefix(c.BasePath, "/")
+	case TypeNFS:
+		if c.Port != 0 {
+			return fmt.Sprintf("%s:%s (porta %d)", c.Host, c.Export, c.Port)
+		}
+		return c.Host + ":" + c.Export
 	case TypeSMB:
 		return fmt.Sprintf(`//%s/%s (%s)`, c.Host, c.Share, c.User)
 	}
@@ -188,7 +258,10 @@ type Conn interface {
 
 // Env é o contexto local do agente.
 type Env struct {
-	LocalRoot string // raiz permitida para destinos "local" (ex.: /destinos)
+	LocalRoot string // raiz dos destinos "local" antigos, sem caminho absoluto (ex.: /destinos)
+	// HostDir traduz uma pasta absoluta da máquina do agente para o caminho em que ele grava (aplicando as regras de
+	// segurança do agente). nil = o agente não grava fora das próprias pastas.
+	HostDir func(abs string) (string, error)
 }
 
 // Dial abre a conexão. Para SFTP sem impressão digital fixada, devolve a encontrada em seen (primeiro contato).
@@ -205,6 +278,8 @@ func Dial(ctx context.Context, c Config, env Env) (conn Conn, seen string, err e
 		conn, err = dialSMB(ctx, c)
 	case TypeLocal:
 		conn, err = openLocal(c, env)
+	case TypeNFS:
+		conn, err = dialNFS(ctx, c)
 	}
 	return conn, "", err
 }
@@ -248,76 +323,154 @@ type Result struct {
 	Retention  []string
 }
 
-// Send envia o arquivo com nome temporário, confere, renomeia e SÓ ENTÃO aplica a retenção.
-func Send(ctx context.Context, c Config, env Env, j Job, progress func(sent, total int64)) (Result, error) {
-	var res Result
+// Target é uma pasta aberta num storage, pronta para receber backups.
+type Target struct {
+	ctx    context.Context
+	c      Config
+	env    Env
+	conn   Conn
+	folder string
+}
+
+// OpenTarget conecta ao storage e cria a pasta do job.
+func OpenTarget(ctx context.Context, c Config, env Env, folder string) (*Target, error) {
 	if err := c.Normalize(); err != nil {
-		return res, err
+		return nil, err
 	}
-	folder, err := CleanPath(j.Folder)
+	folder, err := CleanPath(folder)
 	if err != nil {
-		return res, err
+		return nil, err
 	}
 	if c.Type == TypeSFTP && c.HostKey == "" {
-		return res, errors.New("destino SFTP sem impressão digital do servidor: teste e salve o destino de novo")
+		return nil, errors.New("destino SFTP sem impressão digital do servidor: teste e salve o destino de novo")
 	}
-	f, err := os.Open(j.LocalPath)
-	if err != nil {
-		return res, err
-	}
-	defer f.Close()
-	st, err := f.Stat()
-	if err != nil {
-		return res, err
-	}
-	total := st.Size()
 	conn, _, err := Dial(ctx, c, env)
 	if err != nil {
-		return res, err
+		return nil, err
 	}
-	defer conn.Close()
 	if err := conn.MkdirAll(folder); err != nil {
-		return res, fmt.Errorf("não foi possível criar a pasta no destino: %w", err)
+		conn.Close()
+		return nil, fmt.Errorf("não foi possível criar a pasta no destino: %w", err)
 	}
-	part := j.Name + partSuffix
-	cleanup := func() { _ = conn.Remove(folder, part) }
-	rd := &ctxReader{ctx: ctx, r: f, on: func(n int64) {
-		if progress != nil {
-			progress(n, total)
+	return &Target{ctx: ctx, c: c, env: env, conn: conn, folder: folder}, nil
+}
+
+// Exists informa se já há um arquivo com esse nome na pasta (para não sobrescrever um backup).
+func (t *Target) Exists(name string) bool {
+	_, err := t.conn.Size(t.folder, name)
+	return err == nil
+}
+
+// Close encerra a conexão.
+func (t *Target) Close() error { return t.conn.Close() }
+
+// Upload é um arquivo sendo gravado no storage com nome temporário (.coruja-part). Finish confere, dá o nome final e
+// só então aplica a retenção; Abort apaga o temporário.
+type Upload struct {
+	t    *Target
+	name string
+	part string
+	pw   *io.PipeWriter
+	done chan error
+	n    int64
+	end  bool
+}
+
+// Create começa a gravar name na pasta. Os dados escritos em Upload vão direto para o storage.
+func (t *Target) Create(name string) *Upload {
+	pr, pw := io.Pipe()
+	u := &Upload{t: t, name: name, part: name + partSuffix, pw: pw, done: make(chan error, 1)}
+	go func() {
+		err := t.conn.Write(t.ctx, t.folder, u.part, pr)
+		if err == nil {
+			err = io.ErrClosedPipe // o storage parou de ler antes do fim
 		}
-	}}
-	if err := conn.Write(ctx, folder, part, rd); err != nil {
-		cleanup()
+		pr.CloseWithError(err)
+		u.done <- err
+	}()
+	return u
+}
+
+func (u *Upload) Write(p []byte) (int, error) {
+	n, err := u.pw.Write(p)
+	u.n += int64(n)
+	return n, err
+}
+
+// Written é quanto já foi gravado.
+func (u *Upload) Written() int64 { return u.n }
+
+// Name é o nome final do arquivo.
+func (u *Upload) Name() string { return u.name }
+
+func (u *Upload) cleanup() {
+	t := u.t
+	if t.conn.Remove(t.folder, u.part) == nil || t.ctx.Err() == nil {
+		return
+	}
+	// cancelado: a conexão já foi fechada junto com o contexto; apaga o temporário por uma conexão nova
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(t.ctx), 30*time.Second)
+	defer cancel()
+	if c2, _, err := Dial(cctx, t.c, t.env); err == nil {
+		_ = c2.Remove(t.folder, u.part)
+		c2.Close()
+	}
+}
+
+// Abort desiste do envio e apaga o temporário.
+func (u *Upload) Abort() {
+	if u.end {
+		return
+	}
+	u.end = true
+	u.pw.CloseWithError(errors.New("envio interrompido"))
+	<-u.done
+	u.cleanup()
+}
+
+// Finish fecha o arquivo, confere o tamanho e (na conferência completa) relê tudo do storage comparando o SHA-256;
+// check, se informado, também recebe o conteúdo relido (ex.: para validar o tar.gz). Só depois renomeia e aplica a
+// retenção. Em qualquer falha o temporário é apagado e os backups antigos ficam intactos.
+func (u *Upload) Finish(j Job, check func(io.Reader) error) (Result, error) {
+	var res Result
+	t := u.t
+	if u.end {
+		return res, errors.New("envio já encerrado")
+	}
+	u.end = true
+	_ = u.pw.Close()
+	if err := <-u.done; err != nil && !errors.Is(err, io.ErrClosedPipe) {
+		u.cleanup()
 		return res, fmt.Errorf("falha ao gravar no destino: %w", err)
 	}
-	size, err := conn.Size(folder, part)
+	size, err := t.conn.Size(t.folder, u.part)
 	if err != nil {
-		cleanup()
+		u.cleanup()
 		return res, fmt.Errorf("não foi possível conferir o arquivo no destino: %w", err)
 	}
-	if size != total {
-		cleanup()
-		return res, fmt.Errorf("o destino guardou %d bytes, esperado %d (arquivo descartado)", size, total)
+	if size != u.n {
+		u.cleanup()
+		return res, fmt.Errorf("o destino guardou %d bytes, esperado %d (arquivo descartado)", size, u.n)
 	}
 	res.VerifiedBy = VerifySize
-	if c.Verify == VerifyFull {
-		sum, err := hashRemote(ctx, conn, folder, part)
+	if t.c.Verify == VerifyFull {
+		sum, err := rereadRemote(t.ctx, t.conn, t.folder, u.part, check)
 		if err != nil {
-			cleanup()
-			return res, fmt.Errorf("não foi possível reler o arquivo para conferir: %w", err)
+			u.cleanup()
+			return res, fmt.Errorf("não foi possível reler o arquivo para conferir (arquivo descartado): %w", err)
 		}
 		if sum != j.SHA256 {
-			cleanup()
+			u.cleanup()
 			return res, errors.New("o SHA-256 relido do destino difere do arquivo enviado (arquivo descartado; os backups antigos foram preservados)")
 		}
 		res.Hash, res.VerifiedBy = sum, "sha256"
 	}
-	if err := conn.Rename(folder, part, j.Name); err != nil {
-		cleanup()
+	if err := t.conn.Rename(t.folder, u.part, u.name); err != nil {
+		u.cleanup()
 		return res, fmt.Errorf("não foi possível dar o nome final ao arquivo: %w", err)
 	}
-	res.Path = path.Join(folder, j.Name)
-	files, err := conn.List(folder)
+	res.Path = path.Join(t.folder, u.name)
+	files, err := t.conn.List(t.folder)
 	if err != nil {
 		res.Retention = append(res.Retention, "retenção ignorada: não foi possível listar a pasta: "+err.Error())
 		return res, nil
@@ -327,16 +480,69 @@ func Send(ctx context.Context, c Config, env Env, j Job, progress func(sent, tot
 		remote = append(remote, cloud.RemoteFile{Name: x.Name, Size: x.Size, Modified: x.Modified})
 	}
 	for _, old := range cloud.Retention(remote, j.Prefix, j.Keep, j.KeepDays, j.Now) {
-		if old.Name == j.Name {
+		if old.Name == u.name {
 			continue
 		}
-		if err := conn.Remove(folder, old.Name); err != nil {
+		if err := t.conn.Remove(t.folder, old.Name); err != nil {
 			res.Retention = append(res.Retention, "não foi possível apagar "+old.Name+": "+err.Error())
 			continue
 		}
 		res.Retention = append(res.Retention, "removido do destino: "+old.Name)
 	}
 	return res, nil
+}
+
+// rereadRemote relê o arquivo do storage, calcula o SHA-256 e, se check vier, entrega o conteúdo a ele também.
+func rereadRemote(ctx context.Context, conn Conn, dir, name string, check func(io.Reader) error) (string, error) {
+	rc, err := conn.Open(ctx, dir, name)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	r := io.TeeReader(&ctxReader{ctx: ctx, r: rc}, h)
+	if check != nil {
+		err = check(r)
+	}
+	if err == nil {
+		_, err = io.Copy(io.Discard, r) // o que check não consumiu (ex.: o rodapé do gzip)
+	}
+	if cerr := rc.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// Send envia um arquivo local: grava com nome temporário, confere, renomeia e SÓ ENTÃO aplica a retenção.
+func Send(ctx context.Context, c Config, env Env, j Job, progress func(sent, total int64)) (Result, error) {
+	f, err := os.Open(j.LocalPath)
+	if err != nil {
+		return Result{}, err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return Result{}, err
+	}
+	total := st.Size()
+	t, err := OpenTarget(ctx, c, env, j.Folder)
+	if err != nil {
+		return Result{}, err
+	}
+	defer t.Close()
+	u := t.Create(j.Name)
+	rd := &ctxReader{ctx: ctx, r: f, on: func(n int64) {
+		if progress != nil {
+			progress(n, total)
+		}
+	}}
+	if _, err := io.Copy(u, rd); err != nil {
+		u.Abort()
+		return Result{}, fmt.Errorf("falha ao gravar no destino: %w", err)
+	}
+	return u.Finish(j, nil)
 }
 
 func hashRemote(ctx context.Context, conn Conn, dir, name string) (string, error) {
@@ -427,6 +633,13 @@ func Folders(ctx context.Context, c Config, env Env, dir string) ([]string, erro
 type TestResult struct {
 	HostKey string `json:"host_key,omitempty"` // SFTP: impressão digital vista
 	Detail  string `json:"detail"`
+	Total   int64  `json:"total,omitempty"` // espaço do storage, quando o protocolo informa
+	Free    int64  `json:"free,omitempty"`
+}
+
+// spacer é um storage que sabe informar o espaço livre (NFS e pasta local).
+type spacer interface {
+	Space() (total, free int64, err error)
 }
 
 // Test conecta, grava, relê e apaga um arquivo pequeno na pasta base: prova que o destino aceita tudo o que um backup precisa.
@@ -465,5 +678,10 @@ func Test(ctx context.Context, c Config, env Env) (TestResult, error) {
 		return out, fmt.Errorf("não foi possível apagar (a retenção precisa disso): %w", err)
 	}
 	out.Detail = fmt.Sprintf("gravação, leitura, renomeação, listagem (%d arquivo(s)) e exclusão funcionando", len(files))
+	if sp, ok := conn.(spacer); ok {
+		if t, f, err := sp.Space(); err == nil && t > 0 {
+			out.Total, out.Free = t, f
+		}
+	}
 	return out, nil
 }

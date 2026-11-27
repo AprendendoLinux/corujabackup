@@ -41,6 +41,11 @@ func DBConfigFrom(d *pb.DbSpec) dbdump.Config {
 // RunDatabase faz o dump dos bancos, confere (estrutura e, se configurado, restauração real num servidor descartável),
 // empacota tudo em <slug>-AAAAMMDD-HHMMSS.tar.gz e verifica o arquivo. Segue o mesmo contrato de RunFiles.
 func RunDatabase(ctx context.Context, name string, spec *pb.DbSpec, subdir string, dk *dockerapi.Client, backupDir string, loc *time.Location, now time.Time, h Hooks) (Result, error) {
+	return runDatabase(ctx, name, spec, subdir, dk, backupDir, loc, now, h, nil)
+}
+
+// runDatabase: com out (modo direto), o dump é feito numa pasta temporária do agente e o .tar.gz vai direto ao storage.
+func runDatabase(ctx context.Context, name string, spec *pb.DbSpec, subdir string, dk *dockerapi.Client, backupDir string, loc *time.Location, now time.Time, h Hooks, out archiveOut) (Result, error) {
 	var res Result
 	if spec == nil {
 		return res, errors.New("job de banco sem configuração")
@@ -61,16 +66,16 @@ func RunDatabase(ctx context.Context, name string, spec *pb.DbSpec, subdir strin
 		return res, err
 	}
 	dh := dbdump.Hooks{Logf: h.Logf}
-	out, err := dbdump.Run(ctx, cfg, runner, dk, work, dh)
+	dumped, err := dbdump.Run(ctx, cfg, runner, dk, work, dh)
 	if err != nil {
 		return res, err
 	}
-	res.Warnings += out.Warnings
+	res.Warnings += dumped.Warnings
 
 	switch cfg.RestoreTest {
 	case dbdump.RestoreFull:
 		h.log("info", "teste de restauração real: restaurando num servidor descartável")
-		if err := dbdump.RestoreTest(ctx, dk, cfg, out, dh); err != nil {
+		if err := dbdump.RestoreTest(ctx, dk, cfg, dumped, dh); err != nil {
 			if ctx.Err() != nil {
 				return res, ErrCanceled
 			}
@@ -84,43 +89,47 @@ func RunDatabase(ctx context.Context, name string, spec *pb.DbSpec, subdir strin
 	}
 
 	prefix := Slug(name)
-	arcName, final, tmp := nextArchiveName(dest, prefix, loc, now)
-	defer os.Remove(tmp)
-	sum, size, entries, err := packFlat(ctx, work, prefix, tmp)
+	local := out == nil
+	if local {
+		out = &localOut{dest: dest}
+	}
+	arcName, w, err := out.begin(prefix, loc, now)
 	if err != nil {
 		return res, err
 	}
-	if err := os.Rename(tmp, final); err != nil {
+	sum, size, entries, err := packFlat(ctx, work, prefix, w)
+	if err != nil {
+		out.abort()
 		return res, err
 	}
-	res.OutputName, res.OutputPath, res.DestDir, res.Prefix = arcName, final, dest, prefix
-	res.BytesOutput, res.SHA256, res.Files = size, sum, int64(len(out.Files))
-	for _, f := range out.Files {
+	res.OutputName, res.Prefix = arcName, prefix
+	res.BytesOutput, res.SHA256, res.Files = size, sum, int64(len(dumped.Files))
+	for _, f := range dumped.Files {
 		res.BytesSource += f.Bytes
 	}
-	h.log("info", "arquivo gerado: %s (%s, %d bancos/arquivos)", arcName, HumanBytes(size), len(out.Files))
-	if err := VerifyArchive(ctx, final, sum, entries); err != nil {
-		os.Remove(final)
-		return res, fmt.Errorf("verificação falhou (arquivo removido): %w", err)
+	h.log("info", "arquivo gerado: %s (%s, %d bancos/arquivos)", arcName, HumanBytes(size), len(dumped.Files))
+	if !local {
+		h.log("info", "conferindo o arquivo no storage")
 	}
+	if err := out.commit(ctx, sum, entries); err != nil {
+		return res, err
+	}
+	if d, ok := out.(*directOut); ok {
+		res.Stored = &d.result
+		if d.result.VerifiedBy == "sha256" {
+			h.log("info", "conferido no storage: SHA-256 relido e %d itens legíveis", entries)
+		} else {
+			h.log("info", "conferido no storage pelo tamanho (conferência rápida)")
+		}
+		return res, nil
+	}
+	res.OutputPath, res.DestDir = filepath.Join(dest, arcName), dest
 	h.log("info", "verificação ok: SHA-256 conferido e %d itens legíveis", entries)
 	return res, nil
 }
 
-// nextArchiveName gera o nome <prefixo>-AAAAMMDD-HHMMSS.tar.gz sem colidir com um arquivo existente.
-func nextArchiveName(dest, prefix string, loc *time.Location, now time.Time) (name, final, tmp string) {
-	for i := 0; i < 120; i++ {
-		name = fmt.Sprintf("%s-%s.tar.gz", prefix, now.In(loc).Format("20060102-150405"))
-		if _, err := os.Lstat(filepath.Join(dest, name)); err != nil {
-			break
-		}
-		now = now.Add(time.Second)
-	}
-	return name, filepath.Join(dest, name), filepath.Join(dest, "."+name+".tmp")
-}
-
-// packFlat empacota os arquivos de dir (sem subpastas) em tmp como tar.gz, dentro da pasta raiz root/.
-func packFlat(ctx context.Context, dir, root, tmp string) (sum string, size int64, entries int64, err error) {
+// packFlat empacota os arquivos de dir (sem subpastas) em w como tar.gz, dentro da pasta raiz root/.
+func packFlat(ctx context.Context, dir, root string, w io.Writer) (sum string, size int64, entries int64, err error) {
 	ents, err := os.ReadDir(dir)
 	if err != nil {
 		return "", 0, 0, err
@@ -132,15 +141,11 @@ func packFlat(ctx context.Context, dir, root, tmp string) (sum string, size int6
 		}
 	}
 	sort.Strings(names)
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
-	if err != nil {
-		return "", 0, 0, err
-	}
 	h := sha256.New()
-	cw := &countingWriter{w: io.MultiWriter(f, h)}
+	cw := &countingWriter{w: io.MultiWriter(w, h)}
 	gz := gzip.NewWriter(cw)
 	tw := tar.NewWriter(gz)
-	fail := func(e error) (string, int64, int64, error) { tw.Close(); gz.Close(); f.Close(); return "", 0, 0, e }
+	fail := func(e error) (string, int64, int64, error) { tw.Close(); gz.Close(); return "", 0, 0, e }
 	for _, n := range names {
 		if ctx.Err() != nil {
 			return fail(ErrCanceled)
@@ -173,14 +178,6 @@ func packFlat(ctx context.Context, dir, root, tmp string) (sum string, size int6
 		return fail(err)
 	}
 	if err := gz.Close(); err != nil {
-		f.Close()
-		return "", 0, 0, err
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return "", 0, 0, err
-	}
-	if err := f.Close(); err != nil {
 		return "", 0, 0, err
 	}
 	return hex.EncodeToString(h.Sum(nil)), cw.n, entries, nil

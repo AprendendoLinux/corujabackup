@@ -66,6 +66,10 @@ func (s *Server) destFolders(w http.ResponseWriter, r *http.Request, _ *ctxUser)
 			writeErr(w, 400, "escolha o agente do job para navegar neste destino")
 			return
 		}
+		if msg := s.destAgentCheckID(r.Context(), cfg, agentID); msg != "" {
+			writeErr(w, 422, msg)
+			return
+		}
 		payload, _ := json.Marshal(struct {
 			Config netdest.Config `json:"config"`
 			Path   string         `json:"path"`

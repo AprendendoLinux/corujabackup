@@ -8,16 +8,36 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 )
 
-// localConn grava numa pasta do próprio agente (um volume montado no host: NFS, iSCSI, disco USB...). Usa os.Root, que
-// impede que qualquer caminho (inclusive por link simbólico) escape da raiz de destinos.
+// localConn grava numa pasta da máquina do agente: qualquer pasta escolhida na interface (disco extra, iSCSI, USB já
+// montados) ou, nos storages antigos, uma subpasta da raiz de destinos (/destinos). Usa os.Root, que impede que qualquer
+// caminho (inclusive por link simbólico) escape da pasta.
 type localConn struct {
 	root *os.Root
+	dir  string
 	base string
 }
 
 func openLocal(c Config, env Env) (Conn, error) {
+	if c.Path != "" {
+		if env.HostDir == nil {
+			return nil, errors.New("este agente não grava fora das próprias pastas: adicione o volume \"- /:/host-rw\" à stack do agente")
+		}
+		dir, err := env.HostDir(c.Path)
+		if err != nil {
+			return nil, err
+		}
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			return nil, fmt.Errorf("não foi possível criar a pasta %s: %w", c.Path, err)
+		}
+		r, err := os.OpenRoot(dir)
+		if err != nil {
+			return nil, fmt.Errorf("não foi possível abrir a pasta %s: %w", c.Path, err)
+		}
+		return &localConn{root: r, dir: dir, base: c.BasePath}, nil
+	}
 	if env.LocalRoot == "" {
 		return nil, errors.New("este agente não tem uma raiz para destinos locais (CORUJA_DEST_DIR)")
 	}
@@ -25,7 +45,17 @@ func openLocal(c Config, env Env) (Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("a raiz de destinos %s não existe no agente: monte o volume nela (veja a documentação): %w", env.LocalRoot, err)
 	}
-	return &localConn{root: r, base: c.BasePath}, nil
+	return &localConn{root: r, dir: env.LocalRoot, base: c.BasePath}, nil
+}
+
+// Space devolve o espaço total e o livre do disco da pasta.
+func (l *localConn) Space() (total, free int64, err error) {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(l.dir, &st); err != nil {
+		return 0, 0, err
+	}
+	bs := int64(st.Bsize)
+	return int64(st.Blocks) * bs, int64(st.Bavail) * bs, nil
 }
 
 func (l *localConn) p(parts ...string) string {

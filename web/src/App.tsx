@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import Logo, { BrandCtx, useFavicon } from './Logo'
 import { applyTheme, forgetLocalTheme, onSystemModeChange } from './themes'
-import { Agent, Branding, User, api, ApiError, ROLE_LABEL } from './api'
-import { Button, Card } from './ui'
+import { Branding, User, api, ApiError, ROLE_LABEL, userName } from './api'
 import Icon, { IconName } from './Icon'
 import TipLayer from './TipLayer'
 import Avatar from './Avatar'
 import DialogHost from './Dialogs'
 import { Login, Setup } from './pages/Auth'
 import Agents from './pages/Agents'
+import Dashboard from './pages/Dashboard'
 import Jobs from './pages/Jobs'
 import Clouds from './pages/Clouds'
 import Runs from './pages/Runs'
@@ -48,7 +48,7 @@ export default function App() {
   const [brand, setBrand] = useState<Branding>({ name: 'Coruja Backup', theme: 'coruja', themes: [], has_logo: false })
   const [phase, setPhase] = useState<Phase>('loading')
   const [me, setMe] = useState<Me | null>(null)
-  const [version, setVersion] = useState('0.0.18')
+  const [version, setVersion] = useState('0.0.19')
   const [drawer, setDrawer] = useState(false)
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const route = useRoute()
@@ -147,7 +147,7 @@ export default function App() {
           <a href="#/conta" data-tip={mini ? 'Minha conta' : undefined} aria-label="Minha conta"
             className={`flex min-w-0 flex-1 items-center gap-3 rounded-xl p-2 transition hover:bg-primary/10 ${page === 'conta' ? 'bg-primary/10' : ''}`}>
             <Avatar user={me.user} size={36} />
-            {!mini && <span className="min-w-0"><span className="block truncate text-sm font-medium">{me.user.display_name || me.user.username}</span><span className="block text-xs text-muted">{ROLE_LABEL[me.user.role]}</span></span>}
+            {!mini && <span className="min-w-0"><span className="block truncate text-sm font-medium">{userName(me.user)}</span><span className="block text-xs text-muted">{ROLE_LABEL[me.user.role]}</span></span>}
           </a>
           <button type="button" onClick={logout} aria-label="Sair" data-tip="Sair" className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition hover:bg-danger/10 hover:text-danger"><Icon name="sair" /></button>
         </div>
@@ -214,62 +214,3 @@ export function Footer({ brand, version }: { brand: Branding; version: string })
   )
 }
 
-type Health = { status: string; database: boolean }
-
-function Dashboard({ name, canReport }: { name: string; canReport: boolean }) {
-  const [health, setHealth] = useState<Health | null>(null)
-  const [agents, setAgents] = useState<Agent[] | null>(null)
-  const [stats, setStats] = useState<{ last_24h: Record<string, number>; jobs: number } | null>(null)
-  useEffect(() => {
-    const load = () => {
-      api<{ last_24h: Record<string, number>; jobs: number }>('GET', '/api/stats').then(setStats).catch(() => {})
-      fetch('/api/health').then((r) => r.json()).then(setHealth).catch(() => setHealth(null))
-      api<{ agents: Agent[] }>('GET', '/api/agents').then((r) => setAgents(r.agents)).catch(() => {})
-    }
-    load(); const t = setInterval(load, 10000); return () => clearInterval(t)
-  }, [])
-  const active = agents?.filter((a) => !a.revoked_at) ?? []
-  const online = active.filter((a) => a.online).length
-  return (
-    <div>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Painel</h1>
-          <p className="mt-1 text-muted">Visão geral do {name}.</p>
-        </div>
-        {canReport && <a href="/api/reports/daily.pdf" target="_blank" rel="noopener noreferrer"><Button variant="ghost" className="gap-2"><Icon name="pdf" />Relatório de hoje (PDF)</Button></a>}
-      </div>
-      <section className="mt-6 grid gap-4 sm:grid-cols-3" aria-label="Estado do sistema">
-        <Stat title="Server" value={health ? (health.status === 'ok' ? 'Online' : 'Degradado') : 'Sem resposta'} ok={health?.status === 'ok'} />
-        <Stat title="Banco de dados" value={health ? (health.database ? 'Conectado' : 'Indisponível') : '…'} ok={!!health?.database} />
-        <Stat title="Agentes online" value={agents ? `${online} de ${active.length}` : '…'} ok={agents ? (active.length === 0 ? undefined : online === active.length) : undefined} />
-      </section>
-      {stats && (
-        <section className="mt-4 grid gap-4 sm:grid-cols-4" aria-label="Backups nas últimas 24 horas">
-          <Stat title="Jobs cadastrados" value={String(stats.jobs)} />
-          <Stat title="Sucesso (24 h)" value={String(stats.last_24h.ok + stats.last_24h.warning)} ok={stats.last_24h.failed + stats.last_24h.missed === 0} />
-          <Stat title="Falhas / perdidos (24 h)" value={String(stats.last_24h.failed + stats.last_24h.missed)} ok={stats.last_24h.failed + stats.last_24h.missed === 0} />
-          <Stat title="Em execução" value={String(stats.last_24h.running)} />
-        </section>
-      )}
-      {agents && active.length === 0 && (
-        <Card className="mt-6">
-          <b>Comece adicionando um agente.</b>
-          <p className="mt-1 text-sm text-muted">Vá em <a className="text-primary underline" href="#/agentes">Agentes</a> e gere um token de matrícula para o primeiro agente.</p>
-        </Card>
-      )}
-    </div>
-  )
-}
-
-function Stat({ title, value, ok }: { title: string; value: string; ok?: boolean }) {
-  return (
-    <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
-      <div className="text-sm text-muted">{title}</div>
-      <div className="mt-1 flex items-center gap-2 text-lg font-medium">
-        {ok !== undefined && <span aria-hidden className={`inline-block h-2.5 w-2.5 rounded-full ${ok ? 'bg-ok' : 'bg-danger'}`} />}
-        {value}
-      </div>
-    </div>
-  )
-}

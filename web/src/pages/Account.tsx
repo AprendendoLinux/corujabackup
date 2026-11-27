@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import QRCode from 'qrcode'
-import { User, api, ApiError, flags, fmtDate } from '../api'
+import { User, api, ApiError, flags, fmtDate, userName } from '../api'
+import NameForm from '../NameForm'
 import Avatar from '../Avatar'
 import { confirmar } from '../Dialogs'
 import { Badge, Button, Card, CopyBox, ErrorBox, Field, IconButton, Input } from '../ui'
@@ -10,10 +11,15 @@ export default function Account({ me, recoveryLeft, reload }: { me: User; recove
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Minha conta</h1>
-        <p className="text-sm text-muted">{me.display_name || me.username} · {me.username}</p>
+        <p className="text-sm text-muted">{userName(me)}{me.display_name && <> · <span className="font-mono">{me.username}</span></>}</p>
       </div>
       {flags.needs2FA && !me.totp_enabled && <div className="rounded-lg border border-accent/60 bg-accent/10 px-3 py-2 text-sm"><b>A política de segurança exige a verificação em duas etapas.</b> Ative o 2FA abaixo para continuar usando o sistema.</div>}
       <Photo me={me} reload={reload} />
+      <Card>
+        <h2 className="mb-1 font-semibold">Seus dados</h2>
+        <p className="mb-3 text-sm text-muted">Aparece no menu lateral e na lista de usuários. Seu usuário de acesso continua <b className="font-mono">{me.username}</b>.</p>
+        <NameForm user={me} url="/api/me" onDone={reload} />
+      </Card>
       <Password />
       <TwoFA me={me} recoveryLeft={recoveryLeft} reload={() => { flags.needs2FA = false; reload() }} />
       <Sessions />

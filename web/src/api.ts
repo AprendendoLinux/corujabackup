@@ -76,15 +76,7 @@ export type DeviceInfo = { user_code: string; verification_uri: string; expires_
 export const CLOUD_LABEL = { onedrive: 'OneDrive', gdrive: 'Google Drive', dropbox: 'Dropbox', sftp: 'SFTP', ftp: 'FTP', smb: 'Pasta de rede (SMB)', local: 'Pasta local' } as const
 export const PHASE: Record<string, string> = { archiving: 'Compactando', uploading: 'Enviando para a nuvem', verifying: 'Conferindo' }
 
-export const CRON_PRESETS: { label: string; cron: string }[] = [
-  { label: 'Todo dia às 00:10', cron: '10 0 * * *' },
-  { label: 'Todo dia às 02:00', cron: '0 2 * * *' },
-  { label: 'A cada 6 horas', cron: '0 */6 * * *' },
-  { label: 'A cada hora', cron: '0 * * * *' },
-  { label: 'Domingo às 03:00', cron: '0 3 * * 0' },
-  { label: 'Dia 1 de cada mês às 03:00', cron: '0 3 1 * *' },
-]
-export const describeCron = (c: string) => CRON_PRESETS.find((p) => p.cron === c)?.label ?? `Personalizado (${c})`
+export { describeSched as describeCron } from './Schedule'
 
 export function fmtBytes(n: number) {
   if (!n) return '—'

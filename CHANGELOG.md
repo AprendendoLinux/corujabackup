@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.0.18] - Agenda por cliques e partições
+- **Agenda por cliques:** Todo dia, Dias da semana, Todo mês ou Várias vezes ao dia, com dias e intervalo escolhidos em botões e o horário digitado (hh:mm, 24 h). A expressão cron não aparece mais; agendas antigas que a tela não consegue representar são avisadas e trocadas só ao salvar.
+- **Partições na escolha da pasta local:** o seletor mostra cada partição montada na máquina do agente (/, /boot, /mnt/...) com a barra de uso (o mesmo percentual do `df`), o espaço livre e o tipo; clicar abre a partição. O espaço mostrado junto da pasta diz de qual partição ele é. **Exige agente 0.0.18.**
+- **Retenção mais clara:** "Manter as últimas N cópias no agente" ou "apagar depois de enviar"; no storage, "as últimas N cópias", "tudo dos últimos N dias" ou os dois juntos, com um resumo em frase.
+- **Destinos agora se chamam Storages.**
+
 ## [0.0.17] - O Server conecta nos agentes
 - **O Server conecta nos agentes:** o agente é cadastrado na interface com **nome, IP e porta** (assistente Novo agente), e a stack dele fica só com a porta publicada e o token. O Server disca cada agente, tenta de novo sozinho com espera crescente e mostra na tela por que não conectou (tempo esgotado, conexão recusada, autenticação recusada).
 - **Segurança:** o agente só aceita a conexão de quem prova ser o seu Server (TLS 1.3 com o certificado fixado no token); o Server autentica o agente pelo token e depois pela credencial, como antes. A porta do agente deve ficar liberada só para o IP do Server.

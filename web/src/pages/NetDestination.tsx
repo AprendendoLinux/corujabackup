@@ -20,7 +20,7 @@ export function useAgents() {
 
 export function AgentSelect({ agents, value, onChange }: { agents: Agent[]; value: number; onChange: (v: number) => void }) {
   return (
-    <select className={sel} value={value} onChange={(e) => onChange(Number(e.target.value))} aria-label="Agente que testa o destino">
+    <select className={sel} value={value} onChange={(e) => onChange(Number(e.target.value))} aria-label="Agente que testa o storage">
       <option value={0}>Escolha um agente…</option>
       {agents.map((a) => <option key={a.id} value={a.id} disabled={!a.online}>{a.name}{a.online ? '' : ' (offline)'}</option>)}
     </select>
@@ -45,7 +45,7 @@ export default function NetDestination({ type, onSaved }: { type: string; onSave
 
   async function test() {
     setErr(''); setTested(null); setTrusted(false)
-    if (!agent) { setErr('Escolha um agente online: é ele que vai acessar o destino.'); return }
+    if (!agent) { setErr('Escolha um agente online: é ele que vai acessar o storage.'); return }
     setBusy('test')
     try { setTested(await api<{ detail: string; host_key?: string }>('POST', '/api/destinations/test', { agent_id: agent, config: cfg() })) }
     catch (x) { setErr((x as ApiError).message) } finally { setBusy('') }
@@ -59,7 +59,7 @@ export default function NetDestination({ type, onSaved }: { type: string; onSave
 
   return (
     <form onSubmit={save} className="space-y-4 text-sm">
-      <Field label="Nome do destino" hint="Como aparece nos jobs. Ex.: NAS da matriz"><Input autoFocus value={name} onChange={(e) => setName(e.target.value)} required /></Field>
+      <Field label="Nome do storage" hint="Como aparece nos jobs. Ex.: NAS da matriz"><Input autoFocus value={name} onChange={(e) => setName(e.target.value)} required /></Field>
 
       {type === 'local' && (
         <div className="rounded-lg border border-border bg-bg p-3 text-muted">
@@ -113,9 +113,9 @@ export default function NetDestination({ type, onSaved }: { type: string; onSave
       </div>
 
       <div className="rounded-lg border border-border bg-bg p-3">
-        <Field label="Testar a partir do agente" hint="Quem acessa o destino é o agente. O teste grava, relê e apaga um arquivo pequeno."><AgentSelect agents={agents} value={agent} onChange={(v) => { setAgent(v); setTested(null) }} /></Field>
-        {agents.length === 0 && <p className="mt-2 text-muted">Nenhum agente cadastrado ainda. Cadastre um em Agentes antes de criar destinos de rede.</p>}
-        <div className="mt-3"><Button type="button" variant="ghost" onClick={test} disabled={!!busy}>{busy === 'test' ? 'Testando…' : 'Testar destino'}</Button></div>
+        <Field label="Testar a partir do agente" hint="Quem acessa o storage é o agente. O teste grava, relê e apaga um arquivo pequeno."><AgentSelect agents={agents} value={agent} onChange={(v) => { setAgent(v); setTested(null) }} /></Field>
+        {agents.length === 0 && <p className="mt-2 text-muted">Nenhum agente cadastrado ainda. Cadastre um em Agentes antes de criar um storages de rede.</p>}
+        <div className="mt-3"><Button type="button" variant="ghost" onClick={test} disabled={!!busy}>{busy === 'test' ? 'Testando…' : 'Testar storage'}</Button></div>
         {tested && <div className="mt-3 rounded-lg border border-ok/40 bg-ok/10 px-3 py-2 text-ok">Teste aprovado: {tested.detail}.</div>}
         {tested?.host_key && (
           <label className="mt-3 flex items-start gap-2">
@@ -125,7 +125,7 @@ export default function NetDestination({ type, onSaved }: { type: string; onSave
         )}
       </div>
       <ErrorBox message={err} />
-      <Button disabled={!canSave || !!busy}>{busy === 'save' ? 'Salvando…' : 'Salvar destino'}</Button>
+      <Button disabled={!canSave || !!busy}>{busy === 'save' ? 'Salvando…' : 'Salvar storage'}</Button>
       {!tested && <p className="text-xs text-muted">O botão de salvar libera depois de um teste aprovado.</p>}
     </form>
   )

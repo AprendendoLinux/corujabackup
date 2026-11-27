@@ -6,12 +6,15 @@ package agentcore
 //   - um nome relativo (jobs antigos), dentro da pasta de backups do agente (/backups).
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 )
@@ -107,13 +110,15 @@ func (c *Core) localDir(dir string) (string, error) {
 }
 
 // diskSpace devolve o espaço livre (para usuários) e total do sistema de arquivos de p, e se ele está somente leitura.
-func diskSpace(p string) (free, total int64, readOnly bool, err error) {
+// used é o ocupado de fato (sem o espaço reservado ao root), como o df: o percentual em uso é used/(used+free).
+func diskSpace(p string) (free, total, used int64, readOnly bool, err error) {
 	var st syscall.Statfs_t
 	if err := syscall.Statfs(p, &st); err != nil {
-		return 0, 0, false, err
+		return 0, 0, 0, false, err
 	}
 	const stReadOnly = 0x1
-	return int64(st.Bavail) * int64(st.Bsize), int64(st.Blocks) * int64(st.Bsize), st.Flags&stReadOnly != 0, nil
+	bs := int64(st.Bsize)
+	return int64(st.Bavail) * bs, int64(st.Blocks) * bs, int64(st.Blocks-st.Bfree) * bs, st.Flags&stReadOnly != 0, nil
 }
 
 // BrowseDisk lista as pastas do servidor para a escolha da pasta do backup local, com o espaço disponível. Uma pasta que
@@ -142,11 +147,11 @@ func BrowseDisk(root, p string, allowed []string) (BrowseResult, error) {
 		}
 		existing, res.Exists = path.Dir(existing), false
 	}
-	free, total, readOnly, err := diskSpace(filepath.Join(root, existing))
+	free, total, used, readOnly, err := diskSpace(filepath.Join(root, existing))
 	if err != nil {
 		return res, fmt.Errorf("não foi possível medir o espaço em %s", existing)
 	}
-	res.Free, res.Total = free, total
+	res.Free, res.Total, res.Used = free, total, used
 	switch {
 	case logical == "/":
 		res.Blocked = "Entre numa pasta: o backup não é gravado direto na raiz."
@@ -155,6 +160,9 @@ func BrowseDisk(root, p string, allowed []string) (BrowseResult, error) {
 	case readOnly:
 		res.Blocked = "Este disco está montado somente leitura."
 	}
+	mounts := readMountInfo()
+	res.Disks = listDisks(root, mounts)
+	res.Mount, res.FS = mountOf(root, existing, mounts)
 	if !res.Exists {
 		return res, nil
 	}
@@ -164,4 +172,97 @@ func BrowseDisk(root, p string, allowed []string) (BrowseResult, error) {
 	}
 	res.Entries, res.Truncated = list.Entries, list.Truncated
 	return res, nil
+}
+
+// sistemas de arquivos que guardam dados de verdade (discos, partições e compartilhamentos de rede)
+var realFS = map[string]bool{"ext2": true, "ext3": true, "ext4": true, "xfs": true, "btrfs": true, "zfs": true, "vfat": true, "exfat": true,
+	"ntfs": true, "ntfs3": true, "fuseblk": true, "f2fs": true, "reiserfs": true, "jfs": true, "bcachefs": true, "nfs": true, "nfs4": true,
+	"cifs": true, "smb3": true, "smbfs": true, "ceph": true, "glusterfs": true, "lustre": true}
+
+type mountEntry struct {
+	Dev, Point, FS string
+}
+
+func readMountInfo() []mountEntry {
+	f, err := os.Open("/proc/self/mountinfo")
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	return parseMountInfo(f)
+}
+
+// parseMountInfo lê o formato de /proc/self/mountinfo: dispositivo (3º campo), ponto de montagem (5º) e tipo (após " - ").
+func parseMountInfo(r io.Reader) []mountEntry {
+	var out []mountEntry
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 64<<10), 1<<20)
+	for sc.Scan() {
+		before, after, ok := strings.Cut(sc.Text(), " - ")
+		f, t := strings.Fields(before), strings.Fields(after)
+		if !ok || len(f) < 5 || len(t) < 1 {
+			continue
+		}
+		out = append(out, mountEntry{Dev: f[2], Point: unescapeMount(f[4]), FS: t[0]})
+	}
+	return out
+}
+
+// listDisks devolve as partições montadas dentro de root (a máquina, como o agente a enxerga), uma por dispositivo
+// (o ponto de montagem mais curto), com o espaço de cada uma.
+func listDisks(root string, mounts []mountEntry) []Disk {
+	root = strings.TrimSuffix(filepath.Clean(root), "/")
+	best := map[string]mountEntry{}
+	for _, m := range mounts {
+		if !realFS[m.FS] {
+			continue
+		}
+		if m.Point != root && !strings.HasPrefix(m.Point, root+"/") && root != "" {
+			continue
+		}
+		if cur, ok := best[m.Dev]; !ok || len(m.Point) < len(cur.Point) {
+			best[m.Dev] = m
+		}
+	}
+	out := make([]Disk, 0, len(best))
+	for _, m := range best {
+		free, total, used, ro, err := diskSpace(m.Point)
+		if err != nil || total == 0 {
+			continue
+		}
+		p := strings.TrimPrefix(m.Point, root)
+		if p == "" {
+			p = "/"
+		}
+		out = append(out, Disk{Path: p, FS: m.FS, Total: total, Free: free, Used: used, RO: ro})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
+}
+
+// mountOf devolve o ponto de montagem (como o usuário o conhece) e o tipo da partição onde fica logical: o ponto de
+// montagem mais longo, dentro de root, que contém o caminho.
+func mountOf(root, logical string, mounts []mountEntry) (string, string) {
+	root = strings.TrimSuffix(filepath.Clean(root), "/")
+	full := root + logical
+	if logical == "/" {
+		full = root
+	}
+	best, fs := "", ""
+	for _, m := range mounts {
+		if m.Point != root && !strings.HasPrefix(m.Point, root+"/") && root != "" {
+			continue
+		}
+		if (full == m.Point || strings.HasPrefix(full, strings.TrimSuffix(m.Point, "/")+"/")) && len(m.Point) >= len(best) {
+			best, fs = m.Point, m.FS
+		}
+	}
+	if best == "" {
+		return "", ""
+	}
+	p := strings.TrimPrefix(best, root)
+	if p == "" {
+		p = "/"
+	}
+	return p, fs
 }

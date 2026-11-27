@@ -1,9 +1,9 @@
 // Pasta do backup local: escolhida no disco do agente, com o espaço disponível.
 import { useEffect, useRef, useState } from 'react'
 import { api, ApiError } from './api'
-import { FolderField, FolderList, SpaceBar } from './Picker'
+import { DiskInfo, FolderField, FolderList, SpaceBar } from './Picker'
 
-type Disk = { entries: { name: string }[]; free?: number; total?: number; blocked?: string; exists?: boolean }
+type Disk = { entries: { name: string }[]; free?: number; total?: number; used?: number; blocked?: string; exists?: boolean; disks?: DiskInfo[]; mount?: string; fs?: string }
 
 const browse = (agentId: number, path: string) => api<Disk>('GET', `/api/agents/${agentId}/browse?area=disk&path=${encodeURIComponent(path)}`)
 
@@ -40,7 +40,7 @@ export function LocalDirField({ agentId, agentName, agentVersion, value, onChang
 
   async function load(path: string): Promise<FolderList> {
     const r = await browse(agentId, '/' + path)
-    return { folders: r.entries.map((e) => e.name), free: r.free, total: r.total, blocked: r.blocked }
+    return { folders: r.entries.map((e) => e.name), free: r.free, total: r.total, used: r.used, mount: r.mount, fs: r.fs, blocked: r.blocked, disks: r.disks }
   }
   const legacy = value && !chosen ? `pasta padrão do agente › ${value}` : ''
   return (
@@ -51,7 +51,7 @@ export function LocalDirField({ agentId, agentName, agentVersion, value, onChang
         hint="Onde o arquivo do backup é gerado e onde ficam as cópias locais. A retenção só apaga os arquivos deste job."
         onChange={(v) => onChange(v ? '/' + v.replace(/^\/+/, '') : '')}
         picker={{ title: `Pasta do backup local em ${agentName}`, intro: 'Discos e pastas do agente. O espaço mostrado é o do disco onde a pasta fica.', rootLabel: 'Raiz', load: (p) => load(p) }} />
-      {space?.total ? <SpaceBar free={space.free ?? 0} total={space.total} /> : null}
+      {space?.total ? <SpaceBar free={space.free ?? 0} total={space.total} usedBytes={space.used} mount={space.mount} fs={space.fs} /> : null}
       {space && !space.exists && <p className="text-xs text-muted">Esta pasta será criada no primeiro backup.</p>}
       {space?.blocked && <p className="text-xs text-danger">{space.blocked}</p>}
       {err && <p className="text-xs text-danger">{err}</p>}

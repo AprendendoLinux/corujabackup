@@ -135,17 +135,55 @@ export function TreePicker({ title, intro, agentId, roots, initial, lockRoots, c
 }
 
 /** O que um navegador de pastas recebe de cada pasta: as subpastas e, no disco do agente, o espaço disponível. */
-export type FolderList = { folders: string[]; free?: number; total?: number; blocked?: string }
+export type DiskInfo = { path: string; fs: string; total: number; free: number; used?: number; read_only?: boolean }
+export type FolderList = { folders: string[]; free?: number; total?: number; used?: number; blocked?: string; disks?: DiskInfo[]; mount?: string; fs?: string }
 
-export function SpaceBar({ free, total }: { free: number; total: number }) {
-  const used = total > 0 ? Math.min(100, Math.max(0, Math.round(((total - free) / total) * 100))) : 0
+/** Percentual em uso como o df: ocupado / (ocupado + livre), sem o espaço reservado ao root. */
+export function usedPct(free: number, total: number, used?: number) {
+  if (used !== undefined && used + free > 0) return Math.round((used / (used + free)) * 100)
+  return total > 0 ? Math.round(((total - free) / total) * 100) : 0
+}
+
+/** Partições montadas na máquina do agente, com a barra de uso; clicar abre a partição. */
+function Disks({ disks, onOpen }: { disks: DiskInfo[]; onOpen: (path: string) => void }) {
+  return (
+    <div>
+      <span className="mb-1.5 block text-sm font-medium">Partições desta máquina</span>
+      <ul className="grid gap-2 sm:grid-cols-2">
+        {disks.map((d) => {
+          const used = usedPct(d.free, d.total, d.used)
+          const low = d.total > 0 && d.free / d.total < 0.1
+          return (
+            <li key={d.path}>
+              <button type="button" onClick={() => onOpen(d.path.replace(/^\/+/, ''))} disabled={d.read_only}
+                title={d.read_only ? 'Somente leitura: não recebe backups' : `Abrir ${d.path}`}
+                className="w-full rounded-xl border border-border p-3 text-left transition hover:border-primary/60 disabled:cursor-not-allowed disabled:opacity-60">
+                <div className="flex items-baseline justify-between gap-2">
+                  <b className="truncate font-mono text-sm">{d.path}</b>
+                  <span className={`text-xs font-semibold ${low ? 'text-danger' : 'text-muted'}`}>{used}%</span>
+                </div>
+                <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-border" role="img" aria-label={`${d.path}: ${used}% em uso`}>
+                  <div className={`h-full ${low ? 'bg-danger' : used > 80 ? 'bg-accent' : 'bg-primary'}`} style={{ width: `${used}%` }} />
+                </div>
+                <div className="mt-1 text-xs text-muted">{size(d.free)} livres de {size(d.total)} · {d.fs}{d.read_only ? ' · somente leitura' : ''}</div>
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+export function SpaceBar({ free, total, usedBytes, mount, fs }: { free: number; total: number; usedBytes?: number; mount?: string; fs?: string }) {
+  const used = Math.min(100, Math.max(0, usedPct(free, total, usedBytes)))
   const low = total > 0 && free / total < 0.1
   return (
     <div className="space-y-1">
       <div className="h-1.5 overflow-hidden rounded-full bg-border" role="img" aria-label={`${used}% do disco em uso`}>
         <div className={`h-full ${low ? 'bg-danger' : 'bg-primary'}`} style={{ width: `${used}%` }} />
       </div>
-      <span className={`block text-xs ${low ? 'text-danger' : 'text-muted'}`}><b>{size(free)} livres</b> de {size(total)} ({used}% em uso){low ? ' · pouco espaço' : ''}</span>
+      <span className={`block text-xs ${low ? 'text-danger' : 'text-muted'}`}>{mount && <>Partição <b className="font-mono text-text">{mount}</b>{fs ? ` (${fs})` : ''} · </>}<b>{size(free)} livres</b> de {size(total)} ({used}% em uso){low ? ' · pouco espaço' : ''}</span>
     </div>
   )
 }
@@ -192,6 +230,7 @@ export function FolderPicker({ title, intro, rootLabel, initial, strictNames, lo
     <Overlay title={title} onClose={onClose}>
       <div className="space-y-3 text-sm">
         <p className="text-muted">{intro}</p>
+        {!path && info?.disks && info.disks.length > 0 && <Disks disks={info.disks} onOpen={setPath} />}
         <nav aria-label="Caminho" className="flex flex-wrap items-center gap-0.5">
           <button type="button" className={`${crumb} text-primary`} onClick={() => setPath('')}>{rootLabel}</button>
           {parts.map((p, i) => (
@@ -200,7 +239,7 @@ export function FolderPicker({ title, intro, rootLabel, initial, strictNames, lo
             </span>
           ))}
         </nav>
-        <ul className="scroll-fino h-[34vh] overflow-auto rounded-lg border border-border p-1.5">
+        <ul className={`scroll-fino ${!path && info?.disks?.length ? "h-[22vh]" : "h-[34vh]"} overflow-auto rounded-lg border border-border p-1.5`}>
           {path && <li><button type="button" className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-muted hover:bg-bg" onClick={() => setPath(parts.slice(0, -1).join('/'))}>↑ voltar</button></li>}
           {folders === null && <li className="px-2 py-1.5 text-muted">Consultando…</li>}
           {folders?.map((f) => (
@@ -208,7 +247,7 @@ export function FolderPicker({ title, intro, rootLabel, initial, strictNames, lo
           ))}
           {folders?.length === 0 && !err && <li className="px-2 py-1.5 text-muted">{isNew ? 'Pasta nova: será criada no primeiro backup.' : 'Nenhuma subpasta aqui.'}</li>}
         </ul>
-        {info?.total ? <SpaceBar free={info.free ?? 0} total={info.total} /> : null}
+        {info?.total ? <SpaceBar free={info.free ?? 0} total={info.total} usedBytes={info.used} mount={info.mount} fs={info.fs} /> : null}
         {info?.blocked && path && <p className="text-xs text-danger">{info.blocked}</p>}
         <ErrorBox message={err} />
         <div className="flex gap-2">

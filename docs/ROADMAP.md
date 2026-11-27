@@ -16,6 +16,7 @@
 - [x] **Clareza da interface (0.0.15):** a máquina do backup é sempre chamada de agente; pastas, arquivos, atalhos e padrões identificados nas listas.
 - [x] **Interface nova (0.0.16):** menu lateral, ícones, modais próprios, assistentes de job e agente, execução ao vivo, temas só por pacote com modo claro e escuro, créditos configuráveis e foto do usuário.
 - [x] **Conexão invertida (0.0.17):** o Server conecta nos agentes (cadastro com IP e porta; porta padrão 23847); a stack do agente só publica a porta e leva o token.
+- [x] **Agenda por cliques e partições (0.0.18):** agenda sem cron, partições com uso na escolha da pasta local, retenção em opções e Storages.
 - [ ] **Fase 9, parte 3:** vários destinos por job; compatíveis com S3; SharePoint.
 - [ ] **Fase 10 – Full/Incremental e MikroTik (versão seguinte):** motor `tar.gz` em blocos com índice e catálogo; agenda full + incrementais; retenção por cadeia; jobs de MikroTik (SSH: `.rsc` e `.backup`).
 - [ ] **Fase 11 – Restauração inteligente (versão posterior):** árvore de arquivos, linha do tempo de versões, restauração de arquivos selecionados e de bancos pela interface.

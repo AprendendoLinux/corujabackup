@@ -552,7 +552,16 @@ func (s *Server) listRuns(w http.ResponseWriter, r *http.Request, _ *ctxUser) {
 		writeErr(w, 400, "status inválido")
 		return
 	}
-	runs, err := s.Store.ListRuns(r.Context(), jobID, status, limit)
+	from, to, perr := periodParams(q.Get("from"), q.Get("to"), q.Get("tz"))
+	if perr != "" {
+		writeErr(w, 400, perr)
+		return
+	}
+	var start, stop time.Time
+	if !from.IsZero() {
+		start, stop = from, to.AddDate(0, 0, 1)
+	}
+	runs, err := s.Store.ListRunsBetween(r.Context(), jobID, status, start, stop, limit)
 	if err != nil {
 		writeErr(w, 500, "erro interno")
 		return
@@ -621,6 +630,35 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request, _ *ctxUser) {
 	writeJSON(w, 200, map[string]any{"last_24h": map[string]int{"ok": st.OK, "warning": st.Warning, "failed": st.Failed, "missed": st.Missed, "running": st.Running}, "jobs": len(jobs)})
 }
 
+// periodParams lê um período de dias inteiros (?from=AAAA-MM-DD&to=AAAA-MM-DD, inclusive) no fuso ?tz. Sem from, devolve
+// datas zeradas (sem filtro). O período vai até 366 dias e não começa no futuro.
+func periodParams(fromS, toS, tz string) (time.Time, time.Time, string) {
+	if fromS == "" && toS == "" {
+		return time.Time{}, time.Time{}, ""
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil || tz == "" {
+		if loc, err = time.LoadLocation(notify.DefaultTZ); err != nil {
+			loc = time.UTC
+		}
+	}
+	if toS == "" {
+		toS = fromS
+	}
+	from, err1 := time.ParseInLocation("2006-01-02", fromS, loc)
+	to, err2 := time.ParseInLocation("2006-01-02", toS, loc)
+	if err1 != nil || err2 != nil {
+		return time.Time{}, time.Time{}, "período inválido: use datas no formato AAAA-MM-DD"
+	}
+	if to.Before(from) {
+		return time.Time{}, time.Time{}, "período inválido: a data final é anterior à inicial"
+	}
+	if to.Sub(from) > 365*24*time.Hour+time.Hour {
+		return time.Time{}, time.Time{}, "período longo demais: escolha até 366 dias"
+	}
+	return from, to, ""
+}
+
 // dashboard devolve os dados do painel: ?days=7|14|30 (padrão 14) e ?tz= (fuso do navegador, para agrupar por dia).
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, _ *ctxUser) {
 	days := 14
@@ -636,7 +674,17 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, _ *ctxUser) {
 			loc = time.UTC
 		}
 	}
-	o, err := notify.BuildOverview(r.Context(), s.Store, s.clock(), loc, days)
+	var o *notify.Overview
+	if r.URL.Query().Get("from") != "" {
+		from, to, perr := periodParams(r.URL.Query().Get("from"), r.URL.Query().Get("to"), r.URL.Query().Get("tz"))
+		if perr != "" {
+			writeErr(w, 400, perr)
+			return
+		}
+		o, err = notify.BuildOverviewRange(r.Context(), s.Store, s.clock(), from.Location(), from, to)
+	} else {
+		o, err = notify.BuildOverview(r.Context(), s.Store, s.clock(), loc, days)
+	}
 	if err != nil {
 		writeErr(w, 500, "erro interno")
 		return

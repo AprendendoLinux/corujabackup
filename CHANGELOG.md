@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.0.20] - Escolha do período
+- **Período à escolha no Painel e no Histórico:** atalhos (Hoje, Ontem, Últimos 7, 14 ou 30 dias, Este mês, Mês passado) e um **calendário** para marcar o dia inicial e o final com cliques (até 366 dias). Os dias são contados no fuso de quem vê.
+- **Painel:** indicadores, gráficos e saúde dos jobs seguem o período escolhido; as comparações usam o período anterior de mesmo tamanho, com as datas indicadas na tela. A escolha fica lembrada neste navegador (atalhos são recalculados a cada dia).
+- **Histórico:** o período soma aos filtros de job e de estado; "Limpar filtros" volta a mostrar tudo. Com período, até 500 execuções por consulta (aviso quando houver mais).
+
 ## [0.0.19] - NFS, pasta local livre e gravação direta
 - **NFS pela interface:** novo storage **NFS** (NFSv3). O agente fala o protocolo direto pela rede, com um cliente embutido: não monta nada na máquina, não precisa de pacotes no host nem de privilégios extras. Informe servidor, exportação e, se a exportação usar `root_squash`, o UID/GID de quem grava. O teste mostra o espaço livre da exportação. Mensagens claras para exportação não liberada, sem permissão, somente leitura, portmapper inacessível e Kerberos (não suportado).
 - **Pasta local livre:** o storage "pasta local" agora é **qualquer pasta da máquina do agente** (outro disco, iSCSI ou HD USB já montados), escolhida no navegador de pastas com as partições e o espaço livre. Não precisa mais de volume em `/destinos` na stack (os storages antigos continuam funcionando). Os backups gravados nela ficam fora das origens automaticamente.

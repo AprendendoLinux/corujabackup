@@ -272,7 +272,21 @@ func (s *Store) RunLogs(ctx context.Context, runID int64) ([]RunLog, error) {
 
 // ListRuns lista as execuções mais recentes (filtros opcionais: job e status).
 func (s *Store) ListRuns(ctx context.Context, jobID int64, status string, limit int) ([]Run, error) {
+	return s.ListRunsBetween(ctx, jobID, status, time.Time{}, time.Time{}, limit)
+}
+
+// ListRunsBetween é ListRuns com um intervalo [from, to) opcional (zero = sem limite), pelo horário de início (ou o
+// agendado, nas perdidas).
+func (s *Store) ListRunsBetween(ctx context.Context, jobID int64, status string, from, to time.Time, limit int) ([]Run, error) {
 	q, args := runSelect+"WHERE 1=1", []any{}
+	if !from.IsZero() {
+		q += " AND COALESCE(r.started_at, r.scheduled_for, r.created_at) >= ?"
+		args = append(args, from.UTC())
+	}
+	if !to.IsZero() {
+		q += " AND COALESCE(r.started_at, r.scheduled_for, r.created_at) < ?"
+		args = append(args, to.UTC())
+	}
 	if jobID > 0 {
 		q += " AND r.job_id=?"
 		args = append(args, jobID)

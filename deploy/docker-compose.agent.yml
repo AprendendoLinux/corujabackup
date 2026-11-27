@@ -3,7 +3,7 @@
 # O Server conecta no agente pela porta publicada abaixo: libere-a só para o IP do Server.
 services:
   agent:
-    image: ghcr.io/aprendendolinux/corujabackup-agent:0.0.19
+    image: ghcr.io/aprendendolinux/corujabackup-agent:0.0.20
     container_name: corujabackup-agent
     restart: always
     ports:

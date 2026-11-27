@@ -1558,3 +1558,50 @@ func TestPainel(t *testing.T) {
 		t.Fatalf("fuso inválido deveria cair no padrão: %d", code)
 	}
 }
+
+func TestPeriodoEscolhido(t *testing.T) {
+	e := newEnv(t)
+	adm := setupAdmin(e)
+	m := adm.mustOK("GET", "/api/dashboard?from=2026-11-01&to=2026-11-10&tz=America/Sao_Paulo", nil)
+	if h, _ := m["history"].([]any); len(h) != 10 || m["from"] != "2026-11-01" || m["to"] != "2026-11-10" || m["days"].(float64) != 10 {
+		t.Fatalf("período: %v", m)
+	}
+	if h := adm.mustOK("GET", "/api/dashboard?from=2026-11-05&tz=UTC", nil)["history"].([]any); len(h) != 1 {
+		t.Fatalf("só a data inicial = um dia: %v", h)
+	}
+	for _, q := range []string{"from=2026-11-10&to=2026-11-01", "from=ontem", "from=2025-01-01&to=2026-11-01"} {
+		if code, _ := adm.do("GET", "/api/dashboard?"+q, nil); code != 400 {
+			t.Fatalf("%s deveria ser recusado: %d", q, code)
+		}
+		if code, _ := adm.do("GET", "/api/runs?"+q, nil); code != 400 {
+			t.Fatalf("runs %s deveria ser recusado: %d", q, code)
+		}
+	}
+	// três execuções em dias diferentes (horário de Brasília): o filtro pega só as do período, no fuso pedido
+	ag := newAgent(t, e, "srv-periodo")
+	jid := int64(adm.mustOK("POST", "/api/jobs", map[string]any{"name": "j-periodo", "agent_id": ag.ID, "paths": []string{"/etc"}, "keep": 1})["id"].(float64))
+	sp, _ := time.LoadLocation("America/Sao_Paulo")
+	for i, at := range []time.Time{
+		time.Date(2026, 11, 3, 23, 30, 0, 0, sp), // 02:30 UTC do dia 4: no fuso, ainda é dia 3
+		time.Date(2026, 11, 4, 10, 0, 0, 0, sp),
+		time.Date(2026, 11, 6, 0, 10, 0, 0, sp),
+	} {
+		e.api.Store.ApplyReport(context.Background(), store.Report{UID: "p" + itoa(i), JobID: jid, AgentID: ag.ID, Final: true, Status: "ok", StartedAt: at.UTC(), FinishedAt: at.UTC().Add(time.Minute), BytesOutput: 100})
+	}
+	count := func(q string) int {
+		return len(adm.mustOK("GET", "/api/runs?job_id="+itoa(int(jid))+"&tz=America/Sao_Paulo&"+q, nil)["runs"].([]any))
+	}
+	if n := count("from=2026-11-04&to=2026-11-05"); n != 1 {
+		t.Fatalf("dias 4 e 5: esperava 1, veio %d", n)
+	}
+	if n := count("from=2026-11-03&to=2026-11-06"); n != 3 {
+		t.Fatalf("dias 3 a 6: esperava 3, veio %d", n)
+	}
+	if n := count(""); n != 3 {
+		t.Fatalf("sem período: %d", n)
+	}
+	d := adm.mustOK("GET", "/api/dashboard?from=2026-11-03&to=2026-11-04&tz=America/Sao_Paulo", nil)
+	if tot := d["totals"].(map[string]any); tot["ok"].(float64) != 2 || tot["bytes"].(float64) != 200 {
+		t.Fatalf("totais do painel no período: %v", tot)
+	}
+}

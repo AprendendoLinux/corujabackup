@@ -47,8 +47,22 @@ type BrowseResult struct {
 	// só na área "disk"
 	Free    int64  `json:"free,omitempty"`
 	Total   int64  `json:"total,omitempty"`
+	Used    int64  `json:"used,omitempty"`
 	Exists  bool   `json:"exists,omitempty"`
 	Blocked string `json:"blocked,omitempty"` // por que esta pasta não pode ser escolhida
+	Disks   []Disk `json:"disks,omitempty"`   // partições montadas na máquina, com o uso de cada uma
+	Mount   string `json:"mount,omitempty"`   // partição (ponto de montagem) onde a pasta fica: é dela o espaço informado
+	FS      string `json:"fs,omitempty"`
+}
+
+// Disk é uma partição (sistema de arquivos real) montada na máquina do agente.
+type Disk struct {
+	Path  string `json:"path"` // ponto de montagem, como o usuário o conhece (ex.: /, /boot, /mnt/hd2)
+	FS    string `json:"fs"`
+	Total int64  `json:"total"`
+	Free  int64  `json:"free"`
+	Used  int64  `json:"used"`
+	RO    bool   `json:"read_only,omitempty"`
 }
 
 // pastas que o job pode usar como destino local (mesma regra que o Server aplica ao salvar o job)

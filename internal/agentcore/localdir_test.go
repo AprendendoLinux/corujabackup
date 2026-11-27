@@ -159,3 +159,38 @@ func TestSistemasVirtuaisFicamDeFora(t *testing.T) {
 		}
 	}
 }
+
+func TestParticoesMontadasComUso(t *testing.T) {
+	root := t.TempDir()
+	mk(t, root, "boot/", "mnt/hd2/", "var/lib/docker/overlay2/x/merged/")
+	info := strings.Join([]string{
+		"20 1 8:1 / / rw - overlay overlay rw", // a raiz do próprio contêiner do agente: fora de root
+		"30 20 8:1 / " + root + " rw - ext4 /dev/sda1 rw",
+		"31 30 8:2 / " + root + "/boot rw - vfat /dev/sda2 rw",
+		"32 30 8:17 / " + root + "/mnt/hd2 rw - xfs /dev/sdb1 rw",
+		"33 30 8:1 /var/lib/docker " + root + "/var/lib/docker rw - ext4 /dev/sda1 rw", // mesmo disco da raiz: não repete
+		"34 30 0:50 / " + root + "/var/lib/docker/overlay2/x/merged rw - overlay overlay rw",
+		"35 30 0:22 / " + root + "/proc rw - proc proc rw",
+		"36 30 0:23 / " + root + "/run rw - tmpfs tmpfs rw",
+	}, "\n")
+	got := listDisks(root, parseMountInfo(strings.NewReader(info)))
+	var paths []string
+	for _, d := range got {
+		paths = append(paths, d.Path+" "+d.FS)
+		if d.Total <= 0 || d.Free <= 0 || d.Free > d.Total {
+			t.Fatalf("espaço inválido: %+v", d)
+		}
+	}
+	if !slices.Equal(paths, []string{"/ ext4", "/boot vfat", "/mnt/hd2 xfs"}) {
+		t.Fatalf("partições: %v", paths)
+	}
+}
+
+func TestParticaoDaPasta(t *testing.T) {
+	m := parseMountInfo(strings.NewReader("30 20 8:1 / /host-rw rw - ext4 /dev/sda1 rw\n32 30 8:17 / /host-rw/mnt/hd2 rw - xfs /dev/sdb1 rw\n33 30 8:18 / /host-rw/mnt/hd22 rw - xfs /dev/sdc1 rw\n"))
+	for in, want := range map[string]string{"/home/bkp": "/ ext4", "/": "/ ext4", "/mnt/hd2": "/mnt/hd2 xfs", "/mnt/hd2/copias": "/mnt/hd2 xfs", "/mnt/hd22x": "/ ext4"} {
+		if p, fs := mountOf("/host-rw", in, m); p+" "+fs != want {
+			t.Errorf("%s: %s %s, esperado %s", in, p, fs, want)
+		}
+	}
+}

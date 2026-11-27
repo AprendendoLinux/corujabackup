@@ -128,7 +128,7 @@ func (s *Server) extractRun(w http.ResponseWriter, r *http.Request, cu *ctxUser)
 		writeErr(w, 400, "nome de pasta inválido: use letras, números, ponto, hífen e sublinhado")
 		return
 	}
-	act := &pb.AgentAction{Kind: "extract", RunUid: run.UID, JobId: job.ID, FileName: run.OutputName, Subdir: job.DestSubdir, Target: in.Target}
+	act := &pb.AgentAction{Kind: "extract", RunUid: run.UID, JobId: job.ID, FileName: run.OutputName, Subdir: job.DestSubdir, Target: in.Target, Sha256: run.SHA256}
 	if _, inc, _ := bkname.Parse(run.OutputName, slug.Of(job.Name)); inc {
 		// incremental: o agente precisa do full e de todos os incrementais anteriores da cadeia, em ordem
 		chain, shas, msg := s.chainFor(r, job, run)

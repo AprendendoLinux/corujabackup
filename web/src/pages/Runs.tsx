@@ -239,7 +239,19 @@ tar -xzf ${f} -C /restaurar
 # 3) Depois de CADA incremental, apague em /restaurar os caminhos da lista "deleted"
 #    de /restaurar/.coruja-manifest.json (o que foi apagado na origem).
 # "Extrair no agente" faz tudo isso sozinho.`
-  const text = job.kind === 'database' ? (dbs[eng ?? ''] ?? files) : run.backup_kind === 'incremental' ? incr : files
+  const mtk = `# 1) Confira e extraia (dentro há config.rsc, o export com dados sensíveis, o .backup e o info.txt)
+sha256sum ${f}
+mkdir -p /restaurar && tar -xzf ${f} -C /restaurar && cat /restaurar/*/info.txt
+# 2) Envie o arquivo ao roteador (Winbox: Files, ou por SFTP/SCP):
+scp /restaurar/*/config.rsc admin@ROTEADOR:/
+# 3a) Export .rsc: é a configuração COMPLETA, para um roteador ZERADO (por cima de uma
+#     configuração existente, o /import para no primeiro item repetido). Zere e aplique:
+ssh admin@ROTEADOR "/system reset-configuration no-defaults=yes skip-backup=yes run-after-reset=config.rsc"
+#     (se as interfaces ainda não existirem no boot, ponha ":delay 15s" na 1ª linha do .rsc)
+#     num roteador já sem configuração:  /import file-name=config.rsc
+# 3b) .backup: só no MESMO modelo; pede a senha do .backup definida no job (o roteador reinicia)
+ssh admin@ROTEADOR "/system backup load name=NOME.backup password=SENHA-DO-BACKUP"`
+  const text = job.kind === 'database' ? (dbs[eng ?? ''] ?? files) : job.kind === 'mikrotik' ? mtk : run.backup_kind === 'incremental' ? incr : files
   return (
     <div className="space-y-2">
       <CopyBox text={text} />

@@ -48,8 +48,9 @@ type jobIn struct {
 	FullWeekday    *int    `json:"full_weekday"`
 	ClearCloud     bool    `json:"clear_cloud"`
 
-	Kind *string `json:"kind"`
-	DB   *dbIn   `json:"db"`
+	Kind     *string `json:"kind"`
+	DB       *dbIn   `json:"db"`
+	Mikrotik *mtIn   `json:"mikrotik"`
 }
 
 type dbIn struct {
@@ -226,7 +227,11 @@ func (s *Server) applyJobIn(ctx context.Context, j *store.Job, in jobIn) string 
 	if _, err := sched.Parse(j.Cron, j.Timezone); err != nil {
 		return err.Error()
 	}
-	if j.Kind == "database" {
+	if j.Kind == "mikrotik" {
+		if msg := s.applyMikrotik(j, in.Mikrotik, a.AgentVersion, a.Name); msg != "" {
+			return msg
+		}
+	} else if j.Kind == "database" {
 		var old *store.DBConfig
 		if j.DBSealed != "" && s.Box != nil {
 			old, _ = j.OpenDB(s.Box)
@@ -261,7 +266,7 @@ func (s *Server) applyJobIn(ctx context.Context, j *store.Job, in jobIn) string 
 			return "informe pelo menos uma pasta ou arquivo para salvar"
 		}
 	}
-	if in.Excludes != nil && j.Kind != "database" {
+	if in.Excludes != nil && j.Kind == "files" {
 		e, msg := cleanList(*in.Excludes, 100, 500, false)
 		if msg != "" {
 			return msg
@@ -394,6 +399,7 @@ type jobView struct {
 	NextRunAt   *time.Time     `json:"next_run_at"`
 	LastRun     *store.Run     `json:"last_run"`
 	DB          map[string]any `json:"db"`
+	Mikrotik    map[string]any `json:"mikrotik"`
 }
 
 func (s *Server) listJobs(w http.ResponseWriter, r *http.Request, _ *ctxUser) {
@@ -425,6 +431,11 @@ func (s *Server) listJobs(w http.ResponseWriter, r *http.Request, _ *ctxUser) {
 				v.DB = dbView(cfg)
 			}
 		}
+		if j.Kind == "mikrotik" {
+			if cfg, err := j.OpenMikrotik(s.Box); err == nil {
+				v.Mikrotik = mikrotikView(cfg)
+			}
+		}
 		if lr, ok := last[j.ID]; ok {
 			lr := lr
 			v.LastRun = &lr
@@ -441,8 +452,8 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request, cu *ctxUser) 
 	}
 	j := &store.Job{Enabled: true, Keep: 7, Timezone: "America/Sao_Paulo", Cron: "10 0 * * *", Kind: "files"}
 	if in.Kind != nil {
-		if *in.Kind != "files" && *in.Kind != "database" {
-			writeErr(w, 400, "tipo de job inválido (files ou database)")
+		if *in.Kind != "files" && *in.Kind != "database" && *in.Kind != "mikrotik" {
+			writeErr(w, 400, "tipo de job inválido (files, database ou mikrotik)")
 			return
 		}
 		j.Kind = *in.Kind

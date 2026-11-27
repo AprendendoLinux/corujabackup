@@ -7,6 +7,7 @@ import { LocalDirField, agentHasDiskPicker } from '../LocalDir'
 import { Wizard } from '../Wizard'
 import { ScheduleEditor, describeSched } from '../Schedule'
 import Icon from '../Icon'
+import { MikrotikSection, mtCheck, mtInitial, mtPayload } from './MikrotikForm'
 
 export default function Jobs({ me }: { me: User }) {
   const [jobs, setJobs] = useState<Job[]>([])
@@ -58,7 +59,7 @@ export default function Jobs({ me }: { me: User }) {
                 <tr key={j.id} className="border-b border-border align-top last:border-0">
                   <td className="p-3">
                     <b>{j.name}</b> {!j.enabled && <Badge tone="off">Pausado</Badge>}
-                    <div className="text-xs text-muted">{j.agent_name} {j.agent_online ? <span className="text-ok">● online</span> : <span>○ offline</span>} · {j.kind === 'database' ? `🗄 ${ENGINE_LABEL[j.db?.engine ?? ''] ?? 'Banco'}${j.db?.mode === 'docker' ? ` · ${j.db?.container}` : ` · ${j.db?.host}`}` : `${j.paths.length} origem(ns)`}{j.backup_mode === 'incremental' && ` · full ${fullDay(j.full_weekday ?? 0)} + incrementais`} · {j.cloud_account_id ? <span title={j.cloud_folder}>☁ {clouds.find((c) => c.id === j.cloud_account_id)?.name ?? 'nuvem'}</span> : 'só local'}</div>
+                    <div className="text-xs text-muted">{j.agent_name} {j.agent_online ? <span className="text-ok">● online</span> : <span>○ offline</span>} · {j.kind === 'database' ? `🗄 ${ENGINE_LABEL[j.db?.engine ?? ''] ?? 'Banco'}${j.db?.mode === 'docker' ? ` · ${j.db?.container}` : ` · ${j.db?.host}`}` : j.kind === 'mikrotik' ? `MikroTik · ${j.mikrotik?.host ?? ''}` : `${j.paths.length} origem(ns)`}{j.backup_mode === 'incremental' && ` · full ${fullDay(j.full_weekday ?? 0)} + incrementais`} · {j.cloud_account_id ? <span title={j.cloud_folder}>☁ {clouds.find((c) => c.id === j.cloud_account_id)?.name ?? 'nuvem'}</span> : 'só local'}</div>
                   </td>
                   <td className="p-3 text-muted">{describeSched(j.cron)}<div className="text-xs">{j.timezone}</div></td>
                   <td className="p-3 text-muted">{j.enabled ? fmtDate(j.next_run_at) : '—'}</td>
@@ -161,6 +162,7 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
     user: job?.db?.user ?? '', password: '', auth_db: job?.db?.auth_db ?? '', databases: (job?.db?.databases ?? []).join('\n'), exclude_databases: (job?.db?.exclude_databases ?? []).join('\n'),
     ssl_skip_verify: job?.db?.ssl_skip_verify ?? false, restore_test: job?.db?.restore_test ?? 'full', restore_image: job?.db?.restore_image ?? '',
   })
+  const [mt, setMt] = useState(() => mtInitial(job?.mikrotik))
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [noWriteAgent, setNoWriteAgent] = useState(0) // agente sem a montagem gravável: usa a pasta padrão
@@ -172,7 +174,7 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
   const dest = clouds.find((c) => c.id === f.cloud_account_id)
   const destIsCloud = !!dest && ['gdrive', 'onedrive', 'dropbox'].includes(dest.type)
   const direct = !!dest && !destIsCloud && f.cloud_direct // grava direto no storage, sem arquivo no agente
-  const inc = f.kind !== 'database' && f.backup_mode === 'incremental'
+  const inc = f.kind === 'files' && f.backup_mode === 'incremental'
   const allZones: string[] = (Intl as any).supportedValuesOf ? (Intl as any).supportedValuesOf('timeZone') : ['America/Sao_Paulo', 'UTC']
   // fusos do Brasil primeiro; o do job aparece mesmo que o navegador não o conheça
   const zones = [...new Set([f.timezone, ...allZones.filter((z) => z.startsWith('America/') && /Sao_Paulo|Manaus|Recife|Fortaleza|Belem|Bahia|Cuiaba|Campo_Grande|Porto_Velho|Boa_Vista|Rio_Branco|Noronha|Maceio|Araguaina|Santarem|Eirunepe/.test(z)), ...allZones])]
@@ -181,7 +183,7 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
   const [reached, setReached] = useState(job ? 4 : 0)
   const STEPS = [
     { title: 'Identificação', hint: 'Dê um nome ao job, escolha o agente onde ele roda e o que será salvo.' },
-    { title: 'Origem', hint: f.kind === 'files' ? 'Marque as pastas e os arquivos do agente que entram no backup, e o que fica de fora.' : 'Onde está o banco de dados e quais bancos salvar.' },
+    { title: 'Origem', hint: f.kind === 'files' ? 'Marque as pastas e os arquivos do agente que entram no backup, e o que fica de fora.' : f.kind === 'mikrotik' ? 'O roteador, o acesso SSH e o que salvar dele.' : 'Onde está o banco de dados e quais bancos salvar.' },
     { title: 'Agenda', hint: 'Quando o backup roda e de que tipo ele é.' },
     { title: 'Storage', hint: 'Onde o arquivo é gerado no agente, quantas cópias ficam lá e para qual storage ele é enviado.' },
     { title: 'Revisão', hint: job ? 'Confira e salve as alterações.' : 'Confira tudo antes de criar o job.' },
@@ -194,6 +196,7 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
     }
     if (i === 1) {
       if (f.kind === 'files' && f.paths.length === 0) return 'Selecione pelo menos uma pasta ou arquivo para salvar.'
+      if (f.kind === 'mikrotik') { const m = mtCheck(mt); if (m) return m }
       if (f.kind === 'database' && db.mode === 'docker' && !db.container.trim()) return 'Escolha o contêiner do banco.'
       if (f.kind === 'database' && db.mode === 'network' && !db.host.trim()) return 'Informe o endereço do servidor de banco.'
     }
@@ -219,14 +222,17 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
     if (f.cloud_account_id) Object.assign(body, { cloud_account_id: Number(f.cloud_account_id), cloud_folder: f.cloud_folder, cloud_keep: Number(f.cloud_keep), cloud_keep_days: Number(f.cloud_keep_days), cloud_direct: direct })
     else Object.assign(body, { clear_cloud: true })
     if (f.kind === 'database') body.db = dbPayload(db)
+    if (f.kind === 'mikrotik') body.mikrotik = mtPayload(mt)
     try { job ? await api('PATCH', `/api/jobs/${job.id}`, body) : await api('POST', '/api/jobs', body); onDone() }
     catch (x) { setErr((x as ApiError).message) } finally { setBusy(false) }
   }
   const sel = 'w-full rounded-lg border border-border bg-surface px-3 py-2'
   const cronLabel = describeSched(f.cron)
   const review: [string, ReactNode][] = [
-    ['Nome', f.name], ['Agente', agentName], ['Tipo', f.kind === 'files' ? 'Pastas e arquivos' : `Banco de dados · ${ENGINE_LABEL[db.engine] ?? db.engine}`],
-    [f.kind === 'files' ? 'O que salvar' : 'Banco', f.kind === 'files' ? f.paths.join(', ') : db.mode === 'docker' ? `contêiner ${db.container}` : `${db.host}${db.port ? ':' + db.port : ''}`],
+    ['Nome', f.name], ['Agente', agentName], ['Tipo', f.kind === 'files' ? 'Pastas e arquivos' : f.kind === 'mikrotik' ? 'Roteador MikroTik' : `Banco de dados · ${ENGINE_LABEL[db.engine] ?? db.engine}`],
+    f.kind === 'mikrotik'
+      ? ['Roteador', `${mt.user}@${mt.host}:${mt.port || 22} · ${[mt.export && '.rsc', mt.export_sensitive && '.rsc com dados sensíveis', mt.binary && '.backup cifrado'].filter(Boolean).join(', ')}`]
+      : [f.kind === 'files' ? 'O que salvar' : 'Banco', f.kind === 'files' ? f.paths.join(', ') : db.mode === 'docker' ? `contêiner ${db.container}` : `${db.host}${db.port ? ':' + db.port : ''}`],
     ...(f.kind === 'files' && f.excludes.length ? [['Fica de fora', f.excludes.join(', ')] as [string, ReactNode]] : []),
     ['Agenda', `${cronLabel} · ${f.timezone}`], ['Tipo de backup', inc ? `Full ${fullDay(f.full_weekday)}, incrementais nos outros dias` : 'Completo (full) a cada execução'],
     ['Backup local', direct ? 'nenhum: gravado direto no storage' : `${f.dest_subdir.startsWith('/') ? f.dest_subdir : 'pasta padrão do agente'} · ${f.keep === 0 ? 'apagado após o envio' : `mantém ${f.keep} cópia(s)`}`],
@@ -245,8 +251,8 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
             </select>
           </Field>
         </div>
-        <div role="radiogroup" aria-label="O que salvar" className="grid gap-3 sm:grid-cols-2">
-          {([['files', 'Pastas e arquivos', 'Qualquer pasta ou arquivo do agente, com exclusões.'], ['database', 'Banco de dados', 'MySQL, MariaDB, PostgreSQL ou MongoDB, com teste de restauração.']] as const).map(([k, t, d]) => (
+        <div role="radiogroup" aria-label="O que salvar" className="grid gap-3 sm:grid-cols-3">
+          {([['files', 'Pastas e arquivos', 'Qualquer pasta ou arquivo do agente, com exclusões.'], ['database', 'Banco de dados', 'MySQL, MariaDB, PostgreSQL ou MongoDB, com teste de restauração.'], ['mikrotik', 'Roteador MikroTik', 'Export .rsc e backup .backup do RouterOS, por SSH a partir do agente.']] as const).map(([k, t, d]) => (
             <button key={k} type="button" role="radio" aria-checked={f.kind === k} disabled={!!job && f.kind !== k} onClick={() => setF({ ...f, kind: k })}
               className={`rounded-xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${f.kind === k ? 'border-primary ring-2 ring-primary/30' : 'border-border hover:border-primary/50'}`}>
               <b className="block text-sm">{t}</b><span className="text-xs text-muted">{d}</span>
@@ -272,7 +278,7 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
             roots={f.paths} lockRoots initial={f.excludes.filter(isExactPath)} confirmLabel="Excluir os marcados" onClose={() => setTree(null)}
             onConfirm={(picked) => { setF((v) => ({ ...v, excludes: [...v.excludes.filter((p) => !isExactPath(p)), ...picked] })); setTree(null) }} />
         )}
-      </>) : <DbSection db={db} setDb={setDb} agentId={Number(f.agent_id)} job={job} />)}
+      </>) : f.kind === 'mikrotik' ? <MikrotikSection mt={mt} setMt={(m) => { setMt(m); setErr('') }} agentId={Number(f.agent_id)} jobId={job?.id} /> : <DbSection db={db} setDb={setDb} agentId={Number(f.agent_id)} job={job} />)}
       {step === 2 && (<>
         <ScheduleEditor cron={f.cron} onChange={(cron) => setF((v) => ({ ...v, cron }))} />
         <Field label="Fuso horário" hint="Os horários acima valem neste fuso.">
@@ -287,10 +293,10 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
               className={`rounded-xl border p-4 text-left transition ${!inc ? 'border-primary ring-2 ring-primary/30' : 'border-border hover:border-primary/60'}`}>
               <b className="block text-sm">Completo (full)</b><span className="text-xs text-muted">Cada execução gera um arquivo com tudo. Restauração simples, a partir de um único arquivo.</span>
             </button>
-            <button type="button" role="radio" aria-checked={inc} disabled={f.kind === 'database'} onClick={() => setF({ ...f, backup_mode: 'incremental' })}
+            <button type="button" role="radio" aria-checked={inc} disabled={f.kind !== 'files'} onClick={() => setF({ ...f, backup_mode: 'incremental' })}
               className={`rounded-xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${inc ? 'border-primary ring-2 ring-primary/30' : 'border-border hover:border-primary/60'}`}>
               <b className="block text-sm">Full + incrementais</b>
-              <span className="text-xs text-muted">{f.kind === 'database' ? 'Bancos de dados são sempre completos: o dump é feito inteiro a cada execução.' : 'Um completo por semana e, nos outros dias, só o que mudou. Menos espaço e envios mais rápidos.'}</span>
+              <span className="text-xs text-muted">{f.kind === 'database' ? 'Bancos de dados são sempre completos: o dump é feito inteiro a cada execução.' : f.kind === 'mikrotik' ? 'Roteadores são sempre salvos por inteiro (a configuração é pequena).' : 'Um completo por semana e, nos outros dias, só o que mudou. Menos espaço e envios mais rápidos.'}</span>
             </button>
           </div>
           {inc && (

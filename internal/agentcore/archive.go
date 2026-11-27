@@ -41,6 +41,8 @@ type FilesJob struct {
 	Artifacts []ArtifactDir
 	// DB != nil: job de banco de dados (o executor padrão usa RunDatabase em vez de RunFiles).
 	DB *pb.DbSpec
+	// Mikrotik != nil: job de roteador MikroTik.
+	Mikrotik *pb.MikrotikSpec
 	// out != nil: grava o .tar.gz direto num storage (modo direto), em vez de um arquivo na pasta de backups.
 	out archiveOut
 	// inc != nil: job incremental (com inc.base nil, este backup é o full que abre uma cadeia).

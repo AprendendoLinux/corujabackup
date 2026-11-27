@@ -78,7 +78,7 @@ message Revoked { string reason = 1; }
 message JobSpec {
   int64 job_id = 1;
   string name = 2;
-  string kind = 3;                 // "files"
+  string kind = 3;                 // "files" | "database" | "mikrotik"
   bool enabled = 4;
   string cron = 5;                 // 5 campos (minuto hora dia mês dia-da-semana)
   string timezone = 6;             // ex.: America/Sao_Paulo
@@ -93,6 +93,21 @@ message JobSpec {
   DestSpec dest = 15;              // destino "direto do agente" (SFTP, FTP, SMB, NFS, pasta local); ausente nas nuvens
   string backup_mode = 16;         // "full" (padrão) | "incremental": full no dia da semana abaixo, incrementais nos outros
   int32 full_weekday = 17;         // incremental: 0 = domingo ... 6 = sábado (no fuso do job)
+  MikrotikSpec mikrotik = 18;      // kind="mikrotik"
+}
+
+// MikrotikSpec: roteador MikroTik acessado pelo agente via SSH (credenciais só pelo canal TLS; no agente, arquivo 600).
+message MikrotikSpec {
+  string host = 1;
+  int32 port = 2;
+  string user = 3;
+  string password = 4;
+  string private_key = 5;
+  string host_key = 6;             // impressão digital SHA256 fixada
+  bool export = 7;                 // .rsc sem dados sensíveis
+  bool export_sensitive = 8;       // .rsc com senhas e chaves
+  bool binary = 9;                 // .backup cifrado
+  string backup_password = 10;
 }
 
 // DestSpec: o agente envia, confere e aplica a retenção. A configuração (com credenciais) viaja só pelo canal TLS e fica no
@@ -228,7 +243,7 @@ message AgentAction {
   string file_name = 5;            // arquivo de backup (no padrão do job) na pasta de destino do agente
   string subdir = 6;
   string target = 7;               // extract: nome da pasta em <backups>/restores/
-  string sha256 = 8;               // fetch: hash esperado do arquivo trazido do destino
+  string sha256 = 8;               // fetch/extract: hash esperado do arquivo (o que vier do storage é conferido)
   repeated string chain = 9;       // extract de um incremental: arquivos da cadeia em ordem (o full primeiro; o último é file_name)
   repeated string chain_sha256 = 10; // SHA-256 de cada arquivo de chain (para conferir o que for trazido do storage)
 }

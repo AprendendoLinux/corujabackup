@@ -21,7 +21,7 @@
 - [ ] **Fase 9, parte 3:** vários destinos por job; compatíveis com S3; SharePoint.
 - [x] **Período à escolha (0.0.20):** seletor com atalhos e calendário no Painel e no Histórico.
 - [x] **Fase 10, parte 1 – Full + incrementais (0.0.21):** full no dia da semana escolhido, incrementais por data/tamanho/inode com lista do que foi apagado, retenção por cadeia, restauração da cadeia em ordem e "Executar backup full agora".
-- [ ] **Fase 10, parte 2 – MikroTik (0.0.22):** jobs de MikroTik pelo agente via SSH: export `.rsc` (com ou sem dados sensíveis) e arquivo `.backup` protegido por senha.
+- [x] **Fase 10, parte 2 – MikroTik (0.0.22):** jobs de MikroTik pelo agente via SSH: export `.rsc` (com ou sem dados sensíveis) e arquivo `.backup` cifrado com senha; impressão digital fixada; restauração testada num RouterOS real (docs/MIKROTIK.md).
 - [ ] **Fase 11 – Restauração inteligente (versão posterior):** árvore de arquivos, linha do tempo de versões, restauração de arquivos selecionados e de bancos pela interface.
 - [ ] **Fase 12 – Piloto:** instalação em ambiente real, só com autorização e em paralelo ao backup existente; validação com contas reais de nuvem e Telegram.
 

@@ -202,14 +202,14 @@ func (c *Core) extract(ctx context.Context, act *pb.AgentAction, al *actionLog) 
 // chainFiles devolve os arquivos locais a extrair, em ordem. Para um incremental, é a cadeia inteira (full primeiro);
 // o que não estiver no agente é trazido do storage de rede do job (conferido pelo SHA-256), quando houver um.
 func (c *Core) chainFiles(ctx context.Context, act *pb.AgentAction, al *actionLog) (files, fetched []string, err error) {
-	if len(act.Chain) == 0 {
-		_, file, err := c.backupPath(act)
-		if err != nil {
-			return nil, nil, err
+	chain, shas := act.Chain, act.ChainSha256
+	if len(chain) == 0 { // um backup só (full): o mesmo caminho, com uma cadeia de um arquivo
+		if !backupFileRE.MatchString(act.FileName) {
+			return nil, nil, errors.New("nome de arquivo de backup inválido")
 		}
-		return []string{file}, nil, nil
+		chain, shas = []string{act.FileName}, []string{act.Sha256}
 	}
-	if act.Chain[len(act.Chain)-1] != act.FileName {
+	if chain[len(chain)-1] != act.FileName {
 		return nil, nil, errors.New("cadeia de restauração inconsistente")
 	}
 	dir, err := c.localDir(act.Subdir)
@@ -219,9 +219,11 @@ func (c *Core) chainFiles(ctx context.Context, act *pb.AgentAction, al *actionLo
 	c.mu.Lock()
 	spec := c.jobs[act.JobId]
 	c.mu.Unlock()
-	al.logf("info", "backup incremental: a restauração aplica %d arquivo(s) em ordem (o full e os incrementais até este)", len(act.Chain))
+	if len(chain) > 1 {
+		al.logf("info", "backup incremental: a restauração aplica %d arquivo(s) em ordem (o full e os incrementais até este)", len(chain))
+	}
 	var out, missing []string
-	for i, name := range act.Chain {
+	for i, name := range chain {
 		if !backupFileRE.MatchString(name) {
 			return nil, fetched, errors.New("nome de arquivo de backup inválido na cadeia")
 		}
@@ -242,8 +244,8 @@ func (c *Core) chainFiles(ctx context.Context, act *pb.AgentAction, al *actionLo
 			return nil, fetched, err
 		}
 		want := ""
-		if i < len(act.ChainSha256) {
-			want = act.ChainSha256[i]
+		if i < len(shas) {
+			want = shas[i]
 		}
 		al.logf("info", "trazendo %s do storage (não está no agente)", name)
 		if _, err := netdest.Fetch(ctx, cfg, c.destEnv(), spec.Dest.Folder, name, p, want); err != nil {
@@ -253,6 +255,9 @@ func (c *Core) chainFiles(ctx context.Context, act *pb.AgentAction, al *actionLo
 		out = append(out, p)
 	}
 	if len(missing) > 0 {
+		if len(chain) == 1 {
+			return nil, fetched, errors.New("o arquivo de backup não existe mais neste agente (a retenção local pode tê-lo removido): baixe-o da nuvem e copie para a pasta do backup local")
+		}
 		return nil, fetched, fmt.Errorf("faltam no agente arquivos da cadeia deste incremental: %s (baixe-os da nuvem e copie para a pasta do backup local, ou restaure um backup full)", strings.Join(missing, ", "))
 	}
 	return out, fetched, nil

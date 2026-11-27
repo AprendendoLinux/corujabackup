@@ -174,8 +174,8 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [noWriteAgent, setNoWriteAgent] = useState(0) // agente sem a montagem gravável: usa a pasta padrão
-  const [tree, setTree] = useState<'paths' | 'excludes' | null>(null)
-  // uma exclusão que é um caminho exato aparece marcada na árvore; padrões (*.tmp, */cache/*) ficam só na lista
+  const [tree, setTree] = useState<'paths' | null>(null)
+  // uma exclusão que é um caminho exato é o que foi desmarcado na árvore; padrões (*.tmp, cache/) ficam na lista de padrões
   const isExactPath = (p: string) => p.startsWith('/') && !/[*?]/.test(p)
   const agentName = agents.find((a) => a.id === Number(f.agent_id))?.name ?? 'agente'
   const agentVersion = agents.find((a) => a.id === Number(f.agent_id))?.agent_version ?? ''
@@ -271,20 +271,18 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
       </>)}
       {step === 1 && (f.kind === 'files' ? (<>
         <PathList agentId={Number(f.agent_id)} label="Pastas e arquivos a salvar" items={f.paths} empty="Nada selecionado ainda." pickLabel="Selecionar pastas e arquivos…"
-          typeLabel="digitar um caminho" placeholder="/srv/dados" onPick={() => setTree('paths')} onChange={(paths) => setF((v) => ({ ...v, paths }))}
-          hint="Os caminhos são os do agente. Ele precisa estar online para navegar." />
-        <PathList agentId={Number(f.agent_id)} label="Exclusões (opcional)" items={f.excludes} empty="Nada fica de fora." pickLabel="Selecionar o que fica de fora…"
-          pickDisabled={f.paths.length === 0 ? 'Primeiro selecione o que salvar' : undefined} typeLabel="adicionar um padrão (ex.: *.tmp)" placeholder="*.tmp"
-          onPick={() => setTree('excludes')} onChange={(excludes) => setF((v) => ({ ...v, excludes }))}
-          hint="Num padrão, * vale para qualquer coisa. Sem / vale para o nome em qualquer pasta (*.tmp); com / vale para o caminho (*/data/cache/*)." />
+          typeLabel="digitar um caminho" placeholder="/srv/dados" onPick={() => setTree('paths')}
+          onChange={(paths) => setF((v) => ({ ...v, paths, excludes: v.excludes.filter((e) => !isExactPath(e) || paths.some((p) => e.startsWith(p === '/' ? '/' : p + '/'))) }))}
+          except={f.excludes.filter(isExactPath)} onExceptChange={(ex) => setF((v) => ({ ...v, excludes: [...v.excludes.filter((p) => !isExactPath(p)), ...ex] }))}
+          hint="Os caminhos são os do agente. Na árvore, desmarque uma subpasta dentro de uma pasta marcada para deixá-la de fora." />
+        <PathList agentId={Number(f.agent_id)} label="Padrões de exclusão (opcional)" items={f.excludes.filter((p) => !isExactPath(p))} empty="Nenhum padrão: só fica de fora o que foi desmarcado na árvore."
+          typeLabel="Adicionar um padrão (ex.: *.tmp)" placeholder="*.log  ou  cache/"
+          onChange={(pats) => setF((v) => ({ ...v, excludes: [...pats, ...v.excludes.filter(isExactPath)] }))}
+          hint={<>Valem em todas as pastas do backup. <code>*.log</code>: arquivos por nome · <code>cache/</code>: pastas com esse nome, em qualquer lugar · <code>*/www/tmp/</code>: pastas por caminho. O <code>*</code> vale para qualquer coisa.</>} />
         {tree === 'paths' && (
-          <TreePicker title={`O que salvar em ${agentName}`} intro="Marque as pastas e os arquivos. Marcar uma pasta inclui tudo o que há dentro dela." agentId={Number(f.agent_id)}
-            roots={['/']} initial={f.paths} confirmLabel="Usar a seleção" onClose={() => setTree(null)} onConfirm={(paths) => { setF((v) => ({ ...v, paths })); setTree(null) }} />
-        )}
-        {tree === 'excludes' && (
-          <TreePicker title="O que fica de fora" intro="Dentro do que será salvo, marque o que NÃO deve entrar no backup." agentId={Number(f.agent_id)}
-            roots={f.paths} lockRoots initial={f.excludes.filter(isExactPath)} confirmLabel="Excluir os marcados" onClose={() => setTree(null)}
-            onConfirm={(picked) => { setF((v) => ({ ...v, excludes: [...v.excludes.filter((p) => !isExactPath(p)), ...picked] })); setTree(null) }} />
+          <TreePicker title={`O que salvar em ${agentName}`} intro="Marque as pastas e os arquivos. Marcar uma pasta inclui tudo o que há dentro dela; desmarque uma subpasta para deixá-la de fora." agentId={Number(f.agent_id)}
+            roots={['/']} initial={f.paths} initialExcludes={f.excludes.filter(isExactPath)} confirmLabel="Usar a seleção" onClose={() => setTree(null)}
+            onConfirm={(paths, ex) => { setF((v) => ({ ...v, paths, excludes: [...v.excludes.filter((p) => !isExactPath(p)), ...ex] })); setTree(null) }} />
         )}
       </>) : f.kind === 'mikrotik' ? <MikrotikSection mt={mt} setMt={(m) => { setMt(m); setErr('') }} agentId={Number(f.agent_id)} jobId={job?.id} /> : <DbSection db={db} setDb={setDb} agentId={Number(f.agent_id)} job={job} />)}
       {step === 2 && (<>

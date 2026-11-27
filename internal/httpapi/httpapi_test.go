@@ -1917,3 +1917,19 @@ func TestCancelandoFicaRegistrado(t *testing.T) {
 		t.Fatalf("lista de jobs: %v", lr)
 	}
 }
+
+func TestPadraoDePastaExigeAgenteNovo(t *testing.T) {
+	e := newEnv(t)
+	adm := setupAdmin(e)
+	ag := newAgent(t, e, "srv-p")
+	e.api.Store.DB.Exec("UPDATE agents SET agent_version='0.0.25' WHERE id=?", ag.ID)
+	body := map[string]any{"name": "padroes", "agent_id": ag.ID, "paths": []string{"/srv"}, "excludes": []string{"*.log", "cache/"}, "keep": 3}
+	if code, _ := adm.do("POST", "/api/jobs", body); code != 400 && code != 422 {
+		t.Fatalf("agente 0.0.25 com padrão de pasta: %d", code)
+	}
+	body["excludes"] = []string{"*.log", "/srv/tmp"}
+	adm.mustOK("POST", "/api/jobs", body)
+	e.api.Store.DB.Exec("UPDATE agents SET agent_version='0.0.26' WHERE id=?", ag.ID)
+	body["name"], body["excludes"] = "padroes2", []string{"cache/", "*/www/tmp/"}
+	adm.mustOK("POST", "/api/jobs", body)
+}

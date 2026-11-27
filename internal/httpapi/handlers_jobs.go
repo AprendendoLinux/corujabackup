@@ -309,6 +309,11 @@ func (s *Server) applyJobIn(ctx context.Context, j *store.Job, in jobIn) string 
 	if in.FullWeekday != nil {
 		j.FullWeekday = *in.FullWeekday
 	}
+	for _, x := range j.Excludes {
+		if t := strings.TrimSpace(x); len(t) > 1 && strings.HasSuffix(t, "/") && a.AgentVersion != "" && !versionAtLeast(a.AgentVersion, [3]int{0, 0, 26}) {
+			return "o agente " + a.Name + " (versão " + a.AgentVersion + ") não entende padrões de pasta como \"" + t + "\": atualize-o para a versão 0.0.26 ou mais nova"
+		}
+	}
 	switch j.BackupMode {
 	case "", "full":
 		j.BackupMode = "full"

@@ -197,7 +197,7 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 				}
 				return nil
 			}
-			if ex.Match(logical) {
+			if ex.MatchEntry(logical, d.IsDir()) {
 				if d.IsDir() {
 					return fs.SkipDir
 				}

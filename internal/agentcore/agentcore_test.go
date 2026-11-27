@@ -656,3 +656,59 @@ func TestCancelarNoMeioDeArquivoGrande(t *testing.T) {
 		t.Fatalf("cancelamento não pode deixar arquivo: %v", ents)
 	}
 }
+
+func TestExclusaoDePastasPorPadrao(t *testing.T) {
+	ex := NewExcluder([]string{"*.log", "cache/", "tmp*/", "*/www/sessoes/", "/srv/app/velho"})
+	cases := []struct {
+		p   string
+		dir bool
+		out bool
+	}{
+		{"/home/a/x.log", false, true},
+		{"/home/a/.cache", true, false}, // ".cache" não é "cache"
+		{"/home/a/cache", true, true},
+		{"/home/a/cache", false, false}, // um ARQUIVO chamado cache fica
+		{"/var/tmp", true, true},
+		{"/var/tmp2", true, true},
+		{"/var/temp", true, false},
+		{"/srv/www/sessoes", true, true},
+		{"/srv/sessoes", true, false},
+		{"/srv/app/velho", true, true},
+		{"/srv/app/novo", true, false},
+	}
+	for _, c := range cases {
+		if got := ex.MatchEntry(c.p, c.dir); got != c.out {
+			t.Errorf("%s (pasta=%v): %v, esperado %v", c.p, c.dir, got, c.out)
+		}
+	}
+	// no backup de verdade, a pasta inteira fica de fora
+	root, bk := t.TempDir(), t.TempDir()
+	write(t, filepath.Join(root, "d/app/cache/a.bin"), "x")
+	write(t, filepath.Join(root, "d/app/main.go"), "y")
+	write(t, filepath.Join(root, "d/app/debug.log"), "z")
+	res, err := RunFiles(context.Background(), FilesJob{Name: "p", Paths: []string{"/d"}, Excludes: []string{"cache/", "*.log"}, Subdir: "p", Keep: 1}, root, bk, time.UTC, time.Now(), discard())
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := tarNames(t, filepath.Join(bk, "p", res.OutputName))
+	got := strings.Join(names, ",")
+	if strings.Contains(got, "cache") || strings.Contains(got, "debug.log") || !strings.Contains(got, "main.go") {
+		t.Fatalf("conteúdo: %s", got)
+	}
+}
+
+// Na árvore: /d marcada, /d/x desmarcada e /d/x/manter marcada de novo.
+func TestSubpastaDesmarcadaERemarcada(t *testing.T) {
+	root, bk := t.TempDir(), t.TempDir()
+	write(t, filepath.Join(root, "d/a.txt"), "a")
+	write(t, filepath.Join(root, "d/x/fora.txt"), "f")
+	write(t, filepath.Join(root, "d/x/manter/dentro.txt"), "m")
+	res, err := RunFiles(context.Background(), FilesJob{Name: "s", Paths: []string{"/d", "/d/x/manter"}, Excludes: []string{"/d/x"}, Subdir: "s", Keep: 1}, root, bk, time.UTC, time.Now(), discard())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(tarNames(t, filepath.Join(bk, "s", res.OutputName)), ",")
+	if !strings.Contains(got, "d/a.txt") || !strings.Contains(got, "d/x/manter/dentro.txt") || strings.Contains(got, "fora.txt") {
+		t.Fatalf("conteúdo: %s", got)
+	}
+}

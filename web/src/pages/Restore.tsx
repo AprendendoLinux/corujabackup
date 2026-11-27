@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Job, Run, RunLog, User, api, ApiError, fmtBytes } from '../api'
 import { Badge, Button, Card, ErrorBox, Input, Modal, Spinner } from '../ui'
 import { confirmar } from '../Dialogs'
+import { FolderList, FolderPicker } from '../Picker'
 
 type Entry = { name: string; dir: boolean; link?: boolean; size: number; modified: number; here: boolean; files?: number }
 type Listing = { dir: string; entries: Entry[]; files: number; incremental: boolean; chain: number }
@@ -272,8 +273,27 @@ function Versions({ job, path, byArchive, onOpen, onRestore, onDownload, dlBusy 
 function RestoreForm({ me, run, paths: initial, onDone }: { me: User; run: Run; paths: string[]; onDone: () => void }) {
   const [paths] = useState(initial) // a lista do momento em que a janela abriu (a seleção é limpa ao concluir)
   const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')
-  const [original, setOriginal] = useState(false)
+  const [mode, setMode] = useState<'restores' | 'dest' | 'original'>('restores')
+  const original = mode === 'original'
   const [target, setTarget] = useState(`restaurar-${stamp}`)
+  const [dest, setDest] = useState('') // pasta do servidor escolhida na navegação (absoluta)
+  const [picking, setPicking] = useState(false)
+  // pasta-mãe comum dos itens: é a partir dela que eles entram na pasta escolhida
+  const common = useMemo(() => {
+    let c: string[] | null = null
+    for (const p of paths) {
+      const parent = p.split('/').filter(Boolean).slice(0, -1)
+      if (c === null) c = parent
+      else { let n = 0; while (n < c.length && n < parent.length && c[n] === parent[n]) n++; c = c.slice(0, n) }
+    }
+    return '/' + (c ?? []).join('/')
+  }, [paths])
+  const example = paths[0] ? (dest || '<pasta>') + '/' + paths[0].slice(common === '/' ? 1 : common.length + 1) : ''
+  async function loadDisk(p: string): Promise<FolderList> {
+    const r = await api<{ entries: { name: string }[]; free?: number; total?: number; used?: number; blocked?: string; mount?: string; fs?: string; disks?: FolderList['disks'] }>(
+      'GET', `/api/agents/${run.agent_id}/browse?area=disk&path=${encodeURIComponent('/' + p)}`)
+    return { folders: r.entries.map((e) => e.name), free: r.free, total: r.total, used: r.used, mount: r.mount, fs: r.fs, blocked: r.blocked?.replace('o backup não é gravado', 'nada é restaurado').replace('gravar backups', 'gravar'), disks: r.disks }
+  }
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [logs, setLogs] = useState<RunLog[] | null>(null)
@@ -281,11 +301,12 @@ function RestoreForm({ me, run, paths: initial, onDone }: { me: User; run: Run; 
   const since = useRef(0)
   async function go() {
     if (original && !(await confirmar({ title: 'Sobrescrever no local original?', message: `Os ${paths.length} item(ns) marcados voltam para o lugar de origem no agente, SUBSTITUINDO os arquivos que estiverem lá agora. Não há como desfazer.`, confirmLabel: 'Restaurar e sobrescrever', danger: true }))) return
+    if (mode === 'dest' && !(await confirmar({ title: `Restaurar em ${dest}?`, message: `Os ${paths.length} item(ns) marcados vão para ${dest} (ex.: ${example}). Se já houver arquivos com o mesmo nome lá, eles são SUBSTITUÍDOS; o resto da pasta não é tocado.`, confirmLabel: 'Restaurar nesta pasta', danger: true }))) return
     setErr(''); setBusy(true)
     try {
       const before = await api<{ logs: RunLog[] }>('GET', `/api/runs/${run.id}`)
       since.current = Math.max(10000, ...before.logs.map((l) => l.seq))
-      await api('POST', `/api/runs/${run.id}/restore`, { paths, original, target: original ? '' : target })
+      await api('POST', `/api/runs/${run.id}/restore`, { paths, original, target: mode === 'restores' ? target : '', dest: mode === 'dest' ? dest : '' })
       setLogs([])
     } catch (x) { setErr((x as ApiError).message); setBusy(false) }
   }
@@ -306,13 +327,26 @@ function RestoreForm({ me, run, paths: initial, onDone }: { me: User; run: Run; 
     <div className="space-y-4 text-sm">
       <p>{paths.length} item(ns) do backup <b>{run.backup_kind === 'incremental' ? 'incremental' : 'full'}</b> de <b>{run.started_at ? new Date(run.started_at).toLocaleString('pt-BR') : '—'}</b> <span className="text-muted">({run.output_name})</span>. Pastas marcadas incluem tudo o que há dentro delas.</p>
       <fieldset className="space-y-2" disabled={busy || done !== ''}>
-        <label className={`flex items-start gap-2.5 rounded-lg border p-3 ${!original ? 'border-primary' : 'border-border'}`}>
-          <input type="radio" name="destino" className="mt-1" checked={!original} onChange={() => setOriginal(false)} />
+        <label className={`flex items-start gap-2.5 rounded-lg border p-3 ${mode === 'restores' ? 'border-primary' : 'border-border'}`}>
+          <input type="radio" name="destino" className="mt-1" checked={mode === 'restores'} onChange={() => setMode('restores')} />
           <span className="flex-1"><b className="block">Numa pasta de restauração (seguro)</b><span className="text-xs text-muted">Nada no servidor é alterado: os arquivos vão para <code>restores/&lt;nome&gt;</code> na pasta de backups do agente, com os caminhos completos.</span>
-            {!original && <Input className="mt-2 font-mono" value={target} onChange={(e) => setTarget(e.target.value)} aria-label="Nome da pasta de restauração" />}</span>
+            {mode === 'restores' && <Input className="mt-2 font-mono" value={target} onChange={(e) => setTarget(e.target.value)} aria-label="Nome da pasta de restauração" />}</span>
+        </label>
+        <label className={`flex items-start gap-2.5 rounded-lg border p-3 ${mode === 'dest' ? 'border-accent' : 'border-border'} ${me.role !== 'admin' ? 'opacity-60' : ''}`}>
+          <input type="radio" name="destino" className="mt-1" checked={mode === 'dest'} disabled={me.role !== 'admin'} onChange={() => { setMode('dest'); if (!dest) setPicking(true) }} />
+          <span className="min-w-0 flex-1"><b className="block">Numa pasta do servidor (escolher)</b><span className="text-xs text-muted">{me.role === 'admin' ? 'Navegue nas pastas do servidor e escolha onde os itens entram. Arquivos com o mesmo nome lá são substituídos. Precisa do volume /:/host-rw no agente.' : 'Só administradores podem gravar em pastas do servidor.'}</span>
+            {mode === 'dest' && <>
+              <button type="button" aria-label="Pasta do servidor: escolher" onClick={() => setPicking(true)}
+                className="mt-2 flex w-full min-w-0 items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-left hover:bg-bg">
+                <FolderIcon /><span className={`truncate font-mono ${dest ? '' : 'text-muted'}`}>{dest || 'Escolha uma pasta…'}</span>
+                <span className="ml-auto shrink-0 text-xs text-primary">{dest ? 'Trocar…' : 'Escolher…'}</span>
+              </button>
+              {dest && example && <span className="mt-1 block truncate text-xs text-muted" title={example}>Ex.: <code>{paths[0]}</code> → <code>{example}</code></span>}
+            </>}
+          </span>
         </label>
         <label className={`flex items-start gap-2.5 rounded-lg border p-3 ${original ? 'border-danger' : 'border-border'} ${me.role !== 'admin' ? 'opacity-60' : ''}`}>
-          <input type="radio" name="destino" className="mt-1" checked={original} disabled={me.role !== 'admin'} onChange={() => setOriginal(true)} />
+          <input type="radio" name="destino" className="mt-1" checked={original} disabled={me.role !== 'admin'} onChange={() => setMode('original')} />
           <span><b className="block">No local original (sobrescreve)</b><span className="text-xs text-muted">{me.role === 'admin' ? 'Os arquivos voltam para onde estavam, substituindo os atuais. Precisa do volume /:/host-rw no agente.' : 'Só administradores podem sobrescrever arquivos do servidor.'}</span></span>
         </label>
       </fieldset>
@@ -324,7 +358,10 @@ function RestoreForm({ me, run, paths: initial, onDone }: { me: User; run: Run; 
         </div>
       )}
       {done === 'ok' && <div className="rounded-lg border border-ok/40 bg-ok/10 px-3 py-2 text-ok">Restauração concluída.</div>}
-      {done === '' && <Button variant={original ? 'danger' : 'primary'} onClick={go} disabled={busy || (!original && !target.trim())}>{busy ? 'Restaurando…' : original ? 'Restaurar e sobrescrever' : 'Restaurar na pasta'}</Button>}
+      {done === '' && <Button variant={original ? 'danger' : 'primary'} onClick={go} disabled={busy || (mode === 'restores' && !target.trim()) || (mode === 'dest' && !dest)}>{busy ? 'Restaurando…' : original ? 'Restaurar e sobrescrever' : mode === 'dest' ? 'Restaurar nesta pasta' : 'Restaurar na pasta'}</Button>}
+      {picking && <FolderPicker title={`Restaurar em qual pasta de ${run.agent_name}?`} intro="Navegue até a pasta que vai receber os itens (ou crie uma nova). Eles entram nela a partir da pasta onde estavam."
+        rootLabel="Raiz" newHint="Pasta nova: será criada na restauração." initial={dest.replace(/^\//, '')} load={loadDisk} onClose={() => { setPicking(false); if (!dest) setMode('restores') }}
+        onPick={(p) => { setDest('/' + p.replace(/^\/+/, '')); setPicking(false) }} />}
     </div>
   )
 }

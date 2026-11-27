@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.0.27] - Restaurar numa pasta escolhida
+- **Restaurar numa pasta escolhida do servidor:** na restauração dos itens marcados (e em "Restaurar esta versão"), a nova opção **Numa pasta do servidor** abre o navegador de pastas do agente, com o espaço livre do disco e a criação de pasta nova. Os itens entram na pasta a partir de onde estavam (ex.: `/home/ana/.ssh` → `/root/restaurado/.ssh`); arquivos com o mesmo nome lá são substituídos e o resto da pasta não é tocado. Só administradores, com confirmação e registro na auditoria; precisa do volume `/:/host-rw` e respeita `CORUJA_BACKUP_ROOTS`. **Exige agente 0.0.27.**
+
 ## [0.0.26] - Desmarcar subpastas e padrões de exclusão
 - **Desmarcar subpastas na árvore:** dentro de uma pasta marcada, desmarque uma subpasta ou um arquivo para deixá-lo de fora (aparece riscado, com "fica de fora"). Dá para marcar de novo algo dentro de uma subpasta desmarcada. O total estimado já desconta o que ficou de fora, e o que foi desmarcado aparece na lista do job como "Fica de fora", com ✕ para voltar a incluir.
 - **Exclusões só por padrão:** a seção virou "Padrões de exclusão", com apenas o botão "Adicionar um padrão": `*.log` (arquivos por nome), `cache/` (pastas com esse nome, em qualquer lugar) e `*/www/tmp/` (pastas por caminho).

@@ -125,6 +125,43 @@ func TestCatalogoNavegarVersoesERestaurar(t *testing.T) {
 		t.Fatal("pasta de restauração já existente")
 	}
 
+	// numa pasta escolhida do servidor: a partir da pasta-mãe comum (/srv), sem apagar o que já estava lá
+	dest := filepath.Join(root, "mnt/restaurado")
+	write(t, filepath.Join(dest, "ja-estava.txt"), "fica")
+	write(t, filepath.Join(dest, "a.txt"), "será substituído")
+	da := act(names[2], []string{"/srv/a.txt", "/srv/dir"}, false, "")
+	da.DestDir = "/mnt/restaurado"
+	if err := c.restoreFiles(ctx, da, al); err != nil {
+		t.Fatal(err)
+	}
+	if out := tree(t, dest); out["a.txt"] != "a v2 (maior)" || out["dir/c.txt"] != "c v2" || out["ja-estava.txt"] != "fica" || len(out) != 4 {
+		t.Fatalf("pasta escolhida: %v", out)
+	}
+	da = act(names[2], []string{"/srv/dir/c.txt"}, false, "") // um arquivo só: entra direto na pasta
+	da.DestDir = "/mnt/outra"
+	if err := c.restoreFiles(ctx, da, al); err != nil {
+		t.Fatal(err)
+	}
+	if out := tree(t, filepath.Join(root, "mnt/outra")); out["c.txt"] != "c v2" || len(out) != 1 {
+		t.Fatalf("arquivo na pasta escolhida: %v", out)
+	}
+	for _, bad := range []string{"/proc/x", "/", "relativa", "/mnt/../etc"} {
+		da.DestDir = bad
+		if err := c.restoreFiles(ctx, da, al); err == nil {
+			t.Fatalf("destino %q deveria ser recusado", bad)
+		}
+	}
+	da.DestDir, da.Original = "/mnt/x", true
+	if err := c.restoreFiles(ctx, da, al); err == nil {
+		t.Fatal("dois destinos ao mesmo tempo")
+	}
+	if g := commonParent([]string{"/home/ana/.ssh", "/home/ana/.vim/x"}); g != "home/ana" {
+		t.Fatalf("pasta-mãe comum: %q", g)
+	}
+	if g := commonParent([]string{"/etc/nginx", "/home/ana"}); g != "" {
+		t.Fatalf("pasta-mãe comum na raiz: %q", g)
+	}
+
 	// backup sem catálogo: o catálogo é montado a partir do arquivo
 	os.RemoveAll(st.catalogDir(1))
 	catCache = &catalogCache{items: map[string]*Snapshot{}}

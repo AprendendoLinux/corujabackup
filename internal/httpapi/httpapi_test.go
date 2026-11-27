@@ -1776,6 +1776,21 @@ func TestRestauracaoPorSelecao(t *testing.T) {
 			t.Fatalf("%v deveria dar 400: %d", bad, code)
 		}
 	}
+	// numa pasta escolhida do servidor: exige agente 0.0.27; caminho normalizado; não junto com o original
+	if code, m := adm.do("POST", base+"/restore", map[string]any{"paths": []string{"/srv/a.txt"}, "dest": "/mnt/rest"}); code != 422 || !strings.Contains(m["error"].(string), "0.0.27") {
+		t.Fatalf("pasta escolhida com agente antigo: %d %v", code, m)
+	}
+	e.api.Store.DB.Exec("UPDATE agents SET agent_version='0.0.27' WHERE id=?", ag.ID)
+	adm.mustOK("POST", base+"/restore", map[string]any{"paths": []string{"/srv/a.txt"}, "dest": "/mnt//rest/", "target": "ignorado"})
+	if a := e.hub.actions[len(e.hub.actions)-1]; a.DestDir != "/mnt/rest" || a.Original || a.Target != "" {
+		t.Fatalf("pasta escolhida: %+v", a)
+	}
+	for _, bad := range []map[string]any{{"paths": []string{"/x"}, "dest": "/proc/1"}, {"paths": []string{"/x"}, "dest": "/"}, {"paths": []string{"/x"}, "dest": "rel"},
+		{"paths": []string{"/x"}, "dest": "/a/../b"}, {"paths": []string{"/x"}, "dest": "/mnt", "original": true}} {
+		if code, _ := adm.do("POST", base+"/restore", bad); code != 400 {
+			t.Fatalf("%v deveria dar 400: %d", bad, code)
+		}
+	}
 	// operador restaura numa pasta, mas não no local original; leitor não restaura
 	adm.mustOK("POST", "/api/users", map[string]string{"username": "oper", "password": pw, "role": "operator"})
 	adm.mustOK("POST", "/api/users", map[string]string{"username": "leit", "password": pw, "role": "viewer"})
@@ -1784,6 +1799,9 @@ func TestRestauracaoPorSelecao(t *testing.T) {
 	o.mustOK("POST", base+"/restore", map[string]any{"paths": []string{"/srv"}})
 	if code, _ := o.do("POST", base+"/restore", map[string]any{"paths": []string{"/srv"}, "original": true}); code != 403 {
 		t.Fatalf("operador no local original: %d", code)
+	}
+	if code, _ := o.do("POST", base+"/restore", map[string]any{"paths": []string{"/srv"}, "dest": "/mnt/rest"}); code != 403 {
+		t.Fatalf("operador numa pasta do servidor: %d", code)
 	}
 	v := e.client()
 	v.mustOK("POST", "/api/login", map[string]string{"username": "leit", "password": pw})

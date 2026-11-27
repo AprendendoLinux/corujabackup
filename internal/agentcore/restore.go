@@ -60,8 +60,8 @@ func (c *Core) index(ctx context.Context, act *pb.AgentAction, al *actionLog) er
 	return nil
 }
 
-// restoreFiles restaura só os caminhos escolhidos: numa pasta nova em <backups>/restores/<target> ou no local original
-// (sobrescrevendo). Cada item é extraído do .tar.gz da cadeia que guarda a versão daquele backup.
+// restoreFiles restaura só os caminhos escolhidos: numa pasta nova em <backups>/restores/<target>, numa pasta escolhida do
+// servidor (act.DestDir, a partir da pasta-mãe comum dos itens) ou no local original (sobrescrevendo). Cada item é extraído do .tar.gz da cadeia que guarda a versão daquele backup.
 func (c *Core) restoreFiles(ctx context.Context, act *pb.AgentAction, al *actionLog) error {
 	if len(act.Paths) == 0 || len(act.Paths) > 5000 {
 		return errors.New("escolha o que restaurar (até 5000 itens)")
@@ -71,8 +71,20 @@ func (c *Core) restoreFiles(ctx context.Context, act *pb.AgentAction, al *action
 			return fmt.Errorf("caminho inválido: %q", p)
 		}
 	}
-	var dest string
-	if act.Original {
+	var dest, strip string
+	switch {
+	case act.DestDir != "" && act.Original:
+		return errors.New("escolha um destino só: a pasta do servidor ou o local original")
+	case act.DestDir != "":
+		if !strings.HasPrefix(act.DestDir, "/") {
+			return errors.New("pasta de destino inválida: escolha uma pasta do servidor")
+		}
+		d, err := c.localDir(act.DestDir)
+		if err != nil {
+			return err
+		}
+		dest, strip = d, commonParent(act.Paths)
+	case act.Original:
 		root, err := c.writeRoot()
 		if err != nil {
 			return errors.New("este agente não grava fora das próprias pastas (falta o volume /:/host-rw): restaure numa pasta de restauração")
@@ -85,7 +97,7 @@ func (c *Core) restoreFiles(ctx context.Context, act *pb.AgentAction, al *action
 			}
 		}
 		dest = root
-	} else {
+	default:
 		if !targetRE.MatchString(act.Target) || strings.Contains(act.Target, "..") {
 			return errors.New("nome de pasta de destino inválido")
 		}
@@ -124,8 +136,11 @@ func (c *Core) restoreFiles(ctx context.Context, act *pb.AgentAction, al *action
 		shaOf[act.FileName] = act.Sha256
 	}
 	where := dest
-	if act.Original {
+	switch {
+	case act.Original:
 		where = "o local original (os arquivos existentes são substituídos)"
+	case act.DestDir != "":
+		where = c.shownPath(dest) + " (arquivos com o mesmo nome são substituídos)"
 	}
 	al.logf("info", "restaurando %d item(ns) de %d arquivo(s) de backup para %s", n, len(names), where)
 	files, fetched, err := c.obtain(ctx, act, al, names, shaOf)
@@ -137,6 +152,7 @@ func (c *Core) restoreFiles(ctx context.Context, act *pb.AgentAction, al *action
 	if err != nil {
 		return err
 	}
+	fresh := !act.Original && act.DestDir == "" // pasta nova em restores/: apagada se a restauração falhar
 	if !act.Original {
 		if err := os.MkdirAll(dest, 0o750); err != nil {
 			return err
@@ -146,9 +162,9 @@ func (c *Core) restoreFiles(ctx context.Context, act *pb.AgentAction, al *action
 	var size int64
 	for k, i := range idx {
 		want := groups[i]
-		k1, sz, _, err := extractSel(ctx, files[k], dest, al.logf, func(rel string) bool { return want[rel] })
+		k1, sz, _, err := extractSel(ctx, files[k], dest, strip, al.logf, func(rel string) bool { return want[rel] })
 		if err != nil {
-			if !act.Original {
+			if fresh {
 				_ = os.RemoveAll(dest)
 			}
 			return err
@@ -156,13 +172,16 @@ func (c *Core) restoreFiles(ctx context.Context, act *pb.AgentAction, al *action
 		items, size = items+k1, size+sz
 	}
 	shown := dest
-	if act.Original {
+	switch {
+	case act.Original:
 		shown = "local original"
+	case act.DestDir != "":
+		shown = c.shownPath(dest)
 	}
 	al.logf("info", "restauração concluída: %d item(ns), %s, em %s", items, HumanBytes(size), shown)
 	al.flush("ok", fmt.Sprintf("%d item(ns) restaurado(s)", items), func(m *pb.ActionLog) {
 		if !act.Original {
-			m.Path = dest
+			m.Path = shown
 		}
 	})
 	return nil
@@ -188,4 +207,29 @@ func (c *Core) catalogDirRPC(jobID int64, archive, dir string) (map[string]any, 
 		}
 	}
 	return map[string]any{"dir": dir, "entries": entries, "files": files, "incremental": len(cat.Archives) > 1, "chain": len(cat.Archives)}, nil
+}
+
+// commonParent devolve a pasta-mãe comum dos caminhos escolhidos, sem "/" inicial ("" = a raiz): restaurar
+// /home/ana/.ssh e /home/ana/.vim numa pasta X dá X/.ssh e X/.vim.
+func commonParent(paths []string) string {
+	var common []string
+	for i, p := range paths {
+		parent := strings.Split(strings.Trim(path.Dir(path.Clean("/"+p)), "/"), "/")
+		if parent[0] == "" {
+			return ""
+		}
+		if i == 0 {
+			common = parent
+			continue
+		}
+		n := 0
+		for n < len(common) && n < len(parent) && common[n] == parent[n] {
+			n++
+		}
+		common = common[:n]
+		if n == 0 {
+			return ""
+		}
+	}
+	return strings.Join(common, "/")
 }

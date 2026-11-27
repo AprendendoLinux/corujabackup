@@ -10,7 +10,6 @@ import (
 	"io"
 	"os"
 	"path"
-	"sort"
 	"strings"
 	"sync"
 
@@ -116,47 +115,29 @@ func (c *Core) download(ctx context.Context, act *pb.AgentAction, al *actionLog)
 		}
 		single = strings.TrimPrefix(p, "/")
 	}
-	idx := make([]int, 0, len(groups))
-	for i := range groups {
-		if i < 0 || i >= len(cat.Archives) {
-			return fail(errors.New("catálogo inconsistente"))
-		}
-		idx = append(idx, i)
-	}
-	sort.Ints(idx)
-	names := make([]string, len(idx))
-	for k, i := range idx {
-		names[k] = cat.Archives[i]
-	}
-	shaOf := map[string]string{}
-	for i, nm := range act.Chain {
-		if i < len(act.ChainSha256) {
-			shaOf[nm] = act.ChainSha256[i]
-		}
-	}
-	files, fetched, err := c.obtain(ctx, act, al, names, shaOf)
-	defer func() {
-		for _, f := range fetched {
-			_ = os.Remove(f)
-		}
-	}()
-	if err != nil {
-		return fail(err)
-	}
 	fname := strings.TrimSuffix(strings.TrimSuffix(act.FileName, ".tar.gz"), "-inc") + ".zip"
 	if single != "" {
 		fname = path.Base(single)
 	}
 	w := &chunkWriter{s: s, id: act.DownloadId, name: fname, buf: make([]byte, 0, chunkSize)}
 	if single != "" {
-		err = copyMember(ctx, files[0], single, w)
+		found := false
+		err = c.eachSelected(ctx, act, al, cat, groups, chainShas(act), func(h *tar.Header, r io.Reader, _ string) error {
+			if h.Typeflag != tar.TypeReg {
+				return nil
+			}
+			found = true
+			_, err := io.Copy(w, ctxRd(ctx, r))
+			return err
+		})
+		if err == nil && !found {
+			err = fmt.Errorf("%s não está no arquivo de backup", single)
+		}
 	} else {
 		zw := zip.NewWriter(w)
-		for k, i := range idx {
-			if err = zipMembers(ctx, files[k], groups[i], zw); err != nil {
-				break
-			}
-		}
+		err = c.eachSelected(ctx, act, al, cat, groups, chainShas(act), func(h *tar.Header, r io.Reader, rel string) error {
+			return zipEntry(ctx, zw, h, r, rel)
+		})
 		if cerr := zw.Close(); err == nil {
 			err = cerr
 		}
@@ -233,30 +214,35 @@ func copyMember(ctx context.Context, archive, rel string, w io.Writer) error {
 // zipMembers acrescenta ao .zip os itens escolhidos (arquivos, pastas e atalhos) de um pacote.
 func zipMembers(ctx context.Context, archive string, want map[string]bool, zw *zip.Writer) error {
 	return eachMember(ctx, archive, func(r string) bool { return want[r] }, func(h *tar.Header, r io.Reader, rel string) error {
-		fh := &zip.FileHeader{Name: rel, Modified: h.ModTime, Method: zip.Deflate}
-		switch h.Typeflag {
-		case tar.TypeDir:
-			fh.Name, fh.Method = rel+"/", zip.Store
-			fh.SetMode(os.ModeDir | os.FileMode(h.Mode)&0o777)
-			_, err := zw.CreateHeader(fh)
-			return err
-		case tar.TypeSymlink:
-			fh.Method = zip.Store
-			fh.SetMode(os.ModeSymlink | 0o777)
-			out, err := zw.CreateHeader(fh)
-			if err == nil {
-				_, err = io.WriteString(out, h.Linkname)
-			}
-			return err
-		case tar.TypeReg:
-			fh.SetMode(os.FileMode(h.Mode) & 0o777)
-			out, err := zw.CreateHeader(fh)
-			if err != nil {
-				return err
-			}
-			_, err = io.Copy(out, ctxRd(ctx, r))
+		return zipEntry(ctx, zw, h, r, rel)
+	})
+}
+
+// zipEntry acrescenta um item do tar ao .zip.
+func zipEntry(ctx context.Context, zw *zip.Writer, h *tar.Header, r io.Reader, rel string) error {
+	fh := &zip.FileHeader{Name: rel, Modified: h.ModTime, Method: zip.Deflate}
+	switch h.Typeflag {
+	case tar.TypeDir:
+		fh.Name, fh.Method = rel+"/", zip.Store
+		fh.SetMode(os.ModeDir | os.FileMode(h.Mode)&0o777)
+		_, err := zw.CreateHeader(fh)
+		return err
+	case tar.TypeSymlink:
+		fh.Method = zip.Store
+		fh.SetMode(os.ModeSymlink | 0o777)
+		out, err := zw.CreateHeader(fh)
+		if err == nil {
+			_, err = io.WriteString(out, h.Linkname)
+		}
+		return err
+	case tar.TypeReg:
+		fh.SetMode(os.FileMode(h.Mode) & 0o777)
+		out, err := zw.CreateHeader(fh)
+		if err != nil {
 			return err
 		}
-		return nil
-	})
+		_, err = io.Copy(out, ctxRd(ctx, r))
+		return err
+	}
+	return nil
 }

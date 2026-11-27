@@ -59,6 +59,8 @@ type Provider interface {
 	Delete(ctx context.Context, folder string, f RemoteFile) error
 	// Open baixa o arquivo (para restauração/download). O chamador fecha o corpo.
 	Open(ctx context.Context, folder, name string) (io.ReadCloser, int64, error)
+	// OpenRange baixa só o trecho [off, off+n) (n <= 0 = até o fim). Devolve o tamanho do trecho.
+	OpenRange(ctx context.Context, folder, name string, off, n int64) (io.ReadCloser, int64, error)
 }
 
 var (

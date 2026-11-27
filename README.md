@@ -13,7 +13,7 @@ nos servidores de destino e se conectam a ele informando só **IP:porta + token*
 | **Storages de rede** | **SFTP**, **FTP/FTPS**, **SMB/CIFS**, **NFS** (cliente embutido, sem montar nada) e **pasta local** (qualquer disco do agente): o agente envia, confere relendo o arquivo e aplica a retenção; opção de **gravar direto no storage**, sem arquivo no agente. |
 | **Confiança** | Cada arquivo é conferido (SHA-256, gzip, estrutura) e há **teste de restauração real** de bancos num servidor descartável. A retenção só roda depois de verificar. Horários perdidos viram alerta. |
 | **Nuvem** | **Google Drive**, **OneDrive** e **Dropbox**, conectados com um clique (login por popup): o agente envia **direto** (envio retomável), conferência por hash do agente **e** do Server, retenção por quantidade/dias, exclusão definitiva (sem lixeira). |
-| **Restauração** | Baixar da nuvem, reenviar, extrair no agente (extração segura) e guia manual por tipo de backup. |
+| **Restauração** | Restaurar itens escolhidos lendo só os blocos necessários (no agente, na nuvem ou no storage), baixar pelo navegador, extrair no agente (extração segura) e guia manual por tipo de backup. |
 | **Avisos** | E-mail (SMTP) e Telegram; falha, aviso, sucesso, agente offline e **relatório diário consolidado em PDF A4**. |
 | **Interface** | Painel, agentes, jobs, histórico com **log ao vivo**, nuvem, notificações, **white-label** (nome, logo, temas e **pacotes de tema `.zip`** para interface, e-mail e PDF), usuários e perfis, 2FA, auditoria. |
 | **Operação** | Métricas Prometheus, CLI de recuperação de acesso, política de 2FA/sessão, imagens endurecidas e multi-arquitetura. |

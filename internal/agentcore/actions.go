@@ -252,6 +252,17 @@ func (c *Core) obtain(ctx context.Context, act *pb.AgentAction, al *actionLog, n
 			out = append(out, p)
 			continue
 		}
+		if spec != nil && spec.Dest == nil && spec.CloudAccountId != 0 { // nuvem: só o Server lê, e entrega ao agente
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				return nil, fetched, err
+			}
+			if err := c.fetchFromCloud(ctx, act.JobId, name, p, shaOf[name], al); err != nil {
+				return nil, fetched, fmt.Errorf("não foi possível trazer %s da nuvem: %w", name, err)
+			}
+			fetched = append(fetched, p)
+			out = append(out, p)
+			continue
+		}
 		if spec == nil || spec.Dest == nil {
 			missing = append(missing, name)
 			continue
@@ -274,7 +285,7 @@ func (c *Core) obtain(ctx context.Context, act *pb.AgentAction, al *actionLog, n
 		if len(names) == 1 {
 			return nil, fetched, errors.New("o arquivo de backup não existe mais neste agente (a retenção local pode tê-lo removido): baixe-o da nuvem e copie para a pasta do backup local")
 		}
-		return nil, fetched, fmt.Errorf("faltam no agente arquivos de backup: %s (baixe-os da nuvem e copie para a pasta do backup local, ou restaure um backup full)", strings.Join(missing, ", "))
+		return nil, fetched, fmt.Errorf("faltam no agente arquivos de backup: %s (copie-os para a pasta do backup local, ou restaure um backup full)", strings.Join(missing, ", "))
 	}
 	return out, fetched, nil
 }
@@ -316,7 +327,7 @@ func extractOne(ctx context.Context, archive, dest string, logf func(level, f st
 }
 
 // extractSel é extractOne só com os itens aceitos por keep (caminho relativo, sem "/" inicial); keep nil = tudo. Com
-// strip (ex.: "home/ana"), só o que está dentro dele é gravado, sem esse começo do caminho. Cada arquivo é gravado num temporário e renomeado no fim (nunca fica pela metade no lugar do original).
+// strip (ex.: "home/ana"), só o que está dentro dele é gravado, sem esse começo do caminho.
 func extractSel(ctx context.Context, archive, dest, strip string, logf func(level, f string, a ...any), keep func(rel string) bool) (items int, bytes int64, man *Manifest, err error) {
 	f, err := os.Open(archive)
 	if err != nil {
@@ -327,10 +338,7 @@ func extractSel(ctx context.Context, archive, dest, strip string, logf func(leve
 	if err != nil {
 		return 0, 0, nil, err
 	}
-	if err := os.MkdirAll(dest, 0o750); err != nil {
-		return 0, 0, nil, err
-	}
-	root, err := filepath.EvalSymlinks(dest)
+	root, err := extractRoot(dest)
 	if err != nil {
 		return 0, 0, nil, err
 	}
@@ -366,60 +374,80 @@ func extractSel(ctx context.Context, archive, dest, strip string, logf func(leve
 			}
 			rel = rel[len(strip)+1:]
 		}
-		target := filepath.Join(root, filepath.FromSlash(rel))
-		if !within(root, target) {
-			logf("warn", "item ignorado (fora da pasta de destino): %s", h.Name)
-			continue
+		ok, n, err := writeEntry(ctx, root, h, tr, rel, logf)
+		if err != nil {
+			return items, bytes, man, err
 		}
-		switch h.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(target, os.FileMode(h.Mode)&0o777|0o700); err != nil {
-				return items, bytes, man, err
-			}
-		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
-				return items, bytes, man, err
-			}
-			if real, err := filepath.EvalSymlinks(filepath.Dir(target)); err != nil || !within(root, real) {
-				logf("warn", "item ignorado (pasta aponta para fora do destino): %s", h.Name)
-				continue
-			}
-			tmp := target + ".coruja-restaurando"
-			_ = os.Remove(tmp)
-			out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_EXCL, os.FileMode(h.Mode)&0o777)
-			if err != nil {
-				return items, bytes, man, err
-			}
-			n, err := io.Copy(out, ctxRd(ctx, tr))
-			cerr := out.Close()
-			if err != nil || cerr != nil {
-				_ = os.Remove(tmp)
-				return items, bytes, man, errors.Join(err, cerr)
-			}
+		if ok {
+			items++
 			bytes += n
-			_ = os.Chtimes(tmp, h.ModTime, h.ModTime)
-			if os.Geteuid() == 0 {
-				_ = os.Lchown(tmp, h.Uid, h.Gid) // como root, devolve o dono original
-			}
-			// rename troca o arquivo (ou link) que estiver no caminho, sem escrever através dele
-			if err := os.Rename(tmp, target); err != nil {
-				_ = os.Remove(tmp)
-				return items, bytes, man, err
-			}
-		case tar.TypeSymlink:
-			if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
-				return items, bytes, man, err
-			}
-			_ = os.Remove(target)
-			if err := os.Symlink(h.Linkname, target); err != nil {
-				logf("warn", "link não criado (%s): %v", h.Name, err)
-				continue
-			}
-		default:
-			continue
 		}
-		items++
 	}
+}
+
+// extractRoot cria a pasta de destino e devolve o caminho real dela (os itens não podem sair dela).
+func extractRoot(dest string) (string, error) {
+	if err := os.MkdirAll(dest, 0o750); err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(dest)
+}
+
+// writeEntry grava um item do tar em root/rel. Cada arquivo é gravado num temporário e renomeado no fim (nunca fica pela
+// metade no lugar do original). ok = o item foi gravado (tipos não suportados e itens fora do destino são ignorados).
+func writeEntry(ctx context.Context, root string, h *tar.Header, r io.Reader, rel string, logf func(level, f string, a ...any)) (ok bool, n int64, err error) {
+	target := filepath.Join(root, filepath.FromSlash(rel))
+	if !within(root, target) {
+		logf("warn", "item ignorado (fora da pasta de destino): %s", h.Name)
+		return false, 0, nil
+	}
+	switch h.Typeflag {
+	case tar.TypeDir:
+		if err := os.MkdirAll(target, os.FileMode(h.Mode)&0o777|0o700); err != nil {
+			return false, 0, err
+		}
+	case tar.TypeReg:
+		if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
+			return false, 0, err
+		}
+		if real, err := filepath.EvalSymlinks(filepath.Dir(target)); err != nil || !within(root, real) {
+			logf("warn", "item ignorado (pasta aponta para fora do destino): %s", h.Name)
+			return false, 0, nil
+		}
+		tmp := target + ".coruja-restaurando"
+		_ = os.Remove(tmp)
+		out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_EXCL, os.FileMode(h.Mode)&0o777)
+		if err != nil {
+			return false, 0, err
+		}
+		n, err = io.Copy(out, ctxRd(ctx, r))
+		cerr := out.Close()
+		if err != nil || cerr != nil {
+			_ = os.Remove(tmp)
+			return false, 0, errors.Join(err, cerr)
+		}
+		_ = os.Chtimes(tmp, h.ModTime, h.ModTime)
+		if os.Geteuid() == 0 {
+			_ = os.Lchown(tmp, h.Uid, h.Gid) // como root, devolve o dono original
+		}
+		// rename troca o arquivo (ou link) que estiver no caminho, sem escrever através dele
+		if err := os.Rename(tmp, target); err != nil {
+			_ = os.Remove(tmp)
+			return false, 0, err
+		}
+	case tar.TypeSymlink:
+		if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
+			return false, 0, err
+		}
+		_ = os.Remove(target)
+		if err := os.Symlink(h.Linkname, target); err != nil {
+			logf("warn", "link não criado (%s): %v", h.Name, err)
+			return false, 0, nil
+		}
+	default:
+		return false, 0, nil
+	}
+	return true, n, nil
 }
 
 func within(root, p string) bool {

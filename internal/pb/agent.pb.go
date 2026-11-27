@@ -67,7 +67,128 @@ func (x RunReport_State) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RunReport_State.Descriptor instead.
 func (RunReport_State) EnumDescriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{19, 0}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{21, 0}
+}
+
+type FetchRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	JobId         int64                  `protobuf:"varint,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	FileName      string                 `protobuf:"bytes,2,opt,name=file_name,json=fileName,proto3" json:"file_name,omitempty"`
+	Offset        int64                  `protobuf:"varint,3,opt,name=offset,proto3" json:"offset,omitempty"` // início do trecho (0 = do começo)
+	Length        int64                  `protobuf:"varint,4,opt,name=length,proto3" json:"length,omitempty"` // tamanho do trecho (0 = até o fim)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FetchRequest) Reset() {
+	*x = FetchRequest{}
+	mi := &file_coruja_v1_agent_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FetchRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FetchRequest) ProtoMessage() {}
+
+func (x *FetchRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_coruja_v1_agent_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FetchRequest.ProtoReflect.Descriptor instead.
+func (*FetchRequest) Descriptor() ([]byte, []int) {
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *FetchRequest) GetJobId() int64 {
+	if x != nil {
+		return x.JobId
+	}
+	return 0
+}
+
+func (x *FetchRequest) GetFileName() string {
+	if x != nil {
+		return x.FileName
+	}
+	return ""
+}
+
+func (x *FetchRequest) GetOffset() int64 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+func (x *FetchRequest) GetLength() int64 {
+	if x != nil {
+		return x.Length
+	}
+	return 0
+}
+
+// FetchChunk: o primeiro traz o tamanho do que será entregue (o arquivo ou o trecho); os seguintes, só dados.
+type FetchChunk struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Size          int64                  `protobuf:"varint,1,opt,name=size,proto3" json:"size,omitempty"`
+	Data          []byte                 `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FetchChunk) Reset() {
+	*x = FetchChunk{}
+	mi := &file_coruja_v1_agent_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FetchChunk) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FetchChunk) ProtoMessage() {}
+
+func (x *FetchChunk) ProtoReflect() protoreflect.Message {
+	mi := &file_coruja_v1_agent_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FetchChunk.ProtoReflect.Descriptor instead.
+func (*FetchChunk) Descriptor() ([]byte, []int) {
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *FetchChunk) GetSize() int64 {
+	if x != nil {
+		return x.Size
+	}
+	return 0
+}
+
+func (x *FetchChunk) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
 }
 
 // DownloadChunk: o primeiro traz o id do pedido e o nome do arquivo entregue; error encerra com falha.
@@ -83,7 +204,7 @@ type DownloadChunk struct {
 
 func (x *DownloadChunk) Reset() {
 	*x = DownloadChunk{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[0]
+	mi := &file_coruja_v1_agent_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -95,7 +216,7 @@ func (x *DownloadChunk) String() string {
 func (*DownloadChunk) ProtoMessage() {}
 
 func (x *DownloadChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[0]
+	mi := &file_coruja_v1_agent_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -108,7 +229,7 @@ func (x *DownloadChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DownloadChunk.ProtoReflect.Descriptor instead.
 func (*DownloadChunk) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{0}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *DownloadChunk) GetId() string {
@@ -147,7 +268,7 @@ type DownloadDone struct {
 
 func (x *DownloadDone) Reset() {
 	*x = DownloadDone{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[1]
+	mi := &file_coruja_v1_agent_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -159,7 +280,7 @@ func (x *DownloadDone) String() string {
 func (*DownloadDone) ProtoMessage() {}
 
 func (x *DownloadDone) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[1]
+	mi := &file_coruja_v1_agent_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -172,7 +293,7 @@ func (x *DownloadDone) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DownloadDone.ProtoReflect.Descriptor instead.
 func (*DownloadDone) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{1}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{3}
 }
 
 type EnrollRequest struct {
@@ -188,7 +309,7 @@ type EnrollRequest struct {
 
 func (x *EnrollRequest) Reset() {
 	*x = EnrollRequest{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[2]
+	mi := &file_coruja_v1_agent_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -200,7 +321,7 @@ func (x *EnrollRequest) String() string {
 func (*EnrollRequest) ProtoMessage() {}
 
 func (x *EnrollRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[2]
+	mi := &file_coruja_v1_agent_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -213,7 +334,7 @@ func (x *EnrollRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnrollRequest.ProtoReflect.Descriptor instead.
 func (*EnrollRequest) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{2}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *EnrollRequest) GetToken() string {
@@ -262,7 +383,7 @@ type EnrollResponse struct {
 
 func (x *EnrollResponse) Reset() {
 	*x = EnrollResponse{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[3]
+	mi := &file_coruja_v1_agent_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -274,7 +395,7 @@ func (x *EnrollResponse) String() string {
 func (*EnrollResponse) ProtoMessage() {}
 
 func (x *EnrollResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[3]
+	mi := &file_coruja_v1_agent_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -287,7 +408,7 @@ func (x *EnrollResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnrollResponse.ProtoReflect.Descriptor instead.
 func (*EnrollResponse) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{3}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *EnrollResponse) GetAgentId() int64 {
@@ -329,7 +450,7 @@ type AgentMessage struct {
 
 func (x *AgentMessage) Reset() {
 	*x = AgentMessage{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[4]
+	mi := &file_coruja_v1_agent_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -341,7 +462,7 @@ func (x *AgentMessage) String() string {
 func (*AgentMessage) ProtoMessage() {}
 
 func (x *AgentMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[4]
+	mi := &file_coruja_v1_agent_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -354,7 +475,7 @@ func (x *AgentMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentMessage.ProtoReflect.Descriptor instead.
 func (*AgentMessage) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{4}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *AgentMessage) GetBody() isAgentMessage_Body {
@@ -487,7 +608,7 @@ type Hello struct {
 
 func (x *Hello) Reset() {
 	*x = Hello{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[5]
+	mi := &file_coruja_v1_agent_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -499,7 +620,7 @@ func (x *Hello) String() string {
 func (*Hello) ProtoMessage() {}
 
 func (x *Hello) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[5]
+	mi := &file_coruja_v1_agent_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -512,7 +633,7 @@ func (x *Hello) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Hello.ProtoReflect.Descriptor instead.
 func (*Hello) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{5}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Hello) GetAgentVersion() string {
@@ -568,7 +689,7 @@ type Heartbeat struct {
 
 func (x *Heartbeat) Reset() {
 	*x = Heartbeat{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[6]
+	mi := &file_coruja_v1_agent_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -580,7 +701,7 @@ func (x *Heartbeat) String() string {
 func (*Heartbeat) ProtoMessage() {}
 
 func (x *Heartbeat) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[6]
+	mi := &file_coruja_v1_agent_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -593,7 +714,7 @@ func (x *Heartbeat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Heartbeat.ProtoReflect.Descriptor instead.
 func (*Heartbeat) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{6}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Heartbeat) GetUnixMs() int64 {
@@ -639,7 +760,7 @@ type ServerMessage struct {
 
 func (x *ServerMessage) Reset() {
 	*x = ServerMessage{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[7]
+	mi := &file_coruja_v1_agent_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -651,7 +772,7 @@ func (x *ServerMessage) String() string {
 func (*ServerMessage) ProtoMessage() {}
 
 func (x *ServerMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[7]
+	mi := &file_coruja_v1_agent_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -664,7 +785,7 @@ func (x *ServerMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerMessage.ProtoReflect.Descriptor instead.
 func (*ServerMessage) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{7}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ServerMessage) GetBody() isServerMessage_Body {
@@ -853,7 +974,7 @@ type Welcome struct {
 
 func (x *Welcome) Reset() {
 	*x = Welcome{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[8]
+	mi := &file_coruja_v1_agent_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -865,7 +986,7 @@ func (x *Welcome) String() string {
 func (*Welcome) ProtoMessage() {}
 
 func (x *Welcome) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[8]
+	mi := &file_coruja_v1_agent_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -878,7 +999,7 @@ func (x *Welcome) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Welcome.ProtoReflect.Descriptor instead.
 func (*Welcome) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{8}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Welcome) GetServerVersion() string {
@@ -904,7 +1025,7 @@ type Ack struct {
 
 func (x *Ack) Reset() {
 	*x = Ack{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[9]
+	mi := &file_coruja_v1_agent_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -916,7 +1037,7 @@ func (x *Ack) String() string {
 func (*Ack) ProtoMessage() {}
 
 func (x *Ack) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[9]
+	mi := &file_coruja_v1_agent_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -929,7 +1050,7 @@ func (x *Ack) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Ack.ProtoReflect.Descriptor instead.
 func (*Ack) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{9}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *Ack) GetUnixMs() int64 {
@@ -948,7 +1069,7 @@ type Revoked struct {
 
 func (x *Revoked) Reset() {
 	*x = Revoked{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[10]
+	mi := &file_coruja_v1_agent_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -960,7 +1081,7 @@ func (x *Revoked) String() string {
 func (*Revoked) ProtoMessage() {}
 
 func (x *Revoked) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[10]
+	mi := &file_coruja_v1_agent_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -973,7 +1094,7 @@ func (x *Revoked) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Revoked.ProtoReflect.Descriptor instead.
 func (*Revoked) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{10}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *Revoked) GetReason() string {
@@ -1011,7 +1132,7 @@ type JobSpec struct {
 
 func (x *JobSpec) Reset() {
 	*x = JobSpec{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[11]
+	mi := &file_coruja_v1_agent_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1023,7 +1144,7 @@ func (x *JobSpec) String() string {
 func (*JobSpec) ProtoMessage() {}
 
 func (x *JobSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[11]
+	mi := &file_coruja_v1_agent_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1036,7 +1157,7 @@ func (x *JobSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobSpec.ProtoReflect.Descriptor instead.
 func (*JobSpec) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{11}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *JobSpec) GetJobId() int64 {
@@ -1184,7 +1305,7 @@ type MikrotikSpec struct {
 
 func (x *MikrotikSpec) Reset() {
 	*x = MikrotikSpec{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[12]
+	mi := &file_coruja_v1_agent_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1196,7 +1317,7 @@ func (x *MikrotikSpec) String() string {
 func (*MikrotikSpec) ProtoMessage() {}
 
 func (x *MikrotikSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[12]
+	mi := &file_coruja_v1_agent_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1209,7 +1330,7 @@ func (x *MikrotikSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MikrotikSpec.ProtoReflect.Descriptor instead.
 func (*MikrotikSpec) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{12}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *MikrotikSpec) GetHost() string {
@@ -1298,7 +1419,7 @@ type DestSpec struct {
 
 func (x *DestSpec) Reset() {
 	*x = DestSpec{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[13]
+	mi := &file_coruja_v1_agent_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1310,7 +1431,7 @@ func (x *DestSpec) String() string {
 func (*DestSpec) ProtoMessage() {}
 
 func (x *DestSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[13]
+	mi := &file_coruja_v1_agent_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1323,7 +1444,7 @@ func (x *DestSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DestSpec.ProtoReflect.Descriptor instead.
 func (*DestSpec) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{13}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *DestSpec) GetType() string {
@@ -1377,7 +1498,7 @@ type SyncJobs struct {
 
 func (x *SyncJobs) Reset() {
 	*x = SyncJobs{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[14]
+	mi := &file_coruja_v1_agent_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1389,7 +1510,7 @@ func (x *SyncJobs) String() string {
 func (*SyncJobs) ProtoMessage() {}
 
 func (x *SyncJobs) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[14]
+	mi := &file_coruja_v1_agent_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1402,7 +1523,7 @@ func (x *SyncJobs) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncJobs.ProtoReflect.Descriptor instead.
 func (*SyncJobs) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{14}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *SyncJobs) GetJobs() []*JobSpec {
@@ -1423,7 +1544,7 @@ type RunNow struct {
 
 func (x *RunNow) Reset() {
 	*x = RunNow{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[15]
+	mi := &file_coruja_v1_agent_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1435,7 +1556,7 @@ func (x *RunNow) String() string {
 func (*RunNow) ProtoMessage() {}
 
 func (x *RunNow) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[15]
+	mi := &file_coruja_v1_agent_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1448,7 +1569,7 @@ func (x *RunNow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunNow.ProtoReflect.Descriptor instead.
 func (*RunNow) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{15}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *RunNow) GetJobId() int64 {
@@ -1481,7 +1602,7 @@ type CancelRun struct {
 
 func (x *CancelRun) Reset() {
 	*x = CancelRun{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[16]
+	mi := &file_coruja_v1_agent_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1493,7 +1614,7 @@ func (x *CancelRun) String() string {
 func (*CancelRun) ProtoMessage() {}
 
 func (x *CancelRun) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[16]
+	mi := &file_coruja_v1_agent_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1506,7 +1627,7 @@ func (x *CancelRun) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelRun.ProtoReflect.Descriptor instead.
 func (*CancelRun) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{16}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *CancelRun) GetRunUid() string {
@@ -1525,7 +1646,7 @@ type ReportAck struct {
 
 func (x *ReportAck) Reset() {
 	*x = ReportAck{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[17]
+	mi := &file_coruja_v1_agent_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1537,7 +1658,7 @@ func (x *ReportAck) String() string {
 func (*ReportAck) ProtoMessage() {}
 
 func (x *ReportAck) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[17]
+	mi := &file_coruja_v1_agent_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1550,7 +1671,7 @@ func (x *ReportAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportAck.ProtoReflect.Descriptor instead.
 func (*ReportAck) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{17}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ReportAck) GetRunUid() string {
@@ -1572,7 +1693,7 @@ type LogLine struct {
 
 func (x *LogLine) Reset() {
 	*x = LogLine{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[18]
+	mi := &file_coruja_v1_agent_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1584,7 +1705,7 @@ func (x *LogLine) String() string {
 func (*LogLine) ProtoMessage() {}
 
 func (x *LogLine) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[18]
+	mi := &file_coruja_v1_agent_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1597,7 +1718,7 @@ func (x *LogLine) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogLine.ProtoReflect.Descriptor instead.
 func (*LogLine) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{18}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *LogLine) GetSeq() int32 {
@@ -1661,7 +1782,7 @@ type RunReport struct {
 
 func (x *RunReport) Reset() {
 	*x = RunReport{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[19]
+	mi := &file_coruja_v1_agent_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1673,7 +1794,7 @@ func (x *RunReport) String() string {
 func (*RunReport) ProtoMessage() {}
 
 func (x *RunReport) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[19]
+	mi := &file_coruja_v1_agent_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1686,7 +1807,7 @@ func (x *RunReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunReport.ProtoReflect.Descriptor instead.
 func (*RunReport) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{19}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *RunReport) GetRunUid() string {
@@ -1863,7 +1984,7 @@ type UploadRequest struct {
 
 func (x *UploadRequest) Reset() {
 	*x = UploadRequest{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[20]
+	mi := &file_coruja_v1_agent_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1875,7 +1996,7 @@ func (x *UploadRequest) String() string {
 func (*UploadRequest) ProtoMessage() {}
 
 func (x *UploadRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[20]
+	mi := &file_coruja_v1_agent_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1888,7 +2009,7 @@ func (x *UploadRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadRequest.ProtoReflect.Descriptor instead.
 func (*UploadRequest) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{20}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *UploadRequest) GetRequestId() string {
@@ -1944,7 +2065,7 @@ type UploadSession struct {
 
 func (x *UploadSession) Reset() {
 	*x = UploadSession{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[21]
+	mi := &file_coruja_v1_agent_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1956,7 +2077,7 @@ func (x *UploadSession) String() string {
 func (*UploadSession) ProtoMessage() {}
 
 func (x *UploadSession) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[21]
+	mi := &file_coruja_v1_agent_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1969,7 +2090,7 @@ func (x *UploadSession) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadSession.ProtoReflect.Descriptor instead.
 func (*UploadSession) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{21}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *UploadSession) GetRequestId() string {
@@ -2063,7 +2184,7 @@ type UploadDone struct {
 
 func (x *UploadDone) Reset() {
 	*x = UploadDone{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[22]
+	mi := &file_coruja_v1_agent_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2075,7 +2196,7 @@ func (x *UploadDone) String() string {
 func (*UploadDone) ProtoMessage() {}
 
 func (x *UploadDone) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[22]
+	mi := &file_coruja_v1_agent_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2088,7 +2209,7 @@ func (x *UploadDone) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadDone.ProtoReflect.Descriptor instead.
 func (*UploadDone) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{22}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *UploadDone) GetRequestId() string {
@@ -2197,7 +2318,7 @@ type UploadVerdict struct {
 
 func (x *UploadVerdict) Reset() {
 	*x = UploadVerdict{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[23]
+	mi := &file_coruja_v1_agent_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2209,7 +2330,7 @@ func (x *UploadVerdict) String() string {
 func (*UploadVerdict) ProtoMessage() {}
 
 func (x *UploadVerdict) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[23]
+	mi := &file_coruja_v1_agent_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2222,7 +2343,7 @@ func (x *UploadVerdict) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadVerdict.ProtoReflect.Descriptor instead.
 func (*UploadVerdict) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{23}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *UploadVerdict) GetRequestId() string {
@@ -2297,7 +2418,7 @@ type DbSpec struct {
 
 func (x *DbSpec) Reset() {
 	*x = DbSpec{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[24]
+	mi := &file_coruja_v1_agent_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2309,7 +2430,7 @@ func (x *DbSpec) String() string {
 func (*DbSpec) ProtoMessage() {}
 
 func (x *DbSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[24]
+	mi := &file_coruja_v1_agent_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2322,7 +2443,7 @@ func (x *DbSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DbSpec.ProtoReflect.Descriptor instead.
 func (*DbSpec) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{24}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *DbSpec) GetEngine() string {
@@ -2428,7 +2549,7 @@ type Rpc struct {
 
 func (x *Rpc) Reset() {
 	*x = Rpc{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[25]
+	mi := &file_coruja_v1_agent_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2440,7 +2561,7 @@ func (x *Rpc) String() string {
 func (*Rpc) ProtoMessage() {}
 
 func (x *Rpc) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[25]
+	mi := &file_coruja_v1_agent_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2453,7 +2574,7 @@ func (x *Rpc) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Rpc.ProtoReflect.Descriptor instead.
 func (*Rpc) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{25}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *Rpc) GetId() string {
@@ -2489,7 +2610,7 @@ type RpcResult struct {
 
 func (x *RpcResult) Reset() {
 	*x = RpcResult{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[26]
+	mi := &file_coruja_v1_agent_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2501,7 +2622,7 @@ func (x *RpcResult) String() string {
 func (*RpcResult) ProtoMessage() {}
 
 func (x *RpcResult) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[26]
+	mi := &file_coruja_v1_agent_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2514,7 +2635,7 @@ func (x *RpcResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RpcResult.ProtoReflect.Descriptor instead.
 func (*RpcResult) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{26}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *RpcResult) GetId() string {
@@ -2569,7 +2690,7 @@ type AgentAction struct {
 
 func (x *AgentAction) Reset() {
 	*x = AgentAction{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[27]
+	mi := &file_coruja_v1_agent_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2581,7 +2702,7 @@ func (x *AgentAction) String() string {
 func (*AgentAction) ProtoMessage() {}
 
 func (x *AgentAction) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[27]
+	mi := &file_coruja_v1_agent_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2594,7 +2715,7 @@ func (x *AgentAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentAction.ProtoReflect.Descriptor instead.
 func (*AgentAction) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{27}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *AgentAction) GetId() string {
@@ -2727,7 +2848,7 @@ type ActionLog struct {
 
 func (x *ActionLog) Reset() {
 	*x = ActionLog{}
-	mi := &file_coruja_v1_agent_proto_msgTypes[28]
+	mi := &file_coruja_v1_agent_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2739,7 +2860,7 @@ func (x *ActionLog) String() string {
 func (*ActionLog) ProtoMessage() {}
 
 func (x *ActionLog) ProtoReflect() protoreflect.Message {
-	mi := &file_coruja_v1_agent_proto_msgTypes[28]
+	mi := &file_coruja_v1_agent_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2752,7 +2873,7 @@ func (x *ActionLog) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActionLog.ProtoReflect.Descriptor instead.
 func (*ActionLog) Descriptor() ([]byte, []int) {
-	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{28}
+	return file_coruja_v1_agent_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ActionLog) GetRunUid() string {
@@ -2829,7 +2950,16 @@ var File_coruja_v1_agent_proto protoreflect.FileDescriptor
 
 const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\n" +
-	"\x15coruja/v1/agent.proto\x12\tcoruja.v1\"f\n" +
+	"\x15coruja/v1/agent.proto\x12\tcoruja.v1\"r\n" +
+	"\fFetchRequest\x12\x15\n" +
+	"\x06job_id\x18\x01 \x01(\x03R\x05jobId\x12\x1b\n" +
+	"\tfile_name\x18\x02 \x01(\tR\bfileName\x12\x16\n" +
+	"\x06offset\x18\x03 \x01(\x03R\x06offset\x12\x16\n" +
+	"\x06length\x18\x04 \x01(\x03R\x06length\"4\n" +
+	"\n" +
+	"FetchChunk\x12\x12\n" +
+	"\x04size\x18\x01 \x01(\x03R\x04size\x12\x12\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\"f\n" +
 	"\rDownloadChunk\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\tfile_name\x18\x02 \x01(\tR\bfileName\x12\x12\n" +
@@ -3098,11 +3228,12 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"cloud_hash\x18\b \x01(\tR\tcloudHash\x12*\n" +
 	"\x11cloud_verified_by\x18\t \x01(\tR\x0fcloudVerifiedBy\x12\x12\n" +
 	"\x04path\x18\n" +
-	" \x01(\tR\x04path2\xd0\x01\n" +
+	" \x01(\tR\x04path2\x91\x02\n" +
 	"\fAgentService\x12=\n" +
 	"\x06Enroll\x12\x18.coruja.v1.EnrollRequest\x1a\x19.coruja.v1.EnrollResponse\x12@\n" +
 	"\aConnect\x12\x17.coruja.v1.AgentMessage\x1a\x18.coruja.v1.ServerMessage(\x010\x01\x12?\n" +
-	"\bDownload\x12\x18.coruja.v1.DownloadChunk\x1a\x17.coruja.v1.DownloadDone(\x01B5Z3github.com/AprendendoLinux/corujabackup/internal/pbb\x06proto3"
+	"\bDownload\x12\x18.coruja.v1.DownloadChunk\x1a\x17.coruja.v1.DownloadDone(\x01\x12?\n" +
+	"\vFetchBackup\x12\x17.coruja.v1.FetchRequest\x1a\x15.coruja.v1.FetchChunk0\x01B5Z3github.com/AprendendoLinux/corujabackup/internal/pbb\x06proto3"
 
 var (
 	file_coruja_v1_agent_proto_rawDescOnce sync.Once
@@ -3117,73 +3248,77 @@ func file_coruja_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_coruja_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_coruja_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
+var file_coruja_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_coruja_v1_agent_proto_goTypes = []any{
 	(RunReport_State)(0),   // 0: coruja.v1.RunReport.State
-	(*DownloadChunk)(nil),  // 1: coruja.v1.DownloadChunk
-	(*DownloadDone)(nil),   // 2: coruja.v1.DownloadDone
-	(*EnrollRequest)(nil),  // 3: coruja.v1.EnrollRequest
-	(*EnrollResponse)(nil), // 4: coruja.v1.EnrollResponse
-	(*AgentMessage)(nil),   // 5: coruja.v1.AgentMessage
-	(*Hello)(nil),          // 6: coruja.v1.Hello
-	(*Heartbeat)(nil),      // 7: coruja.v1.Heartbeat
-	(*ServerMessage)(nil),  // 8: coruja.v1.ServerMessage
-	(*Welcome)(nil),        // 9: coruja.v1.Welcome
-	(*Ack)(nil),            // 10: coruja.v1.Ack
-	(*Revoked)(nil),        // 11: coruja.v1.Revoked
-	(*JobSpec)(nil),        // 12: coruja.v1.JobSpec
-	(*MikrotikSpec)(nil),   // 13: coruja.v1.MikrotikSpec
-	(*DestSpec)(nil),       // 14: coruja.v1.DestSpec
-	(*SyncJobs)(nil),       // 15: coruja.v1.SyncJobs
-	(*RunNow)(nil),         // 16: coruja.v1.RunNow
-	(*CancelRun)(nil),      // 17: coruja.v1.CancelRun
-	(*ReportAck)(nil),      // 18: coruja.v1.ReportAck
-	(*LogLine)(nil),        // 19: coruja.v1.LogLine
-	(*RunReport)(nil),      // 20: coruja.v1.RunReport
-	(*UploadRequest)(nil),  // 21: coruja.v1.UploadRequest
-	(*UploadSession)(nil),  // 22: coruja.v1.UploadSession
-	(*UploadDone)(nil),     // 23: coruja.v1.UploadDone
-	(*UploadVerdict)(nil),  // 24: coruja.v1.UploadVerdict
-	(*DbSpec)(nil),         // 25: coruja.v1.DbSpec
-	(*Rpc)(nil),            // 26: coruja.v1.Rpc
-	(*RpcResult)(nil),      // 27: coruja.v1.RpcResult
-	(*AgentAction)(nil),    // 28: coruja.v1.AgentAction
-	(*ActionLog)(nil),      // 29: coruja.v1.ActionLog
+	(*FetchRequest)(nil),   // 1: coruja.v1.FetchRequest
+	(*FetchChunk)(nil),     // 2: coruja.v1.FetchChunk
+	(*DownloadChunk)(nil),  // 3: coruja.v1.DownloadChunk
+	(*DownloadDone)(nil),   // 4: coruja.v1.DownloadDone
+	(*EnrollRequest)(nil),  // 5: coruja.v1.EnrollRequest
+	(*EnrollResponse)(nil), // 6: coruja.v1.EnrollResponse
+	(*AgentMessage)(nil),   // 7: coruja.v1.AgentMessage
+	(*Hello)(nil),          // 8: coruja.v1.Hello
+	(*Heartbeat)(nil),      // 9: coruja.v1.Heartbeat
+	(*ServerMessage)(nil),  // 10: coruja.v1.ServerMessage
+	(*Welcome)(nil),        // 11: coruja.v1.Welcome
+	(*Ack)(nil),            // 12: coruja.v1.Ack
+	(*Revoked)(nil),        // 13: coruja.v1.Revoked
+	(*JobSpec)(nil),        // 14: coruja.v1.JobSpec
+	(*MikrotikSpec)(nil),   // 15: coruja.v1.MikrotikSpec
+	(*DestSpec)(nil),       // 16: coruja.v1.DestSpec
+	(*SyncJobs)(nil),       // 17: coruja.v1.SyncJobs
+	(*RunNow)(nil),         // 18: coruja.v1.RunNow
+	(*CancelRun)(nil),      // 19: coruja.v1.CancelRun
+	(*ReportAck)(nil),      // 20: coruja.v1.ReportAck
+	(*LogLine)(nil),        // 21: coruja.v1.LogLine
+	(*RunReport)(nil),      // 22: coruja.v1.RunReport
+	(*UploadRequest)(nil),  // 23: coruja.v1.UploadRequest
+	(*UploadSession)(nil),  // 24: coruja.v1.UploadSession
+	(*UploadDone)(nil),     // 25: coruja.v1.UploadDone
+	(*UploadVerdict)(nil),  // 26: coruja.v1.UploadVerdict
+	(*DbSpec)(nil),         // 27: coruja.v1.DbSpec
+	(*Rpc)(nil),            // 28: coruja.v1.Rpc
+	(*RpcResult)(nil),      // 29: coruja.v1.RpcResult
+	(*AgentAction)(nil),    // 30: coruja.v1.AgentAction
+	(*ActionLog)(nil),      // 31: coruja.v1.ActionLog
 }
 var file_coruja_v1_agent_proto_depIdxs = []int32{
-	6,  // 0: coruja.v1.AgentMessage.hello:type_name -> coruja.v1.Hello
-	7,  // 1: coruja.v1.AgentMessage.heartbeat:type_name -> coruja.v1.Heartbeat
-	20, // 2: coruja.v1.AgentMessage.run_report:type_name -> coruja.v1.RunReport
-	21, // 3: coruja.v1.AgentMessage.upload_request:type_name -> coruja.v1.UploadRequest
-	23, // 4: coruja.v1.AgentMessage.upload_done:type_name -> coruja.v1.UploadDone
-	27, // 5: coruja.v1.AgentMessage.rpc_result:type_name -> coruja.v1.RpcResult
-	29, // 6: coruja.v1.AgentMessage.action_log:type_name -> coruja.v1.ActionLog
-	9,  // 7: coruja.v1.ServerMessage.welcome:type_name -> coruja.v1.Welcome
-	10, // 8: coruja.v1.ServerMessage.ack:type_name -> coruja.v1.Ack
-	11, // 9: coruja.v1.ServerMessage.revoked:type_name -> coruja.v1.Revoked
-	15, // 10: coruja.v1.ServerMessage.sync_jobs:type_name -> coruja.v1.SyncJobs
-	16, // 11: coruja.v1.ServerMessage.run_now:type_name -> coruja.v1.RunNow
-	17, // 12: coruja.v1.ServerMessage.cancel_run:type_name -> coruja.v1.CancelRun
-	18, // 13: coruja.v1.ServerMessage.report_ack:type_name -> coruja.v1.ReportAck
-	22, // 14: coruja.v1.ServerMessage.upload_session:type_name -> coruja.v1.UploadSession
-	24, // 15: coruja.v1.ServerMessage.upload_verdict:type_name -> coruja.v1.UploadVerdict
-	26, // 16: coruja.v1.ServerMessage.rpc:type_name -> coruja.v1.Rpc
-	28, // 17: coruja.v1.ServerMessage.action:type_name -> coruja.v1.AgentAction
-	25, // 18: coruja.v1.JobSpec.db:type_name -> coruja.v1.DbSpec
-	14, // 19: coruja.v1.JobSpec.dest:type_name -> coruja.v1.DestSpec
-	13, // 20: coruja.v1.JobSpec.mikrotik:type_name -> coruja.v1.MikrotikSpec
-	12, // 21: coruja.v1.SyncJobs.jobs:type_name -> coruja.v1.JobSpec
+	8,  // 0: coruja.v1.AgentMessage.hello:type_name -> coruja.v1.Hello
+	9,  // 1: coruja.v1.AgentMessage.heartbeat:type_name -> coruja.v1.Heartbeat
+	22, // 2: coruja.v1.AgentMessage.run_report:type_name -> coruja.v1.RunReport
+	23, // 3: coruja.v1.AgentMessage.upload_request:type_name -> coruja.v1.UploadRequest
+	25, // 4: coruja.v1.AgentMessage.upload_done:type_name -> coruja.v1.UploadDone
+	29, // 5: coruja.v1.AgentMessage.rpc_result:type_name -> coruja.v1.RpcResult
+	31, // 6: coruja.v1.AgentMessage.action_log:type_name -> coruja.v1.ActionLog
+	11, // 7: coruja.v1.ServerMessage.welcome:type_name -> coruja.v1.Welcome
+	12, // 8: coruja.v1.ServerMessage.ack:type_name -> coruja.v1.Ack
+	13, // 9: coruja.v1.ServerMessage.revoked:type_name -> coruja.v1.Revoked
+	17, // 10: coruja.v1.ServerMessage.sync_jobs:type_name -> coruja.v1.SyncJobs
+	18, // 11: coruja.v1.ServerMessage.run_now:type_name -> coruja.v1.RunNow
+	19, // 12: coruja.v1.ServerMessage.cancel_run:type_name -> coruja.v1.CancelRun
+	20, // 13: coruja.v1.ServerMessage.report_ack:type_name -> coruja.v1.ReportAck
+	24, // 14: coruja.v1.ServerMessage.upload_session:type_name -> coruja.v1.UploadSession
+	26, // 15: coruja.v1.ServerMessage.upload_verdict:type_name -> coruja.v1.UploadVerdict
+	28, // 16: coruja.v1.ServerMessage.rpc:type_name -> coruja.v1.Rpc
+	30, // 17: coruja.v1.ServerMessage.action:type_name -> coruja.v1.AgentAction
+	27, // 18: coruja.v1.JobSpec.db:type_name -> coruja.v1.DbSpec
+	16, // 19: coruja.v1.JobSpec.dest:type_name -> coruja.v1.DestSpec
+	15, // 20: coruja.v1.JobSpec.mikrotik:type_name -> coruja.v1.MikrotikSpec
+	14, // 21: coruja.v1.SyncJobs.jobs:type_name -> coruja.v1.JobSpec
 	0,  // 22: coruja.v1.RunReport.state:type_name -> coruja.v1.RunReport.State
-	19, // 23: coruja.v1.RunReport.logs:type_name -> coruja.v1.LogLine
-	19, // 24: coruja.v1.ActionLog.logs:type_name -> coruja.v1.LogLine
-	3,  // 25: coruja.v1.AgentService.Enroll:input_type -> coruja.v1.EnrollRequest
-	5,  // 26: coruja.v1.AgentService.Connect:input_type -> coruja.v1.AgentMessage
-	1,  // 27: coruja.v1.AgentService.Download:input_type -> coruja.v1.DownloadChunk
-	4,  // 28: coruja.v1.AgentService.Enroll:output_type -> coruja.v1.EnrollResponse
-	8,  // 29: coruja.v1.AgentService.Connect:output_type -> coruja.v1.ServerMessage
-	2,  // 30: coruja.v1.AgentService.Download:output_type -> coruja.v1.DownloadDone
-	28, // [28:31] is the sub-list for method output_type
-	25, // [25:28] is the sub-list for method input_type
+	21, // 23: coruja.v1.RunReport.logs:type_name -> coruja.v1.LogLine
+	21, // 24: coruja.v1.ActionLog.logs:type_name -> coruja.v1.LogLine
+	5,  // 25: coruja.v1.AgentService.Enroll:input_type -> coruja.v1.EnrollRequest
+	7,  // 26: coruja.v1.AgentService.Connect:input_type -> coruja.v1.AgentMessage
+	3,  // 27: coruja.v1.AgentService.Download:input_type -> coruja.v1.DownloadChunk
+	1,  // 28: coruja.v1.AgentService.FetchBackup:input_type -> coruja.v1.FetchRequest
+	6,  // 29: coruja.v1.AgentService.Enroll:output_type -> coruja.v1.EnrollResponse
+	10, // 30: coruja.v1.AgentService.Connect:output_type -> coruja.v1.ServerMessage
+	4,  // 31: coruja.v1.AgentService.Download:output_type -> coruja.v1.DownloadDone
+	2,  // 32: coruja.v1.AgentService.FetchBackup:output_type -> coruja.v1.FetchChunk
+	29, // [29:33] is the sub-list for method output_type
+	25, // [25:29] is the sub-list for method input_type
 	25, // [25:25] is the sub-list for extension type_name
 	25, // [25:25] is the sub-list for extension extendee
 	0,  // [0:25] is the sub-list for field type_name
@@ -3194,7 +3329,7 @@ func file_coruja_v1_agent_proto_init() {
 	if File_coruja_v1_agent_proto != nil {
 		return
 	}
-	file_coruja_v1_agent_proto_msgTypes[4].OneofWrappers = []any{
+	file_coruja_v1_agent_proto_msgTypes[6].OneofWrappers = []any{
 		(*AgentMessage_Hello)(nil),
 		(*AgentMessage_Heartbeat)(nil),
 		(*AgentMessage_RunReport)(nil),
@@ -3203,7 +3338,7 @@ func file_coruja_v1_agent_proto_init() {
 		(*AgentMessage_RpcResult)(nil),
 		(*AgentMessage_ActionLog)(nil),
 	}
-	file_coruja_v1_agent_proto_msgTypes[7].OneofWrappers = []any{
+	file_coruja_v1_agent_proto_msgTypes[9].OneofWrappers = []any{
 		(*ServerMessage_Welcome)(nil),
 		(*ServerMessage_Ack)(nil),
 		(*ServerMessage_Revoked)(nil),
@@ -3222,7 +3357,7 @@ func file_coruja_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_coruja_v1_agent_proto_rawDesc), len(file_coruja_v1_agent_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   29,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

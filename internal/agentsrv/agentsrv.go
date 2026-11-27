@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/AprendendoLinux/corujabackup/internal/bkname"
+	"io"
 	"log/slog"
 	"net"
 	"strconv"
@@ -51,6 +52,7 @@ type CloudService interface {
 	OpenUpload(ctx context.Context, j *store.Job, fileName string, size int64) (*cloudmgr.Upload, error)
 	VerifyAndRetain(ctx context.Context, j *store.Job, fileName string, size int64, h cloudmgr.Hashes, now time.Time) cloudmgr.Verdict
 	DestConfig(ctx context.Context, accountID int64) (*netdest.Config, error)
+	OpenRange(ctx context.Context, accountID int64, folder, name string, off, n int64) (io.ReadCloser, int64, error)
 }
 
 // Notifier recebe o aviso de que uma execução terminou (para enviar notificações).

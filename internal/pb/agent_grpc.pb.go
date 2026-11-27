@@ -19,9 +19,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AgentService_Enroll_FullMethodName   = "/coruja.v1.AgentService/Enroll"
-	AgentService_Connect_FullMethodName  = "/coruja.v1.AgentService/Connect"
-	AgentService_Download_FullMethodName = "/coruja.v1.AgentService/Download"
+	AgentService_Enroll_FullMethodName      = "/coruja.v1.AgentService/Enroll"
+	AgentService_Connect_FullMethodName     = "/coruja.v1.AgentService/Connect"
+	AgentService_Download_FullMethodName    = "/coruja.v1.AgentService/Download"
+	AgentService_FetchBackup_FullMethodName = "/coruja.v1.AgentService/FetchBackup"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -37,6 +38,9 @@ type AgentServiceClient interface {
 	// Download para o navegador (0.0.24): o agente envia o conteúdo pedido (ação "download") num fluxo próprio, com o
 	// controle de fluxo do HTTP/2 — um navegador lento segura só este download, não o canal principal.
 	Download(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[DownloadChunk, DownloadDone], error)
+	// Arquivo de backup que só está na nuvem (0.0.28): numa restauração, o agente pede ao Server, que o lê da conta de
+	// nuvem (só ele tem as credenciais) e o entrega neste fluxo. Só arquivos de jobs do próprio agente.
+	FetchBackup(ctx context.Context, in *FetchRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[FetchChunk], error)
 }
 
 type agentServiceClient struct {
@@ -83,6 +87,25 @@ func (c *agentServiceClient) Download(ctx context.Context, opts ...grpc.CallOpti
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentService_DownloadClient = grpc.ClientStreamingClient[DownloadChunk, DownloadDone]
 
+func (c *agentServiceClient) FetchBackup(ctx context.Context, in *FetchRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[FetchChunk], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AgentService_ServiceDesc.Streams[2], AgentService_FetchBackup_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[FetchRequest, FetchChunk]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentService_FetchBackupClient = grpc.ServerStreamingClient[FetchChunk]
+
 // AgentServiceServer is the server API for AgentService service.
 // All implementations must embed UnimplementedAgentServiceServer
 // for forward compatibility.
@@ -96,6 +119,9 @@ type AgentServiceServer interface {
 	// Download para o navegador (0.0.24): o agente envia o conteúdo pedido (ação "download") num fluxo próprio, com o
 	// controle de fluxo do HTTP/2 — um navegador lento segura só este download, não o canal principal.
 	Download(grpc.ClientStreamingServer[DownloadChunk, DownloadDone]) error
+	// Arquivo de backup que só está na nuvem (0.0.28): numa restauração, o agente pede ao Server, que o lê da conta de
+	// nuvem (só ele tem as credenciais) e o entrega neste fluxo. Só arquivos de jobs do próprio agente.
+	FetchBackup(*FetchRequest, grpc.ServerStreamingServer[FetchChunk]) error
 	mustEmbedUnimplementedAgentServiceServer()
 }
 
@@ -114,6 +140,9 @@ func (UnimplementedAgentServiceServer) Connect(grpc.BidiStreamingServer[AgentMes
 }
 func (UnimplementedAgentServiceServer) Download(grpc.ClientStreamingServer[DownloadChunk, DownloadDone]) error {
 	return status.Errorf(codes.Unimplemented, "method Download not implemented")
+}
+func (UnimplementedAgentServiceServer) FetchBackup(*FetchRequest, grpc.ServerStreamingServer[FetchChunk]) error {
+	return status.Errorf(codes.Unimplemented, "method FetchBackup not implemented")
 }
 func (UnimplementedAgentServiceServer) mustEmbedUnimplementedAgentServiceServer() {}
 func (UnimplementedAgentServiceServer) testEmbeddedByValue()                      {}
@@ -168,6 +197,17 @@ func _AgentService_Download_Handler(srv interface{}, stream grpc.ServerStream) e
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentService_DownloadServer = grpc.ClientStreamingServer[DownloadChunk, DownloadDone]
 
+func _AgentService_FetchBackup_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(FetchRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(AgentServiceServer).FetchBackup(m, &grpc.GenericServerStream[FetchRequest, FetchChunk]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentService_FetchBackupServer = grpc.ServerStreamingServer[FetchChunk]
+
 // AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -191,6 +231,11 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "Download",
 			Handler:       _AgentService_Download_Handler,
 			ClientStreams: true,
+		},
+		{
+			StreamName:    "FetchBackup",
+			Handler:       _AgentService_FetchBackup_Handler,
+			ServerStreams: true,
 		},
 	},
 	Metadata: "coruja/v1/agent.proto",

@@ -1,13 +1,16 @@
 package agentcore
 
 import (
+	"archive/tar"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/AprendendoLinux/corujabackup/internal/pb"
@@ -27,18 +30,21 @@ func (c *Core) catalogFor(ctx context.Context, act *pb.AgentAction, al *actionLo
 		return nil, err
 	}
 	al.logf("info", "este backup não tem catálogo neste agente: montando a partir do arquivo")
-	files, fetched, err := c.obtain(ctx, act, al, []string{act.FileName}, map[string]string{act.FileName: act.Sha256})
-	defer func() {
-		for _, f := range fetched {
-			_ = os.Remove(f)
-		}
-	}()
+	rc, where, err := c.openArchive(ctx, act, act.FileName, 0, 0)
 	if err != nil {
 		return nil, err
 	}
-	cat, err = catalogFromArchive(ctx, files[0], act.FileName)
+	h := sha256.New()
+	cat, err = catalogFromReader(ctx, io.TeeReader(ctxRd(ctx, rc), h), act.FileName)
+	if err == nil {
+		_, err = io.Copy(h, ctxRd(ctx, rc)) // o resto (fim do tar): o arquivo inteiro passa pela conferência
+	}
+	rc.Close()
 	if err != nil {
 		return nil, err
+	}
+	if where != "agente" && act.Sha256 != "" && hex.EncodeToString(h.Sum(nil)) != act.Sha256 {
+		return nil, fmt.Errorf("%s veio de %s diferente do backup original (SHA-256 não confere)", act.FileName, where)
 	}
 	if err := c.st.SaveCatalog(act.JobId, act.FileName, cat); err != nil {
 		al.logf("warn", "não foi possível guardar o catálogo: %v", err)
@@ -114,27 +120,6 @@ func (c *Core) restoreFiles(ctx context.Context, act *pb.AgentAction, al *action
 	if n == 0 {
 		return errors.New("nenhum dos itens escolhidos está neste backup")
 	}
-	idx := make([]int, 0, len(groups))
-	for i := range groups {
-		if i < 0 || i >= len(cat.Archives) {
-			return errors.New("catálogo inconsistente: aponta para um backup fora da cadeia")
-		}
-		idx = append(idx, i)
-	}
-	sort.Ints(idx)
-	names := make([]string, len(idx))
-	for k, i := range idx {
-		names[k] = cat.Archives[i]
-	}
-	shaOf := map[string]string{}
-	for i, nm := range act.Chain {
-		if i < len(act.ChainSha256) {
-			shaOf[nm] = act.ChainSha256[i]
-		}
-	}
-	if act.Sha256 != "" {
-		shaOf[act.FileName] = act.Sha256
-	}
 	where := dest
 	switch {
 	case act.Original:
@@ -142,34 +127,33 @@ func (c *Core) restoreFiles(ctx context.Context, act *pb.AgentAction, al *action
 	case act.DestDir != "":
 		where = c.shownPath(dest) + " (arquivos com o mesmo nome são substituídos)"
 	}
-	al.logf("info", "restaurando %d item(ns) de %d arquivo(s) de backup para %s", n, len(names), where)
-	files, fetched, err := c.obtain(ctx, act, al, names, shaOf)
-	defer func() {
-		for _, f := range fetched {
-			_ = os.Remove(f)
-		}
-	}()
+	al.logf("info", "restaurando %d item(ns) de %d arquivo(s) de backup para %s", n, len(groups), where)
+	fresh := !act.Original && act.DestDir == "" // pasta nova em restores/: apagada se a restauração falhar
+	root, err := extractRoot(dest)
 	if err != nil {
 		return err
 	}
-	fresh := !act.Original && act.DestDir == "" // pasta nova em restores/: apagada se a restauração falhar
-	if !act.Original {
-		if err := os.MkdirAll(dest, 0o750); err != nil {
-			return err
-		}
-	}
 	var items int
 	var size int64
-	for k, i := range idx {
-		want := groups[i]
-		k1, sz, _, err := extractSel(ctx, files[k], dest, strip, al.logf, func(rel string) bool { return want[rel] })
-		if err != nil {
-			if fresh {
-				_ = os.RemoveAll(dest)
+	err = c.eachSelected(ctx, act, al, cat, groups, chainShas(act), func(h *tar.Header, r io.Reader, rel string) error {
+		if strip != "" { // grava a partir da pasta-mãe comum: home/ana/.ssh/x -> .ssh/x
+			if !strings.HasPrefix(rel, strip+"/") {
+				return nil
 			}
-			return err
+			rel = rel[len(strip)+1:]
 		}
-		items, size = items+k1, size+sz
+		ok, n, err := writeEntry(ctx, root, h, r, rel, al.logf)
+		if ok {
+			items++
+			size += n
+		}
+		return err
+	})
+	if err != nil {
+		if fresh {
+			_ = os.RemoveAll(dest)
+		}
+		return err
 	}
 	shown := dest
 	switch {
@@ -207,6 +191,20 @@ func (c *Core) catalogDirRPC(jobID int64, archive, dir string) (map[string]any, 
 		}
 	}
 	return map[string]any{"dir": dir, "entries": entries, "files": files, "incremental": len(cat.Archives) > 1, "chain": len(cat.Archives)}, nil
+}
+
+// chainShas devolve o SHA-256 conhecido de cada arquivo da cadeia (para conferir o que vier de fora do agente).
+func chainShas(act *pb.AgentAction) map[string]string {
+	shaOf := map[string]string{}
+	for i, nm := range act.Chain {
+		if i < len(act.ChainSha256) {
+			shaOf[nm] = act.ChainSha256[i]
+		}
+	}
+	if act.Sha256 != "" {
+		shaOf[act.FileName] = act.Sha256
+	}
+	return shaOf
 }
 
 // commonParent devolve a pasta-mãe comum dos caminhos escolhidos, sem "/" inicial ("" = a raiz): restaurar

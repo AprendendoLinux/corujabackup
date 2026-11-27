@@ -261,6 +261,11 @@ func (s *Store) RunByUID(ctx context.Context, uid string) (*Run, error) {
 	return scanRun(s.DB.QueryRowContext(ctx, runSelect+"WHERE r.uid=?", uid))
 }
 
+// RunByOutput devolve a execução de um job que gerou o arquivo name (a mais recente, se houver mais de uma).
+func (s *Store) RunByOutput(ctx context.Context, jobID int64, name string) (*Run, error) {
+	return scanRun(s.DB.QueryRowContext(ctx, runSelect+"WHERE r.job_id=? AND r.output_name=? ORDER BY r.id DESC LIMIT 1", jobID, name))
+}
+
 func (s *Store) RunLogs(ctx context.Context, runID int64) ([]RunLog, error) {
 	rows, err := s.DB.QueryContext(ctx, "SELECT seq, at, level, text FROM run_logs WHERE run_id=? ORDER BY seq", runID)
 	if err != nil {

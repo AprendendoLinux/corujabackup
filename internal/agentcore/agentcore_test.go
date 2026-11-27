@@ -627,3 +627,32 @@ func TestAgenteRecusaCaminhoForaDaPolitica(t *testing.T) {
 		}
 	}
 }
+
+// O cancelamento tem de valer no meio de um arquivo enorme, não só quando a cópia dele termina.
+func TestCancelarNoMeioDeArquivoGrande(t *testing.T) {
+	root, bk := t.TempDir(), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "g"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Create(filepath.Join(root, "g", "disco.img"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(64 << 30); err != nil { // 64 GiB esparso: compactar tudo levaria minutos
+		t.Skip("sistema de arquivos sem arquivo esparso:", err)
+	}
+	f.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(500*time.Millisecond, cancel)
+	start := time.Now()
+	_, err = RunFiles(ctx, FilesJob{Name: "g", Paths: []string{"/g"}, Subdir: "g", Keep: 1}, root, bk, time.UTC, time.Now(), discard())
+	if !errors.Is(err, ErrCanceled) {
+		t.Fatalf("esperava ErrCanceled: %v", err)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("cancelamento demorou %v", d)
+	}
+	if ents, _ := os.ReadDir(filepath.Join(bk, "g")); len(ents) != 0 {
+		t.Fatalf("cancelamento não pode deixar arquivo: %v", ents)
+	}
+}

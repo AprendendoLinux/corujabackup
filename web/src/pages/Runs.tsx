@@ -4,8 +4,11 @@ import { Badge, Button, Card, CopyBox, ErrorBox, Modal, Spinner } from '../ui'
 import { confirmar } from '../Dialogs'
 import PeriodPicker, { Period, presetPeriod } from '../Period'
 
-export function StatusBadge({ s }: { s: string }) {
+export function StatusBadge({ s, canceling }: { s: string; canceling?: boolean }) {
   const v = STATUS[s] ?? { label: s, tone: 'off' as const }
+  if ((s === 'running' || s === 'queued') && canceling) {
+    return <span className="inline-flex items-center gap-1.5 rounded-full bg-danger/10 px-2 py-0.5 text-xs font-medium text-danger"><Spinner />Cancelando…</span>
+  }
   if (s === 'running' || s === 'queued') {
     return <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary"><Spinner />{v.label}</span>
   }
@@ -70,7 +73,7 @@ export default function Runs({ me, jobFilter }: { me: User; jobFilter: number })
               <tr key={r.id} className="cursor-pointer border-b border-border last:border-0 hover:bg-bg" onClick={() => setOpen(r.id)}>
                 <td className="p-3 whitespace-nowrap">{fmtDate(r.started_at ?? r.scheduled_for ?? r.created_at)}<div className="text-xs text-muted">{r.trigger === 'manual' ? 'manual' : 'agendado'}{r.backup_kind === 'incremental' ? ' · incremental' : ''}</div></td>
                 <td className="p-3"><b>{r.job_name}</b><div className="text-xs text-muted">{r.agent_name}</div></td>
-                <td className="p-3"><StatusBadge s={r.status} />{r.status === 'running' && r.phase && <div className="mt-1 text-xs text-muted">{PHASE[r.phase] ?? r.phase}{r.phase === 'uploading' ? ` ${r.progress_pct}%` : ''}</div>}{r.cloud_status === 'ok' && <div className="mt-1 text-xs text-muted">☁ no storage</div>}{r.cloud_status === 'failed' && <div className="mt-1 text-xs text-danger">☁ envio falhou</div>}</td>
+                <td className="p-3"><StatusBadge s={r.status} canceling={r.cancel_requested} />{r.status === 'running' && r.phase && <div className="mt-1 text-xs text-muted">{PHASE[r.phase] ?? r.phase}{r.phase === 'uploading' ? ` ${r.progress_pct}%` : ''}</div>}{r.cloud_status === 'ok' && <div className="mt-1 text-xs text-muted">☁ no storage</div>}{r.cloud_status === 'failed' && <div className="mt-1 text-xs text-danger">☁ envio falhou</div>}</td>
                 <td className="p-3 text-muted">{fmtDuration(r.started_at, r.finished_at)}</td>
                 <td className="p-3 text-muted">{fmtBytes(r.bytes_output)}</td>
                 <td className="p-3 text-muted">{r.files || '—'}</td>
@@ -93,6 +96,7 @@ function Detail({ id, me, onChange }: { id: number; me: User; onChange: () => vo
   const [note, setNote] = useState('')
   const [err, setErr] = useState('')
   const [live, setLive] = useState(false)
+  const [canceling, setCanceling] = useState(false)
   const [pending, setPending] = useState(0) // segundos restantes de atualização após uma ação (reenviar/extrair)
   const box = useRef<HTMLPreElement>(null)
   const stick = useRef(true)
@@ -133,6 +137,7 @@ function Detail({ id, me, onChange }: { id: number; me: User; onChange: () => vo
   }, [pending, load])
   useEffect(() => { if (stick.current && box.current) box.current.scrollTop = box.current.scrollHeight }, [logs])
 
+  useEffect(() => { if (!running) setCanceling(false) }, [running])
   if (!run) return <p className="text-muted">{err || 'Carregando…'}</p>
   const r = run
   const color = (l: string) => (l === 'error' ? 'text-danger' : l === 'warn' ? 'text-accent' : 'text-text')
@@ -141,11 +146,21 @@ function Detail({ id, me, onChange }: { id: number; me: User; onChange: () => vo
   return (
     <div className="space-y-4 text-sm">
       <div className="flex flex-wrap items-center gap-3">
-        <b className="text-base">{r.job_name}</b><StatusBadge s={r.status} />
+        <b className="text-base">{r.job_name}</b><StatusBadge s={r.status} canceling={r.cancel_requested || canceling} />
         <span className="text-muted">{r.agent_name}</span>
         {live && <span className="inline-flex items-center gap-1 text-xs text-ok"><span className="inline-block h-2 w-2 animate-pulse rounded-full bg-ok" />ao vivo</span>}
-        {running && me.role !== 'viewer' && <Button variant="danger" className="ml-auto" onClick={async () => await confirmar({ title: 'Cancelar este backup?', message: 'O agente interrompe a execução e nada é salvo.', confirmLabel: 'Cancelar backup', danger: true, icon: 'fechar' }) && api('POST', `/api/runs/${r.id}/cancel`).then(() => { onChange(); load() }).catch((x) => setErr((x as ApiError).message))}>Cancelar</Button>}
+        {running && me.role !== 'viewer' && <Button variant="danger" className="ml-auto" disabled={canceling || r.cancel_requested} onClick={async () => {
+          if (!(await confirmar({ title: 'Cancelar este backup?', message: 'O agente interrompe a execução e nada é salvo.', confirmLabel: 'Cancelar backup', danger: true, icon: 'fechar' }))) return
+          setCanceling(true)
+          api('POST', `/api/runs/${r.id}/cancel`).then(() => { setErr(''); onChange(); load() }).catch((x) => { setCanceling(false); setErr((x as ApiError).message) })
+        }}>{canceling || r.cancel_requested ? <span className="inline-flex items-center gap-2"><Spinner className="h-3.5 w-3.5" />Cancelando…</span> : 'Cancelar'}</Button>}
       </div>
+      {running && (r.cancel_requested || canceling) && (
+        <div role="status" className="flex items-start gap-2.5 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2.5 text-danger">
+          <Spinner className="mt-0.5 h-4 w-4 shrink-0" />
+          <span><b>Cancelando, aguarde…</b> O agente está interrompendo o backup. O arquivo incompleto será apagado e nada deste backup será salvo.</span>
+        </div>
+      )}
       <ErrorBox message={err || (r.status === 'failed' || r.status === 'missed' ? r.error : '')} />
       {note && <div className="rounded-lg border border-ok/40 bg-ok/10 px-3 py-2 text-ok">{note}</div>}
       {running && r.phase && (

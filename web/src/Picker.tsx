@@ -37,6 +37,50 @@ function Overlay({ title, onClose, children }: { title: string; onClose: () => v
 }
 
 type Listing = { entries?: Entry[]; truncated?: boolean; error?: string }
+type DirSize = { bytes: number; files: number; complete: boolean } | 'loading' | 'error'
+
+/**
+ * Tamanho das pastas, calculado pelo agente em segundo plano: no máximo dois pedidos por vez, os mais recentes (as
+ * pastas que a pessoa acabou de abrir) primeiro. Agente antigo, sem a função: para de perguntar e não mostra nada.
+ */
+function useDirSizes(agentId: number) {
+  const [sizes, setSizes] = useState<Record<string, DirSize>>({})
+  const queue = useRef<string[]>([])
+  const asked = useRef(new Set<string>())
+  const busy = useRef(0)
+  const off = useRef(false)
+  const alive = useRef(true)
+  useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
+  const pump = useCallback(() => {
+    while (!off.current && busy.current < 2 && queue.current.length > 0) {
+      const p = queue.current.pop()!
+      busy.current++
+      setSizes((s) => ({ ...s, [p]: 'loading' }))
+      api<{ bytes: number; files: number; complete: boolean }>('GET', `/api/agents/${agentId}/size?path=${encodeURIComponent(p)}`)
+        .then((r) => { if (alive.current) setSizes((s) => ({ ...s, [p]: r })) })
+        .catch((x) => {
+          if ((x as ApiError).status === 422 && /versão antiga/.test((x as ApiError).message)) { off.current = true; queue.current = []; setSizes({}); return }
+          if (alive.current) setSizes((s) => ({ ...s, [p]: 'error' }))
+        })
+        .finally(() => { busy.current--; if (alive.current) pump() })
+    }
+  }, [agentId])
+  const want = useCallback((paths: string[]) => {
+    const fresh = paths.filter((p) => !asked.current.has(p))
+    if (fresh.length === 0 || off.current) return
+    fresh.forEach((p) => asked.current.add(p))
+    queue.current.push(...[...fresh].reverse()) // pop() pega do fim: assim a ordem da tela é respeitada
+    pump()
+  }, [pump])
+  return { sizes, want }
+}
+
+function SizeTag({ s, file }: { s?: DirSize; file?: number }) {
+  if (file !== undefined) return <span className="shrink-0 text-xs tabular-nums text-muted">{size(file)}</span>
+  if (!s || s === 'error') return null
+  if (s === 'loading') return <span className="shrink-0 text-xs text-muted">calculando…</span>
+  return <span className="shrink-0 text-xs tabular-nums text-muted" title={`${s.files.toLocaleString('pt-BR')} arquivo(s)${s.complete ? '' : ' (contagem parcial: a pasta é grande demais para medir por completo)'}`}>{s.complete ? '' : 'mais de '}{size(s.bytes)}</span>
+}
 
 /** Árvore com caixas de marcar sobre o disco do agente. Marcar uma pasta inclui tudo o que há dentro dela. */
 export function TreePicker({ title, intro, agentId, roots, initial, lockRoots, confirmLabel, onConfirm, onClose }: {
@@ -47,6 +91,13 @@ export function TreePicker({ title, intro, agentId, roots, initial, lockRoots, c
   const [open, setOpen] = useState<Set<string>>(() => new Set([...roots, ...initial.flatMap(ancestors).filter((a) => roots.some((r) => a === r || isUnder(a, r)))]))
   const [lists, setLists] = useState<Record<string, Listing>>({})
   const asked = useRef(new Set<string>())
+  const { sizes, want } = useDirSizes(agentId)
+  useEffect(() => {
+    // a raiz da árvore e as subpastas de cada pasta aberta
+    const dirs = [...roots]
+    open.forEach((p) => lists[p]?.entries?.forEach((e) => { if (e.dir && !e.link) dirs.push(join(p, e.name)) }))
+    want(dirs)
+  }, [roots, open, lists, want])
 
   const fetchDir = useCallback((path: string) => {
     if (asked.current.has(path)) return
@@ -98,7 +149,7 @@ export function TreePicker({ title, intro, agentId, roots, initial, lockRoots, c
             <span className={`truncate ${covered ? 'text-muted' : ''}`}>{label}</span>
             {entry.link && <span className="shrink-0 text-xs text-muted">atalho (salva só o atalho)</span>}
           </label>
-          {!entry.dir && !entry.link && <span className="shrink-0 text-xs text-muted">{size(entry.size)}</span>}
+          {!entry.link && (isFile ? (entry.dir ? null : <SizeTag file={entry.size ?? 0} />) : <SizeTag s={sizes[path]} />)}
         </div>
         {expandable && expanded && (
           <ul>
@@ -114,6 +165,16 @@ export function TreePicker({ title, intro, agentId, roots, initial, lockRoots, c
   }
 
   const chosen = [...selected].sort()
+  // total estimado do que está marcado: arquivos pelo tamanho da listagem, pastas pelo cálculo do agente
+  let total = 0, pending = false, partial = false
+  for (const p of chosen) {
+    const cut = p.lastIndexOf('/')
+    const e = lists[p.slice(0, cut) || '/']?.entries?.find((x) => x.name === p.slice(cut + 1))
+    if (e && !e.dir) { total += e.size ?? 0; continue }
+    const s = sizes[p]
+    if (s && s !== 'loading' && s !== 'error') { total += s.bytes; if (!s.complete) partial = true } else pending = true
+  }
+  useEffect(() => { want(chosen.filter((p) => !lists[p.slice(0, p.lastIndexOf('/')) || '/']?.entries?.some((x) => x.name === p.slice(p.lastIndexOf('/') + 1) && !x.dir))) })
   return (
     <Overlay title={title} onClose={onClose}>
       <div className="space-y-3 text-sm">
@@ -123,7 +184,7 @@ export function TreePicker({ title, intro, agentId, roots, initial, lockRoots, c
           <ul>{roots.map((r) => <li key={r}><ul>{Node({ path: r, label: r === '/' ? '/ (tudo)' : r, entry: { name: r, dir: true }, depth: 0 })}</ul></li>)}</ul>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <span className="text-muted">{chosen.length === 0 ? 'Nada marcado.' : `${chosen.length} item(ns) marcado(s).`}</span>
+          <span className="text-muted">{chosen.length === 0 ? 'Nada marcado.' : <>{chosen.length} item(ns) marcado(s){total > 0 || !pending ? <> · <b className="text-text">{partial ? 'mais de ' : '~'}{size(total)}</b></> : null}{pending ? ' · calculando…' : ''}</>}</span>
           <div className="flex gap-2">
             <Button type="button" variant="ghost" onClick={onClose}>Cancelar</Button>
             <Button type="button" onClick={() => onConfirm(chosen)}>{confirmLabel}</Button>

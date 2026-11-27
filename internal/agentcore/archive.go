@@ -281,7 +281,7 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 				if err := tw.WriteHeader(hdr); err != nil {
 					return err
 				}
-				n, err := io.Copy(tw, io.LimitReader(src, hdr.Size))
+				n, err := io.Copy(tw, io.LimitReader(ctxRd(ctx, src), hdr.Size))
 				if err != nil {
 					return err
 				}

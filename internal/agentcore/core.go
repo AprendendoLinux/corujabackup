@@ -356,6 +356,14 @@ func (c *Core) execute(parent context.Context, r runReq) {
 		logs = append(logs, &pb.LogLine{Seq: int32(seq), UnixMs: ms(c.now()), Level: level, Text: txt})
 		c.log.Info(txt, "job", r.spec.Name, "nível", level)
 	}
+	// o pedido de cancelamento aparece no log na hora (a parada em si leva um instante)
+	var once sync.Once
+	c.mu.Lock()
+	c.running[r.uid] = func() {
+		once.Do(func() { logf("warn", "cancelamento pedido: interrompendo o backup…") })
+		cancel()
+	}
+	c.mu.Unlock()
 	flushed := 0
 	// envia as linhas novas do log a cada 2 s para a interface mostrar o andamento ao vivo
 	flushDone := make(chan struct{})

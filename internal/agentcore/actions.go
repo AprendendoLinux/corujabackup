@@ -384,7 +384,7 @@ func extractSel(ctx context.Context, archive, dest string, logf func(level, f st
 			if err != nil {
 				return items, bytes, man, err
 			}
-			n, err := io.Copy(out, tr)
+			n, err := io.Copy(out, ctxRd(ctx, tr))
 			cerr := out.Close()
 			if err != nil || cerr != nil {
 				_ = os.Remove(tmp)

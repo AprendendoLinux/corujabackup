@@ -168,7 +168,7 @@ func (c *Core) restoreDB(ctx context.Context, act *pb.AgentAction, al *actionLog
 		if err != nil {
 			return err
 		}
-		_, err = io.Copy(f, r)
+		_, err = io.Copy(f, ctxRd(ctx, r))
 		if cerr := f.Close(); err == nil {
 			err = cerr
 		}

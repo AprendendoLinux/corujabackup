@@ -221,7 +221,7 @@ func copyMember(ctx context.Context, archive, rel string, w io.Writer) error {
 			return nil
 		}
 		found = true
-		_, err := io.Copy(w, r)
+		_, err := io.Copy(w, ctxRd(ctx, r))
 		return err
 	})
 	if err == nil && !found {
@@ -254,7 +254,7 @@ func zipMembers(ctx context.Context, archive string, want map[string]bool, zw *z
 			if err != nil {
 				return err
 			}
-			_, err = io.Copy(out, r)
+			_, err = io.Copy(out, ctxRd(ctx, r))
 			return err
 		}
 		return nil

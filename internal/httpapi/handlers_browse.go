@@ -114,3 +114,19 @@ func parseAgentAddress(v string) (string, bool) {
 	}
 	return net.JoinHostPort(host, strconv.Itoa(n)), true
 }
+
+// agentDirSize pede ao agente o tamanho de uma pasta da máquina (seletor do que salvar).
+func (s *Server) agentDirSize(w http.ResponseWriter, r *http.Request, _ *ctxUser) {
+	id, ok := pathID(r)
+	if !ok {
+		writeErr(w, 400, "id inválido")
+		return
+	}
+	p := r.URL.Query().Get("path")
+	if p == "" || len(p) > 1024 || strings.ContainsRune(p, 0) {
+		writeErr(w, 400, "caminho inválido")
+		return
+	}
+	payload, _ := json.Marshal(agentcore.SizeRequest{Path: p})
+	s.agentCall(w, r, id, "fs_size", payload, 45*time.Second)
+}

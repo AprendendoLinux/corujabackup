@@ -1894,3 +1894,26 @@ func TestRestaurarBancoPelaInterface(t *testing.T) {
 		t.Fatalf("job de arquivos: %d", code)
 	}
 }
+
+func TestCancelandoFicaRegistrado(t *testing.T) {
+	e := newEnv(t)
+	adm := setupAdmin(e)
+	ag := newAgent(t, e, "srv-c")
+	jid := int64(adm.mustOK("POST", "/api/jobs", map[string]any{"name": "cancelar", "agent_id": ag.ID, "paths": []string{"/srv"}, "keep": 3})["id"].(float64))
+	ctx := context.Background()
+	now := time.Now().UTC()
+	e.api.Store.ApplyReport(ctx, store.Report{UID: "c0", JobID: jid, AgentID: ag.ID, Status: "running", StartedAt: now})
+	r0, _ := e.api.Store.RunByUID(ctx, "c0")
+	if r0.CancelRequested {
+		t.Fatal("ainda não pediram cancelamento")
+	}
+	adm.mustOK("POST", "/api/runs/"+itoa(int(r0.ID))+"/cancel", nil)
+	d := adm.mustOK("GET", "/api/runs/"+itoa(int(r0.ID)), nil)
+	if run := d["run"].(map[string]any); run["cancel_requested"] != true || store.IsFinal(run["status"].(string)) {
+		t.Fatalf("deveria aparecer como cancelando: %v", run)
+	}
+	jobs := adm.mustOK("GET", "/api/jobs", nil)["jobs"].([]any)
+	if lr := jobs[0].(map[string]any)["last_run"].(map[string]any); lr["cancel_requested"] != true {
+		t.Fatalf("lista de jobs: %v", lr)
+	}
+}

@@ -38,6 +38,7 @@ type fakeHub struct {
 	offline bool
 	calls   []string
 	actions []*pb.AgentAction
+	fulls   []bool
 	callOut []byte
 	callErr error
 	wakes   int
@@ -46,10 +47,11 @@ type fakeHub struct {
 func (f *fakeHub) Online() map[int64]time.Time     { return map[int64]time.Time{} }
 func (f *fakeHub) Revoke(id int64, _ string)       { f.revoked = append(f.revoked, id) }
 func (f *fakeHub) PushJobs(context.Context, int64) { f.pushes++ }
-func (f *fakeHub) RunNow(_, jobID int64, uid string) error {
+func (f *fakeHub) RunNow(_, jobID int64, uid string, full bool) error {
 	if f.offline {
 		return agentsrv.ErrOffline
 	}
+	f.fulls = append(f.fulls, full)
 	f.runs = append(f.runs, uid)
 	return nil
 }
@@ -1603,5 +1605,80 @@ func TestPeriodoEscolhido(t *testing.T) {
 	d := adm.mustOK("GET", "/api/dashboard?from=2026-11-03&to=2026-11-04&tz=America/Sao_Paulo", nil)
 	if tot := d["totals"].(map[string]any); tot["ok"].(float64) != 2 || tot["bytes"].(float64) != 200 {
 		t.Fatalf("totais do painel no período: %v", tot)
+	}
+}
+
+func TestJobIncremental(t *testing.T) {
+	e := newEnv(t)
+	adm := setupAdmin(e)
+	ag := newAgent(t, e, "srv-inc")
+	base := map[string]any{"agent_id": ag.ID, "paths": []string{"/srv"}, "keep": 3}
+	with := func(m map[string]any) map[string]any {
+		out := map[string]any{}
+		for k, v := range base {
+			out[k] = v
+		}
+		for k, v := range m {
+			out[k] = v
+		}
+		return out
+	}
+	if code, m := adm.do("POST", "/api/jobs", with(map[string]any{"name": "velho", "backup_mode": "incremental"})); code != 400 || !strings.Contains(m["error"].(string), "0.0.21") {
+		t.Fatalf("agente antigo não pode ter job incremental: %d %v", code, m)
+	}
+	e.api.Store.DB.Exec("UPDATE agents SET agent_version='0.0.21' WHERE id=?", ag.ID)
+	jid := int64(adm.mustOK("POST", "/api/jobs", with(map[string]any{"name": "inc", "backup_mode": "incremental", "full_weekday": 3}))["id"].(float64))
+	j, _ := e.api.Store.GetJob(context.Background(), jid)
+	if j.BackupMode != "incremental" || j.FullWeekday != 3 {
+		t.Fatalf("%+v", j)
+	}
+	if sp := agentsrv.SpecFromJob(*j); sp.BackupMode != "incremental" || sp.FullWeekday != 3 {
+		t.Fatalf("spec: %+v", sp)
+	}
+	for _, bad := range []map[string]any{{"name": "x1", "backup_mode": "diferencial"}, {"name": "x2", "backup_mode": "incremental", "full_weekday": 7}} {
+		if code, _ := adm.do("POST", "/api/jobs", with(bad)); code != 400 {
+			t.Fatalf("%v deveria ser recusado: %d", bad, code)
+		}
+	}
+	if j0 := adm.mustOK("POST", "/api/jobs", with(map[string]any{"name": "padrao"})); j0 != nil {
+		jj, _ := e.api.Store.GetJob(context.Background(), int64(j0["id"].(float64)))
+		if jj.BackupMode != "full" {
+			t.Fatalf("o padrão é full: %q", jj.BackupMode)
+		}
+	}
+	adm.mustOK("POST", "/api/jobs/"+itoa(int(jid))+"/run?full=1", nil)
+	adm.mustOK("POST", "/api/jobs/"+itoa(int(jid))+"/run", nil)
+	if f := e.hub.fulls; len(f) != 2 || !f[0] || f[1] {
+		t.Fatalf("full agora: %v", f)
+	}
+
+	// extrair um incremental manda a cadeia (full + incrementais até ele, em ordem) com os SHA-256
+	st := e.api.Store
+	ctx := context.Background()
+	now := time.Now().UTC()
+	for i, n := range []string{"inc-20261122-030000.tar.gz", "inc-20261123-030000-inc.tar.gz", "inc-20261124-030000-inc.tar.gz", "inc-20261125-030000-inc.tar.gz"} {
+		status := "ok"
+		if i == 3 {
+			status = "failed" // não conta para a cadeia
+		}
+		kind := "incremental"
+		if i == 0 {
+			kind = "full"
+		}
+		st.ApplyReport(ctx, store.Report{UID: "c" + itoa(i), JobID: jid, AgentID: ag.ID, Final: true, Status: status, StartedAt: now, FinishedAt: now, OutputName: n, SHA256: "sha" + itoa(i), BackupKind: kind})
+	}
+	r3, _ := st.RunByUID(ctx, "c2")
+	if r3.BackupKind != "incremental" {
+		t.Fatalf("tipo da execução: %q", r3.BackupKind)
+	}
+	adm.mustOK("POST", "/api/runs/"+itoa(int(r3.ID))+"/extract", map[string]string{"target": "rest-inc"})
+	act := e.hub.actions[len(e.hub.actions)-1]
+	if strings.Join(act.Chain, ",") != "inc-20261122-030000.tar.gz,inc-20261123-030000-inc.tar.gz,inc-20261124-030000-inc.tar.gz" || strings.Join(act.ChainSha256, ",") != "sha0,sha1,sha2" {
+		t.Fatalf("cadeia: %v %v", act.Chain, act.ChainSha256)
+	}
+	r0, _ := st.RunByUID(ctx, "c0")
+	adm.mustOK("POST", "/api/runs/"+itoa(int(r0.ID))+"/extract", map[string]string{"target": "rest-full"})
+	if act := e.hub.actions[len(e.hub.actions)-1]; len(act.Chain) != 0 {
+		t.Fatalf("um full não precisa de cadeia: %v", act.Chain)
 	}
 }

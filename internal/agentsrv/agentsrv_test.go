@@ -215,7 +215,7 @@ func TestAgendaChegaAoAgenteERelatorioEhGravadoEConfirmado(t *testing.T) {
 		t.Fatalf("agenda recebida incorreta: %+v", sync.Jobs)
 	}
 	// o Server empurra a ordem de execução manual e o cancelamento
-	if err := r.srv.RunNow(en.AgentId, jid, "uid-manual"); err != nil {
+	if err := r.srv.RunNow(en.AgentId, jid, "uid-manual", false); err != nil {
 		t.Fatal(err)
 	}
 	if m, _ := st.Recv(); m.GetRunNow() == nil || m.GetRunNow().RunUid != "uid-manual" {
@@ -267,7 +267,7 @@ func TestAgendaChegaAoAgenteERelatorioEhGravadoEConfirmado(t *testing.T) {
 func TestRunNowComAgenteOfflineEPerdidos(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
-	if err := r.srv.RunNow(12345, 1, "u"); err != ErrOffline {
+	if err := r.srv.RunNow(12345, 1, "u", false); err != ErrOffline {
 		t.Fatalf("esperava ErrOffline: %v", err)
 	}
 	cli := pb.NewAgentServiceClient(dial(t, r.addr, r.fp))

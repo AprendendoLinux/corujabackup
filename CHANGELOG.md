@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.21] - Full + incrementais
+- **Backups incrementais:** no job, escolha **Full + incrementais** e o dia da semana do full (padrão: domingo). Nos outros dias, só entram os arquivos novos ou alterados (pela data, tamanho e inode) e a lista do que foi apagado. Menos espaço e envios bem mais rápidos.
+- **Full automático quando preciso:** no dia marcado, no primeiro backup, quando as origens ou exclusões mudam e quando o último full tem 7 dias ou mais (o do dia marcado não rodou). Na lista de jobs, **Executar backup full agora** abre uma nova semana na hora.
+- **Seguro contra falhas:** o agente só considera um backup como base dos próximos depois que ele termina bem (arquivo e storage conferidos). Arquivos que não puderam ser lidos voltam no incremental seguinte.
+- **Retenção por semana:** num job incremental, local e no storage, a retenção conta semanas (o full e os incrementais dela) e apaga semanas inteiras, nunca deixando um incremental sem o seu full. Jobs só de fulls continuam como antes.
+- **Restauração de um incremental:** "Extrair no agente" aplica em ordem o full e os incrementais até o escolhido e remove o que foi apagado na origem. O que estiver só no storage de rede (inclusive com gravação direta) é trazido sozinho, conferido e apagado depois. O guia manual também explica a ordem.
+- No Histórico, cada execução mostra se foi **full** ou **incremental**.
+- O incremental é um `.tar.gz` comum (`...-inc.tar.gz`), com um `.coruja-manifest.json` na raiz.
+- **Exige agente 0.0.21** para jobs incrementais (o painel avisa e não deixa salvar com um agente antigo). Jobs de banco de dados continuam sempre completos.
+
 ## [0.0.20] - Escolha do período
 - **Período à escolha no Painel e no Histórico:** atalhos (Hoje, Ontem, Últimos 7, 14 ou 30 dias, Este mês, Mês passado) e um **calendário** para marcar o dia inicial e o final com cliques (até 366 dias). Os dias são contados no fuso de quem vê.
 - **Painel:** indicadores, gráficos e saúde dos jobs seguem o período escolhido; as comparações usam o período anterior de mesmo tamanho, com as datas indicadas na tela. A escolha fica lembrada neste navegador (atalhos são recalculados a cada dia).

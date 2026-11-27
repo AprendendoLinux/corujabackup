@@ -58,7 +58,7 @@ export default function Jobs({ me }: { me: User }) {
                 <tr key={j.id} className="border-b border-border align-top last:border-0">
                   <td className="p-3">
                     <b>{j.name}</b> {!j.enabled && <Badge tone="off">Pausado</Badge>}
-                    <div className="text-xs text-muted">{j.agent_name} {j.agent_online ? <span className="text-ok">● online</span> : <span>○ offline</span>} · {j.kind === 'database' ? `🗄 ${ENGINE_LABEL[j.db?.engine ?? ''] ?? 'Banco'}${j.db?.mode === 'docker' ? ` · ${j.db?.container}` : ` · ${j.db?.host}`}` : `${j.paths.length} origem(ns)`} · {j.cloud_account_id ? <span title={j.cloud_folder}>☁ {clouds.find((c) => c.id === j.cloud_account_id)?.name ?? 'nuvem'}</span> : 'só local'}</div>
+                    <div className="text-xs text-muted">{j.agent_name} {j.agent_online ? <span className="text-ok">● online</span> : <span>○ offline</span>} · {j.kind === 'database' ? `🗄 ${ENGINE_LABEL[j.db?.engine ?? ''] ?? 'Banco'}${j.db?.mode === 'docker' ? ` · ${j.db?.container}` : ` · ${j.db?.host}`}` : `${j.paths.length} origem(ns)`}{j.backup_mode === 'incremental' && ` · full ${fullDay(j.full_weekday ?? 0)} + incrementais`} · {j.cloud_account_id ? <span title={j.cloud_folder}>☁ {clouds.find((c) => c.id === j.cloud_account_id)?.name ?? 'nuvem'}</span> : 'só local'}</div>
                   </td>
                   <td className="p-3 text-muted">{describeSched(j.cron)}<div className="text-xs">{j.timezone}</div></td>
                   <td className="p-3 text-muted">{j.enabled ? fmtDate(j.next_run_at) : '—'}</td>
@@ -66,7 +66,8 @@ export default function Jobs({ me }: { me: User }) {
                     : s ? <><Badge tone={s.tone}>{s.label}</Badge><div className="mt-1 text-xs text-muted">{fmtDate(j.last_run!.started_at ?? j.last_run!.scheduled_for ?? j.last_run!.created_at)}</div></> : <span className="text-muted">nunca executou</span>}</td>
                   <td className="p-3 text-right whitespace-nowrap">
                     <Actions>
-                      {canEdit && <IconButton icon="executar" label="Executar agora" onClick={async () => await confirmar({ title: 'Executar agora?', message: <>O backup <b>{j.name}</b> começa agora no agente <b>{j.agent_name}</b>.</>, confirmLabel: 'Executar', icon: 'executar' }) && act(async () => { await api('POST', `/api/jobs/${j.id}/run`); setWaitingUntil(Date.now() + 30000) }, `Backup "${j.name}" enviado ao agente.`)} />}
+                      {canEdit && j.backup_mode === 'incremental' && <IconButton icon="full" label="Executar backup full agora" onClick={async () => await confirmar({ title: 'Executar um backup full agora?', message: <>O backup <b>{j.name}</b> começa agora, <b>completo</b>: ele abre uma nova semana (cadeia) e os próximos incrementais partem dele.</>, confirmLabel: 'Executar full', icon: 'executar' }) && act(async () => { await api('POST', `/api/jobs/${j.id}/run?full=1`); setWaitingUntil(Date.now() + 30000) }, `Backup full de "${j.name}" enviado ao agente.`)} />}
+                      {canEdit && <IconButton icon="executar" label={j.backup_mode === 'incremental' ? 'Executar agora (full ou incremental, pela regra do job)' : 'Executar agora'} onClick={async () => await confirmar({ title: 'Executar agora?', message: <>O backup <b>{j.name}</b> começa agora no agente <b>{j.agent_name}</b>.</>, confirmLabel: 'Executar', icon: 'executar' }) && act(async () => { await api('POST', `/api/jobs/${j.id}/run`); setWaitingUntil(Date.now() + 30000) }, `Backup "${j.name}" enviado ao agente.`)} />}
                       <IconButton icon="historico" label="Histórico" href={`#/historico?job=${j.id}`} />
                       {canEdit && (<>
                         <IconButton icon="editar" label="Editar" onClick={() => setEdit(j)} />
@@ -114,11 +115,16 @@ function Count({ value, min, max, onChange, unit }: { value: number; min: number
   )
 }
 
-function retentionText(keep: number, days: number, where: string) {
+const WEEKDAYS = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado']
+const fullDay = (d: number) => (d === 0 || d === 6 ? `todo ${WEEKDAYS[d]}` : `toda ${WEEKDAYS[d]}`)
+
+/** inc: job incremental, em que a unidade da retenção é a semana (o full e os incrementais dele). */
+function retentionText(keep: number, days: number, where: string, inc = false) {
   const at = where ? `No ${where}` : ''
-  if (keep && days) return `${at} ficam no máximo ${keep} cópias, e as com mais de ${days} dias são apagadas.`.trim()
-  if (days) return `${at} ficam todas as cópias dos últimos ${days} dias.`.trim()
-  return `${at} ficam as ${keep || 7} cópias mais recentes.`.trim()
+  const u = (n: number) => (inc ? `${n} semana${n > 1 ? 's' : ''} (cada uma: o full e os incrementais dela)` : `${n} cópias`)
+  if (keep && days) return `${at} ficam no máximo ${u(keep)}, e ${inc ? 'as semanas' : 'as cópias'} com mais de ${days} dias são apagadas.`.trim()
+  if (days) return `${at} fica tudo dos últimos ${days} dias${inc ? ' (uma semana só sai inteira, quando o último incremental dela passar do prazo)' : ''}.`.trim()
+  return `${at} ficam ${inc ? 'as últimas ' + u(keep || 7) : `as ${keep || 7} cópias mais recentes`}.`.trim()
 }
 
 const PHASE: Record<string, string> = { archiving: 'Compactando', uploading: 'Enviando ao destino', verifying: 'Conferindo' }
@@ -148,6 +154,7 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
     kind: job?.kind ?? 'files',
     cloud_account_id: job?.cloud_account_id ?? 0, cloud_folder: job?.cloud_folder ?? '', cloud_keep: job?.cloud_keep ?? 7, cloud_keep_days: job?.cloud_keep_days ?? 0,
     cloud_direct: job?.cloud_direct ?? false,
+    backup_mode: job?.backup_mode ?? 'full', full_weekday: job?.full_weekday ?? 0,
   })
   const [db, setDb] = useState<DbState>({
     engine: job?.db?.engine ?? 'mysql', mode: job?.db?.mode ?? 'docker', container: job?.db?.container ?? '', host: job?.db?.host ?? '', port: job?.db?.port ?? 0,
@@ -165,6 +172,7 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
   const dest = clouds.find((c) => c.id === f.cloud_account_id)
   const destIsCloud = !!dest && ['gdrive', 'onedrive', 'dropbox'].includes(dest.type)
   const direct = !!dest && !destIsCloud && f.cloud_direct // grava direto no storage, sem arquivo no agente
+  const inc = f.kind !== 'database' && f.backup_mode === 'incremental'
   const allZones: string[] = (Intl as any).supportedValuesOf ? (Intl as any).supportedValuesOf('timeZone') : ['America/Sao_Paulo', 'UTC']
   // fusos do Brasil primeiro; o do job aparece mesmo que o navegador não o conheça
   const zones = [...new Set([f.timezone, ...allZones.filter((z) => z.startsWith('America/') && /Sao_Paulo|Manaus|Recife|Fortaleza|Belem|Bahia|Cuiaba|Campo_Grande|Porto_Velho|Boa_Vista|Rio_Branco|Noronha|Maceio|Araguaina|Santarem|Eirunepe/.test(z)), ...allZones])]
@@ -207,7 +215,7 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
   async function finish() {
     for (let i = 0; i < 4; i++) { const m = check(i); if (m) { setStep(i); setErr(m); return } }
     setErr(''); setBusy(true)
-    const body: Record<string, unknown> = { name: f.name, agent_id: Number(f.agent_id), kind: f.kind, paths: f.paths, excludes: f.excludes, cron: f.cron, timezone: f.timezone, dest_subdir: f.dest_subdir, keep: Number(f.keep), enabled: f.enabled }
+    const body: Record<string, unknown> = { name: f.name, agent_id: Number(f.agent_id), kind: f.kind, paths: f.paths, excludes: f.excludes, cron: f.cron, timezone: f.timezone, dest_subdir: f.dest_subdir, keep: Number(f.keep), enabled: f.enabled, backup_mode: inc ? 'incremental' : 'full', full_weekday: f.full_weekday }
     if (f.cloud_account_id) Object.assign(body, { cloud_account_id: Number(f.cloud_account_id), cloud_folder: f.cloud_folder, cloud_keep: Number(f.cloud_keep), cloud_keep_days: Number(f.cloud_keep_days), cloud_direct: direct })
     else Object.assign(body, { clear_cloud: true })
     if (f.kind === 'database') body.db = dbPayload(db)
@@ -220,9 +228,9 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
     ['Nome', f.name], ['Agente', agentName], ['Tipo', f.kind === 'files' ? 'Pastas e arquivos' : `Banco de dados · ${ENGINE_LABEL[db.engine] ?? db.engine}`],
     [f.kind === 'files' ? 'O que salvar' : 'Banco', f.kind === 'files' ? f.paths.join(', ') : db.mode === 'docker' ? `contêiner ${db.container}` : `${db.host}${db.port ? ':' + db.port : ''}`],
     ...(f.kind === 'files' && f.excludes.length ? [['Fica de fora', f.excludes.join(', ')] as [string, ReactNode]] : []),
-    ['Agenda', `${cronLabel} · ${f.timezone}`], ['Tipo de backup', 'Completo (full) a cada execução'],
+    ['Agenda', `${cronLabel} · ${f.timezone}`], ['Tipo de backup', inc ? `Full ${fullDay(f.full_weekday)}, incrementais nos outros dias` : 'Completo (full) a cada execução'],
     ['Backup local', direct ? 'nenhum: gravado direto no storage' : `${f.dest_subdir.startsWith('/') ? f.dest_subdir : 'pasta padrão do agente'} · ${f.keep === 0 ? 'apagado após o envio' : `mantém ${f.keep} cópia(s)`}`],
-    ['Storage', dest ? `${dest.name} · ${f.cloud_folder || 'pasta automática'} · ${retentionText(f.cloud_keep, f.cloud_keep_days, '').replace(/^No  /, '')}` : 'só a cópia local'],
+    ['Storage', dest ? `${dest.name} · ${f.cloud_folder || 'pasta automática'} · ${retentionText(f.cloud_keep, f.cloud_keep_days, '', inc)}` : 'só a cópia local'],
     ['Situação', f.enabled ? 'Ativo' : 'Pausado'],
   ]
   return (
@@ -275,14 +283,33 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
         <div>
           <span className="mb-1.5 block text-sm font-medium">Tipo de backup</span>
           <div role="radiogroup" aria-label="Tipo de backup" className="grid gap-3 sm:grid-cols-2">
-            <div role="radio" aria-checked="true" className="rounded-xl border border-primary p-4 ring-2 ring-primary/30">
+            <button type="button" role="radio" aria-checked={!inc} onClick={() => setF({ ...f, backup_mode: 'full' })}
+              className={`rounded-xl border p-4 text-left transition ${!inc ? 'border-primary ring-2 ring-primary/30' : 'border-border hover:border-primary/60'}`}>
               <b className="block text-sm">Completo (full)</b><span className="text-xs text-muted">Cada execução gera um arquivo com tudo. Restauração simples, a partir de um único arquivo.</span>
-            </div>
-            <div role="radio" aria-checked="false" aria-disabled="true" className="cursor-not-allowed rounded-xl border border-dashed border-border p-4 opacity-60">
-              <b className="block text-sm">Full + incrementais <span className="ml-1 rounded bg-bg px-1.5 text-[11px] font-normal text-muted">em breve</span></b>
-              <span className="text-xs text-muted">Um completo de tempos em tempos e, entre eles, só o que mudou. Menos espaço e envios mais rápidos.</span>
-            </div>
+            </button>
+            <button type="button" role="radio" aria-checked={inc} disabled={f.kind === 'database'} onClick={() => setF({ ...f, backup_mode: 'incremental' })}
+              className={`rounded-xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${inc ? 'border-primary ring-2 ring-primary/30' : 'border-border hover:border-primary/60'}`}>
+              <b className="block text-sm">Full + incrementais</b>
+              <span className="text-xs text-muted">{f.kind === 'database' ? 'Bancos de dados são sempre completos: o dump é feito inteiro a cada execução.' : 'Um completo por semana e, nos outros dias, só o que mudou. Menos espaço e envios mais rápidos.'}</span>
+            </button>
           </div>
+          {inc && (
+            <div className="mt-3 space-y-2 rounded-xl border border-border bg-bg p-4 text-sm">
+              <span className="block font-medium">Dia do backup full</span>
+              <div role="radiogroup" aria-label="Dia do backup full" className="flex flex-wrap gap-1.5">
+                {WEEKDAYS.map((d, i) => (
+                  <button key={d} type="button" role="radio" aria-checked={f.full_weekday === i} aria-label={d} onClick={() => setF({ ...f, full_weekday: i })}
+                    className={`h-9 min-w-11 rounded-lg border px-2 text-sm font-medium transition ${f.full_weekday === i ? 'border-primary bg-primary text-primary-contrast' : 'border-border bg-surface hover:border-primary/60'}`}>
+                    {d.slice(0, 3).replace(/^./, (c) => c.toUpperCase())}
+                  </button>
+                ))}
+              </div>
+              <p className="text-muted">
+                Full {fullDay(f.full_weekday)}; nos outros dias, só os arquivos novos ou alterados (e a lista do que foi apagado). Se o full do dia marcado não rodar,
+                o próximo backup faz o full. Mudar as origens ou exclusões também inicia um full. Para restaurar um incremental, o Coruja aplica o full e os incrementais da semana, em ordem.
+              </p>
+            </div>
+          )}
         </div>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={f.enabled} onChange={(e) => setF({ ...f, enabled: e.target.checked })} /> Job ativo (roda sozinho na agenda)</label>
       </>)}
@@ -300,7 +327,7 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
           <span className="mb-1.5 block text-sm font-medium">Cópias no agente</span>
           <div role="radiogroup" aria-label="Cópias no agente" className="space-y-2">
             <Choice on={f.keep > 0} onClick={() => f.keep === 0 && setF({ ...f, keep: 3 })}>
-              Manter as últimas <Count value={f.keep || 3} min={1} max={365} onChange={(keep) => setF({ ...f, keep })} unit="cópias" /> no agente
+              Manter as últimas <Count value={f.keep || 3} min={1} max={365} onChange={(keep) => setF({ ...f, keep })} unit={inc ? 'semanas' : 'cópias'} /> no agente{inc && <span className="text-muted"> (cada semana: o full e os incrementais dela)</span>}
             </Choice>
             {f.cloud_account_id !== 0 && (
               <Choice on={f.keep === 0} onClick={() => setF({ ...f, keep: 0 })}>Não guardar no agente: apagar a cópia local depois que o storage confirmar o envio</Choice>
@@ -341,17 +368,17 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
               <span className="mb-1.5 block text-sm font-medium">Por quanto tempo guardar no storage</span>
               <div role="radiogroup" aria-label="Retenção no storage" className="space-y-2">
                 <Choice on={f.cloud_keep > 0 && !f.cloud_keep_days} onClick={() => setF({ ...f, cloud_keep: f.cloud_keep || 7, cloud_keep_days: 0 })}>
-                  As últimas <Count value={f.cloud_keep || 7} min={1} max={3650} onChange={(n) => setF({ ...f, cloud_keep: n, cloud_keep_days: 0 })} unit="cópias" />
+                  As últimas <Count value={f.cloud_keep || 7} min={1} max={3650} onChange={(n) => setF({ ...f, cloud_keep: n, cloud_keep_days: 0 })} unit={inc ? 'semanas' : 'cópias'} />
                 </Choice>
                 <Choice on={!f.cloud_keep && f.cloud_keep_days > 0} onClick={() => setF({ ...f, cloud_keep: 0, cloud_keep_days: f.cloud_keep_days || 30 })}>
                   Tudo dos últimos <Count value={f.cloud_keep_days || 30} min={1} max={3650} onChange={(n) => setF({ ...f, cloud_keep: 0, cloud_keep_days: n })} unit="dias" />
                 </Choice>
                 <Choice on={f.cloud_keep > 0 && f.cloud_keep_days > 0} onClick={() => setF({ ...f, cloud_keep: f.cloud_keep || 7, cloud_keep_days: f.cloud_keep_days || 30 })}>
-                  No máximo <Count value={f.cloud_keep || 7} min={1} max={3650} onChange={(n) => setF({ ...f, cloud_keep: n, cloud_keep_days: f.cloud_keep_days || 30 })} unit="cópias" />
+                  No máximo <Count value={f.cloud_keep || 7} min={1} max={3650} onChange={(n) => setF({ ...f, cloud_keep: n, cloud_keep_days: f.cloud_keep_days || 30 })} unit={inc ? 'semanas' : 'cópias'} />
                   {' '}e nenhuma com mais de <Count value={f.cloud_keep_days || 30} min={1} max={3650} onChange={(n) => setF({ ...f, cloud_keep: f.cloud_keep || 7, cloud_keep_days: n })} unit="dias" />
                 </Choice>
               </div>
-              <p className="mt-2 rounded-lg bg-bg px-3 py-2 text-sm"><b>Resumo:</b> {retentionText(f.cloud_keep, f.cloud_keep_days, dest?.name ?? 'storage')} A cópia mais recente nunca é apagada, e a limpeza só roda depois que o envio novo é conferido.</p>
+              <p className="mt-2 rounded-lg bg-bg px-3 py-2 text-sm"><b>Resumo:</b> {retentionText(f.cloud_keep, f.cloud_keep_days, dest?.name ?? 'storage', inc)} {inc ? 'A semana mais recente nunca é apagada, e uma semana só sai inteira (nunca um pedaço que deixe um incremental sem o seu full).' : 'A cópia mais recente nunca é apagada.'} A limpeza só roda depois que o envio novo é conferido.</p>
             </div>
           </>)}
         </fieldset>

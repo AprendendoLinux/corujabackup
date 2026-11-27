@@ -68,7 +68,7 @@ export default function Runs({ me, jobFilter }: { me: User; jobFilter: number })
             {runs.length === 0 && <tr><td colSpan={6} className="p-6 text-center text-muted">Nenhuma execução encontrada.</td></tr>}
             {runs.map((r) => (
               <tr key={r.id} className="cursor-pointer border-b border-border last:border-0 hover:bg-bg" onClick={() => setOpen(r.id)}>
-                <td className="p-3 whitespace-nowrap">{fmtDate(r.started_at ?? r.scheduled_for ?? r.created_at)}<div className="text-xs text-muted">{r.trigger === 'manual' ? 'manual' : 'agendado'}</div></td>
+                <td className="p-3 whitespace-nowrap">{fmtDate(r.started_at ?? r.scheduled_for ?? r.created_at)}<div className="text-xs text-muted">{r.trigger === 'manual' ? 'manual' : 'agendado'}{r.backup_kind === 'incremental' ? ' · incremental' : ''}</div></td>
                 <td className="p-3"><b>{r.job_name}</b><div className="text-xs text-muted">{r.agent_name}</div></td>
                 <td className="p-3"><StatusBadge s={r.status} />{r.status === 'running' && r.phase && <div className="mt-1 text-xs text-muted">{PHASE[r.phase] ?? r.phase}{r.phase === 'uploading' ? ` ${r.progress_pct}%` : ''}</div>}{r.cloud_status === 'ok' && <div className="mt-1 text-xs text-muted">☁ no storage</div>}{r.cloud_status === 'failed' && <div className="mt-1 text-xs text-danger">☁ envio falhou</div>}</td>
                 <td className="p-3 text-muted">{fmtDuration(r.started_at, r.finished_at)}</td>
@@ -156,7 +156,8 @@ function Detail({ id, me, onChange }: { id: number; me: User; onChange: () => vo
       )}
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
         <Item k="Início" v={fmtDate(r.started_at)} /><Item k="Fim" v={fmtDate(r.finished_at)} /><Item k="Duração" v={fmtDuration(r.started_at, r.finished_at)} />
-        <Item k="Origem" v={fmtBytes(r.bytes_source)} /><Item k="Arquivo gerado" v={fmtBytes(r.bytes_output)} /><Item k="Itens" v={String(r.files || '—')} />
+        <Item k={r.backup_kind === 'incremental' ? 'Origem (alterada)' : 'Origem'} v={fmtBytes(r.bytes_source)} /><Item k="Arquivo gerado" v={fmtBytes(r.bytes_output)} /><Item k="Itens" v={String(r.files || '—')} />
+        <Item k="Tipo" v={r.backup_kind === 'incremental' ? 'Incremental (só o que mudou)' : 'Completo (full)'} />
         <div className="col-span-2 sm:col-span-3"><Item k="Arquivo" v={r.output_name || '—'} /></div>
         <div className="col-span-2 sm:col-span-3"><Item k="SHA-256" v={r.sha256 || '—'} mono /></div>
         {r.cloud_status !== 'none' && <div className="col-span-2 sm:col-span-3"><Item k={`Storage (${r.cloud_status === 'ok' ? `conferido por ${r.cloud_verified_by}` : 'falhou'})`} v={r.cloud_path || '—'} /></div>}
@@ -192,7 +193,7 @@ function RestorePanel({ run, job, onAction }: { run: Run; job: JobInfo; onAction
         <Button variant="ghost" onClick={() => onAction(`/api/runs/${run.id}/extract`, { target }, undefined)}>📂 Extrair no agente</Button>
         <button className="text-primary hover:underline" onClick={() => setGuide(!guide)}>{guide ? 'Ocultar guia' : 'Como restaurar manualmente'}</button>
       </div>
-      <p className="text-xs text-muted">“Extrair no agente” descompacta o arquivo local em <code>restores/&lt;pasta&gt;</code> dentro da pasta de backups do agente, sem sobrescrever nada. O andamento aparece no log abaixo. Se a cópia local já foi removida, baixe da nuvem (ou, num storage de rede, use “Trazer do storage”).</p>
+      <p className="text-xs text-muted">“Extrair no agente” descompacta o arquivo local em <code>restores/&lt;pasta&gt;</code> dentro da pasta de backups do agente, sem sobrescrever nada.{run.backup_kind === 'incremental' && ' Por ser incremental, o agente aplica em ordem o full da semana e os incrementais até este (buscando no storage de rede o que não estiver no agente) e remove o que tinha sido apagado na origem.'} O andamento aparece no log abaixo. Se a cópia local já foi removida, baixe da nuvem (ou, num storage de rede, use “Trazer do storage”).</p>
       {guide && <Guide run={run} job={job} />}
     </div>
   )
@@ -225,7 +226,20 @@ mongorestore --archive=/restaurar/*/NOME_DO_BANCO.archive.gz --gzip --drop
 # em contêiner:  docker exec -i NOME_DO_CONTEINER mongorestore --archive --gzip --drop < arquivo.archive.gz`,
   }
   dbs.mariadb = dbs.mysql
-  const text = job.kind === 'database' ? (dbs[eng ?? ''] ?? files) : files
+  const pre = f.replace(/-\d{8}-\d{6}-inc\.tar\.gz$/, '')
+  const incr = `# Backup INCREMENTAL: ele só tem o que mudou. Restaure a semana EM ORDEM:
+# o full mais recente antes deste (nome sem "-inc") e cada incremental até este.
+# 1) Liste os arquivos do job em ordem de data:
+ls -1 ${pre}-*.tar.gz | sort
+# 2) Extraia um por vez, do full até ${f}:
+mkdir -p /restaurar
+tar -xzf ${pre}-AAAAMMDD-HHMMSS.tar.gz -C /restaurar       # o full
+tar -xzf ${pre}-AAAAMMDD-HHMMSS-inc.tar.gz -C /restaurar   # cada incremental, em ordem
+tar -xzf ${f} -C /restaurar
+# 3) Depois de CADA incremental, apague em /restaurar os caminhos da lista "deleted"
+#    de /restaurar/.coruja-manifest.json (o que foi apagado na origem).
+# "Extrair no agente" faz tudo isso sozinho.`
+  const text = job.kind === 'database' ? (dbs[eng ?? ''] ?? files) : run.backup_kind === 'incremental' ? incr : files
   return (
     <div className="space-y-2">
       <CopyBox text={text} />

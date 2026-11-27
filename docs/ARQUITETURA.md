@@ -78,3 +78,13 @@
 - **PDF nativo (go-pdf/fpdf):** fonte padrão do PDF com acentos do português (cp1252); logo PNG/JPEG/GIF (SVG/WebP caem para o nome).
 - **Segurança:** configuração dos canais cifrada (AES-GCM); a senha SMTP só é enviada após TLS (ou sem TLS se escolhido); erros passam por
   um filtro que remove senha/token.
+
+## Full + incrementais (0.0.21)
+
+- **Modo do job:** `full` (cada execução é completa, o padrão) ou `incremental` (full num dia da semana escolhido, no fuso do job; incrementais nos outros dias). Jobs de banco são sempre completos.
+- **Detecção de mudança:** o agente guarda, por job, o retrato do último backup que terminou bem (`<dados do agente>/snapshots/<job>.json.gz`, permissão 600): tamanho, data de modificação, ctime, inode e dispositivo de cada item. Entra no incremental o que é novo ou tem qualquer um desses valores diferente (como o GNU tar e o rsync). Os arquivos sem mudança ficam de fora, mas continuam no retrato.
+- **Quando é full:** sem retrato; origens ou exclusões alteradas; no dia marcado (uma vez por dia); se o último full tem 7 dias ou mais (o do dia marcado não rodou); ou a pedido ("Executar backup full agora").
+- **O retrato só é gravado quando a execução termina bem** (arquivo conferido e, se houver, storage conferido). Se algo falhar, o próximo incremental parte do retrato anterior e leva de novo tudo o que mudou desde ele. Arquivos ilegíveis ou que mudaram durante a leitura ficam fora do retrato e vão no próximo backup.
+- **Formato:** o incremental continua sendo um `.tar.gz` comum (`<job>-AAAAMMDD-HHMMSS-inc.tar.gz`; o full não tem `-inc`), com os itens alterados e um `.coruja-manifest.json` na raiz: tipo, full da cadeia, backup base e a lista `deleted` do que foi apagado desde o anterior.
+- **Cadeia:** um full e os incrementais seguintes. A retenção (local, nuvem e storages) conta **cadeias** ("semanas"): apaga cadeias inteiras, nunca um pedaço do meio, e nunca a mais recente; por dias, uma cadeia sai quando o arquivo mais novo dela passa do prazo. Num job só de fulls, cada arquivo é uma cadeia: o comportamento antigo não muda.
+- **Restauração:** "Extrair no agente" de um incremental aplica, em ordem, o full e os incrementais até ele, removendo o que o manifesto marca como apagado. O que não estiver no agente é trazido do storage de rede (conferido pelo SHA-256) e apagado depois da extração. Nas nuvens, a cadeia precisa estar no agente.

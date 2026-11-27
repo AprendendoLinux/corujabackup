@@ -34,6 +34,7 @@ type Run struct {
 	CloudPath       string `json:"cloud_path"`
 	CloudHash       string `json:"cloud_hash"`
 	CloudVerifiedBy string `json:"cloud_verified_by"`
+	BackupKind      string `json:"backup_kind"` // full | incremental
 }
 
 type RunLog struct {
@@ -45,7 +46,7 @@ type RunLog struct {
 
 const runSelect = `SELECT r.id, r.uid, r.job_id, j.name, r.agent_id, a.name, r.trigger_kind, r.scheduled_for, r.status, r.started_at, r.finished_at,
   r.bytes_source, r.bytes_output, r.files, r.sha256, r.output_name, COALESCE(r.error,''), r.created_at,
-  r.phase, r.progress_pct, r.cloud_status, r.cloud_path, r.cloud_hash, r.cloud_verified_by
+  r.phase, r.progress_pct, r.cloud_status, r.cloud_path, r.cloud_hash, r.cloud_verified_by, r.backup_kind
   FROM runs r JOIN jobs j ON j.id=r.job_id JOIN agents a ON a.id=r.agent_id `
 
 func scanRun(r interface{ Scan(...any) error }) (*Run, error) {
@@ -53,7 +54,7 @@ func scanRun(r interface{ Scan(...any) error }) (*Run, error) {
 	var sf, st, fi sql.NullTime
 	if err := r.Scan(&x.ID, &x.UID, &x.JobID, &x.JobName, &x.AgentID, &x.AgentName, &x.Trigger, &sf, &x.Status, &st, &fi,
 		&x.BytesSource, &x.BytesOutput, &x.Files, &x.SHA256, &x.OutputName, &x.Error, &x.CreatedAt,
-		&x.Phase, &x.ProgressPct, &x.CloudStatus, &x.CloudPath, &x.CloudHash, &x.CloudVerifiedBy); err != nil {
+		&x.Phase, &x.ProgressPct, &x.CloudStatus, &x.CloudPath, &x.CloudHash, &x.CloudVerifiedBy, &x.BackupKind); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -110,6 +111,7 @@ type Report struct {
 	CloudPath       string
 	CloudHash       string
 	CloudVerifiedBy string
+	BackupKind      string
 }
 
 // ApplyReport grava (de forma idempotente) o que o agente informou. Nunca tira uma execução do estado final.
@@ -184,8 +186,12 @@ func (s *Store) ApplyReportX(ctx context.Context, r Report) (finished bool, runI
 			r.Status, nullTime(r.StartedAt), nullTime(r.FinishedAt), r.BytesSource, r.BytesOutput, r.Files, r.SHA256, r.OutputName, nullStr(r.Error), id); err != nil {
 			return false, 0, err
 		}
-		if _, err := tx.ExecContext(ctx, "UPDATE runs SET phase='', progress_pct=?, cloud_status=?, cloud_path=?, cloud_hash=?, cloud_verified_by=? WHERE id=?",
-			r.ProgressPct, cloudStatusOrNone(r.CloudStatus), r.CloudPath, r.CloudHash, r.CloudVerifiedBy, id); err != nil {
+		kind := r.BackupKind
+		if kind != "incremental" {
+			kind = "full"
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE runs SET phase='', progress_pct=?, cloud_status=?, cloud_path=?, cloud_hash=?, cloud_verified_by=?, backup_kind=? WHERE id=?",
+			r.ProgressPct, cloudStatusOrNone(r.CloudStatus), r.CloudPath, r.CloudHash, r.CloudVerifiedBy, kind, id); err != nil {
 			return false, 0, err
 		}
 	} else {

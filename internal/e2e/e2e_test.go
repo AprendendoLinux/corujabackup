@@ -177,7 +177,7 @@ func (r *rig) runNow(jobID int64) *store.Run {
 	if err := r.st.CreateQueuedRun(ctx, uid, jobID, r.agent.ID); err != nil {
 		r.t.Fatal(err)
 	}
-	if err := r.srv.RunNow(r.agent.ID, jobID, uid); err != nil {
+	if err := r.srv.RunNow(r.agent.ID, jobID, uid, false); err != nil {
 		r.t.Fatal(err)
 	}
 	deadline := time.Now().Add(40 * time.Second)

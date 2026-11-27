@@ -52,14 +52,14 @@ export type Run = {
   id: number; uid: string; job_id: number; job_name: string; agent_id: number; agent_name: string; trigger: string
   scheduled_for: string | null; status: string; started_at: string | null; finished_at: string | null
   bytes_source: number; bytes_output: number; files: number; sha256: string; output_name: string; error: string; created_at: string
-  phase: string; progress_pct: number; cloud_status: string; cloud_path: string; cloud_hash: string; cloud_verified_by: string
+  phase: string; progress_pct: number; cloud_status: string; cloud_path: string; cloud_hash: string; cloud_verified_by: string; backup_kind?: 'full' | 'incremental'
 }
 export type RunLog = { seq: number; at: string; level: string; text: string }
 export type Job = {
   id: number; name: string; agent_id: number; kind: string; enabled: boolean; cron: string; timezone: string
   paths: string[]; excludes: string[]; dest_subdir: string; keep: number; version: number
   agent_name: string; agent_online: boolean; next_run_at: string | null; last_run: Run | null
-  cloud_account_id: number | null; cloud_folder: string; cloud_keep: number; cloud_keep_days: number; cloud_direct?: boolean
+  cloud_account_id: number | null; cloud_folder: string; cloud_keep: number; cloud_keep_days: number; cloud_direct?: boolean; backup_mode?: 'full' | 'incremental'; full_weekday?: number
   db: DbView | null
 }
 

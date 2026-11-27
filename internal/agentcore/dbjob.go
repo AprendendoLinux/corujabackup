@@ -93,7 +93,7 @@ func runDatabase(ctx context.Context, name string, spec *pb.DbSpec, subdir strin
 	if local {
 		out = &localOut{dest: dest}
 	}
-	arcName, w, err := out.begin(prefix, loc, now)
+	arcName, w, err := out.begin(prefix, loc, now, false)
 	if err != nil {
 		return res, err
 	}

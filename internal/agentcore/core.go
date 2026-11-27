@@ -52,6 +52,7 @@ type runReq struct {
 	uid          string
 	trigger      string
 	scheduledFor time.Time
+	forceFull    bool // "executar full agora" num job incremental
 }
 
 // Core é o "cérebro" do agente: agenda, executa um backup por vez e relata ao Server (quando conectado).
@@ -213,6 +214,11 @@ func (c *Core) Tick() {
 
 // Enqueue coloca um job na fila (um backup por vez). Manuais usam o run_uid criado pelo Server.
 func (c *Core) Enqueue(jobID int64, uid, trigger string, scheduledFor time.Time) {
+	c.EnqueueRun(jobID, uid, trigger, scheduledFor, false)
+}
+
+// EnqueueRun é Enqueue com a opção de forçar um backup full num job incremental.
+func (c *Core) EnqueueRun(jobID int64, uid, trigger string, scheduledFor time.Time, forceFull bool) {
 	c.mu.Lock()
 	spec := c.jobs[jobID]
 	if spec == nil {
@@ -229,7 +235,7 @@ func (c *Core) Enqueue(jobID int64, uid, trigger string, scheduledFor time.Time)
 	c.active[uid] = true
 	c.mu.Unlock()
 	select {
-	case c.queue <- runReq{spec: spec, uid: uid, trigger: trigger, scheduledFor: scheduledFor}:
+	case c.queue <- runReq{spec: spec, uid: uid, trigger: trigger, scheduledFor: scheduledFor, forceFull: forceFull}:
 	default:
 		c.mu.Lock()
 		delete(c.busyJobs, jobID)
@@ -383,6 +389,23 @@ func (c *Core) execute(parent context.Context, r runReq) {
 	if r.spec.Kind == "database" {
 		job.DB = r.spec.Db
 	}
+	// incremental: full no dia marcado (ou quando não há base confiável); nos outros dias, só o que mudou
+	var plan *incPlan
+	var prevSnap *Snapshot
+	sig := ""
+	if r.spec.Kind != "database" && r.spec.BackupMode == ModeIncremental && c.st != nil {
+		sig = jobSig(c.cfg.HostRoot, r.spec.Paths, r.spec.Excludes)
+		prevSnap = c.st.LoadSnapshot(r.spec.JobId)
+		local := started.In(loc)
+		plan = &incPlan{day: local.Format("2006-01-02")}
+		if full, why := needFull(prevSnap, sig, local, int(r.spec.FullWeekday), r.forceFull); full {
+			logf("info", "backup full: %s", why)
+		} else {
+			plan.base = prevSnap
+			logf("info", "backup incremental (cadeia iniciada em %s, base %s)", prevSnap.Chain, prevSnap.Last)
+		}
+		job.inc = plan
+	}
 	phase := func(name string, pct int) {
 		pr := proto.Clone(base).(*pb.RunReport)
 		pr.State, pr.Phase, pr.ProgressPct = pb.RunReport_PROGRESS, name, int32(pct)
@@ -449,6 +472,10 @@ func (c *Core) execute(parent context.Context, r runReq) {
 	fin.State, fin.FinishedMs = pb.RunReport_FINISHED, ms(c.now())
 	fin.BytesSource, fin.BytesOutput, fin.Files, fin.Sha256, fin.OutputName = res.BytesSource, res.BytesOutput, res.Files, res.SHA256, res.OutputName
 	fin.CloudStatus, fin.CloudPath, fin.CloudHash, fin.CloudVerifiedBy = cloudStatus, cinfo.Path, cinfo.Hash, cinfo.VerifiedBy
+	fin.BackupKind = ModeFull
+	if res.Kind != "" {
+		fin.BackupKind = res.Kind
+	}
 	switch {
 	case (err != nil || cloudErr != nil) && ctx.Err() != nil && parent.Err() == nil:
 		fin.Status, fin.Error = "canceled", "cancelado pelo usuário"
@@ -467,6 +494,20 @@ func (c *Core) execute(parent context.Context, r runReq) {
 	default:
 		fin.Status = "ok"
 		logf("info", "concluído com sucesso em %s", c.now().Sub(started).Round(time.Second))
+	}
+	// o retrato só vale quando a execução terminou bem (arquivo e storage conferidos)
+	if plan != nil && res.Snapshot != nil && (fin.Status == "ok" || fin.Status == "warning") {
+		snap := res.Snapshot
+		snap.Sig = sig
+		if plan.base == nil {
+			snap.FullDay = plan.day
+		} else {
+			snap.FullDay = plan.base.FullDay
+		}
+		if err := c.st.SaveSnapshot(r.spec.JobId, snap); err != nil {
+			logf("warn", "não foi possível guardar o retrato do backup (o próximo será full): %v", err)
+			c.st.DropSnapshot(r.spec.JobId)
+		}
 	}
 	stopFlush()
 	<-flushDone

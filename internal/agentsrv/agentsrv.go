@@ -8,9 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/AprendendoLinux/corujabackup/internal/bkname"
 	"log/slog"
 	"net"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -81,7 +81,7 @@ var ErrOffline = errors.New("o agente está offline")
 func SpecFromJob(j store.Job) *pb.JobSpec {
 	return &pb.JobSpec{JobId: j.ID, Name: j.Name, Kind: j.Kind, Enabled: j.Enabled, Cron: j.Cron, Timezone: j.Timezone,
 		Paths: j.Paths, Excludes: j.Excludes, DestSubdir: j.DestSubdir, Keep: int32(j.Keep), Version: int32(j.Version),
-		CloudFolder: j.CloudFolder}
+		CloudFolder: j.CloudFolder, BackupMode: j.BackupMode, FullWeekday: int32(j.FullWeekday)}
 }
 
 // specFor monta a definição do job enviada ao agente (decifrando a configuração de banco, se houver).
@@ -142,8 +142,8 @@ func (s *Server) PushJobs(ctx context.Context, agentID int64) {
 }
 
 // RunNow pede ao agente que execute o job agora (ErrOffline se ele não estiver conectado).
-func (s *Server) RunNow(agentID, jobID int64, runUID string) error {
-	return s.enqueue(agentID, &pb.ServerMessage{Body: &pb.ServerMessage_RunNow{RunNow: &pb.RunNow{JobId: jobID, RunUid: runUID}}})
+func (s *Server) RunNow(agentID, jobID int64, runUID string, forceFull bool) error {
+	return s.enqueue(agentID, &pb.ServerMessage{Body: &pb.ServerMessage_RunNow{RunNow: &pb.RunNow{JobId: jobID, RunUid: runUID, ForceFull: forceFull}}})
 }
 
 func (s *Server) CancelRun(agentID int64, runUID string) error {
@@ -162,7 +162,7 @@ func reportFrom(agentID int64, r *pb.RunReport) store.Report {
 		Status: r.Status, StartedAt: ms(r.StartedMs), FinishedAt: ms(r.FinishedMs), BytesSource: r.BytesSource, BytesOutput: r.BytesOutput,
 		Files: r.Files, SHA256: clip(r.Sha256, 64), OutputName: clip(r.OutputName, 255), Error: clip(r.Error, 4000),
 		Phase: clip(r.Phase, 20), ProgressPct: int(r.ProgressPct), CloudStatus: r.CloudStatus, CloudPath: clip(r.CloudPath, 700),
-		CloudHash: clip(r.CloudHash, 100), CloudVerifiedBy: clip(r.CloudVerifiedBy, 12)}
+		CloudHash: clip(r.CloudHash, 100), CloudVerifiedBy: clip(r.CloudVerifiedBy, 12), BackupKind: r.BackupKind}
 	switch out.Status {
 	case "ok", "warning", "failed", "canceled":
 	default:
@@ -499,7 +499,7 @@ func (s *Server) send(c *conn, m *pb.ServerMessage) {
 	}
 }
 
-var backupNameRE = regexp.MustCompile(`^[a-z0-9-]+-\d{8}-\d{6}\.tar\.gz$`)
+var backupNameRE = bkname.Any
 
 // jobForUpload valida que o arquivo pedido pertence a um job deste agente que tem destino de nuvem, com nome no
 // padrão do job (o agente não consegue gravar nomes arbitrários na nuvem).

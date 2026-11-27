@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,11 +16,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AprendendoLinux/corujabackup/internal/bkname"
+	"github.com/AprendendoLinux/corujabackup/internal/netdest"
 	"github.com/AprendendoLinux/corujabackup/internal/pb"
 )
 
 var (
-	backupFileRE = regexp.MustCompile(`^[a-z0-9-]+-\d{8}-\d{6}\.tar\.gz$`)
+	backupFileRE = bkname.Any
 	targetRE     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 )
 
@@ -159,58 +162,172 @@ func (c *Core) extract(ctx context.Context, act *pb.AgentAction, al *actionLog) 
 	if !targetRE.MatchString(act.Target) || strings.Contains(act.Target, "..") {
 		return errors.New("nome de pasta de destino inválido")
 	}
-	_, file, err := c.backupPath(act)
-	if err != nil {
-		return err
-	}
 	dest := filepath.Join(c.cfg.BackupDir, "restores", act.Target)
 	if _, err := os.Lstat(dest); err == nil {
 		return fmt.Errorf("a pasta %s já existe; escolha outro nome", dest)
 	}
-	al.logf("info", "extraindo %s para %s", act.FileName, dest)
-	n, size, err := ExtractArchive(ctx, file, dest, al.logf)
+	files, fetched, err := c.chainFiles(ctx, act, al)
+	defer func() { // o que foi trazido do storage só para esta restauração não fica ocupando o agente
+		for _, f := range fetched {
+			_ = os.Remove(f)
+		}
+	}()
 	if err != nil {
-		_ = os.RemoveAll(dest)
 		return err
+	}
+	var n int
+	var size int64
+	for i, file := range files {
+		if len(files) > 1 {
+			al.logf("info", "aplicando %d de %d: %s", i+1, len(files), filepath.Base(file))
+		} else {
+			al.logf("info", "extraindo %s para %s", act.FileName, dest)
+		}
+		k, sz, man, err := extractOne(ctx, file, dest, al.logf)
+		if err != nil {
+			_ = os.RemoveAll(dest)
+			return err
+		}
+		n, size = n+k, size+sz
+		if man != nil && len(man.Deleted) > 0 {
+			removed := applyDeletions(dest, man.Deleted)
+			al.logf("info", "%d item(ns) apagado(s) na origem desde o backup anterior foram removidos da restauração", removed)
+		}
 	}
 	al.logf("info", "extração concluída: %d itens, %s, em %s", n, HumanBytes(size), dest)
 	al.flush("ok", "extraído", func(m *pb.ActionLog) { m.Path = dest })
 	return nil
 }
 
+// chainFiles devolve os arquivos locais a extrair, em ordem. Para um incremental, é a cadeia inteira (full primeiro);
+// o que não estiver no agente é trazido do storage de rede do job (conferido pelo SHA-256), quando houver um.
+func (c *Core) chainFiles(ctx context.Context, act *pb.AgentAction, al *actionLog) (files, fetched []string, err error) {
+	if len(act.Chain) == 0 {
+		_, file, err := c.backupPath(act)
+		if err != nil {
+			return nil, nil, err
+		}
+		return []string{file}, nil, nil
+	}
+	if act.Chain[len(act.Chain)-1] != act.FileName {
+		return nil, nil, errors.New("cadeia de restauração inconsistente")
+	}
+	dir, err := c.localDir(act.Subdir)
+	if err != nil {
+		return nil, nil, err
+	}
+	c.mu.Lock()
+	spec := c.jobs[act.JobId]
+	c.mu.Unlock()
+	al.logf("info", "backup incremental: a restauração aplica %d arquivo(s) em ordem (o full e os incrementais até este)", len(act.Chain))
+	var out, missing []string
+	for i, name := range act.Chain {
+		if !backupFileRE.MatchString(name) {
+			return nil, fetched, errors.New("nome de arquivo de backup inválido na cadeia")
+		}
+		p := filepath.Join(dir, name)
+		if st, err := os.Stat(p); err == nil && st.Mode().IsRegular() {
+			out = append(out, p)
+			continue
+		}
+		if spec == nil || spec.Dest == nil {
+			missing = append(missing, name)
+			continue
+		}
+		cfg, err := destConfig(spec.Dest)
+		if err != nil {
+			return nil, fetched, err
+		}
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, fetched, err
+		}
+		want := ""
+		if i < len(act.ChainSha256) {
+			want = act.ChainSha256[i]
+		}
+		al.logf("info", "trazendo %s do storage (não está no agente)", name)
+		if _, err := netdest.Fetch(ctx, cfg, c.destEnv(), spec.Dest.Folder, name, p, want); err != nil {
+			return nil, fetched, fmt.Errorf("não foi possível trazer %s do storage: %w", name, err)
+		}
+		fetched = append(fetched, p)
+		out = append(out, p)
+	}
+	if len(missing) > 0 {
+		return nil, fetched, fmt.Errorf("faltam no agente arquivos da cadeia deste incremental: %s (baixe-os da nuvem e copie para a pasta do backup local, ou restaure um backup full)", strings.Join(missing, ", "))
+	}
+	return out, fetched, nil
+}
+
+// applyDeletions remove da restauração o que o incremental registrou como apagado na origem (sem sair de dest).
+func applyDeletions(dest string, deleted []string) int {
+	root, err := filepath.EvalSymlinks(dest)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, d := range deleted {
+		rel := strings.TrimPrefix(path.Clean("/"+d), "/")
+		if rel == "" {
+			continue
+		}
+		target := filepath.Join(root, filepath.FromSlash(rel))
+		parent, err := filepath.EvalSymlinks(filepath.Dir(target))
+		if err != nil || !within(root, parent) || !within(root, target) {
+			continue
+		}
+		if os.RemoveAll(target) == nil {
+			n++
+		}
+	}
+	return n
+}
+
 // ExtractArchive extrai um .tar.gz com segurança: nenhum item sai de dest (nomes com ".." ou absolutos são neutralizados) e
 // nenhum arquivo é gravado através de link simbólico que aponte para fora.
 func ExtractArchive(ctx context.Context, archive, dest string, logf func(level, f string, a ...any)) (items int, bytes int64, err error) {
+	items, bytes, _, err = extractOne(ctx, archive, dest, logf)
+	return items, bytes, err
+}
+
+// extractOne extrai um arquivo e devolve o manifesto do incremental (que não é gravado na restauração), se houver.
+func extractOne(ctx context.Context, archive, dest string, logf func(level, f string, a ...any)) (items int, bytes int64, man *Manifest, err error) {
 	f, err := os.Open(archive)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, nil, err
 	}
 	defer f.Close()
 	gz, err := gzip.NewReader(f)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, nil, err
 	}
 	if err := os.MkdirAll(dest, 0o750); err != nil {
-		return 0, 0, err
+		return 0, 0, nil, err
 	}
 	root, err := filepath.EvalSymlinks(dest)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, nil, err
 	}
 	tr := tar.NewReader(gz)
 	for {
 		if ctx.Err() != nil {
-			return items, bytes, ctx.Err()
+			return items, bytes, man, ctx.Err()
 		}
 		h, err := tr.Next()
 		if errors.Is(err, io.EOF) {
-			return items, bytes, nil
+			return items, bytes, man, nil
 		}
 		if err != nil {
-			return items, bytes, err
+			return items, bytes, man, err
 		}
 		rel := strings.TrimPrefix(path.Clean("/"+h.Name), "/")
 		if rel == "" {
+			continue
+		}
+		if rel == manifestName && h.Typeflag == tar.TypeReg { // manifesto do incremental: lido, não gravado
+			var m Manifest
+			if json.NewDecoder(io.LimitReader(tr, 64<<20)).Decode(&m) == nil {
+				man = &m
+			}
 			continue
 		}
 		target := filepath.Join(root, filepath.FromSlash(rel))
@@ -221,11 +338,11 @@ func ExtractArchive(ctx context.Context, archive, dest string, logf func(level, 
 		switch h.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, os.FileMode(h.Mode)&0o777|0o700); err != nil {
-				return items, bytes, err
+				return items, bytes, man, err
 			}
 		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
-				return items, bytes, err
+				return items, bytes, man, err
 			}
 			if real, err := filepath.EvalSymlinks(filepath.Dir(target)); err != nil || !within(root, real) {
 				logf("warn", "item ignorado (pasta aponta para fora do destino): %s", h.Name)
@@ -234,18 +351,18 @@ func ExtractArchive(ctx context.Context, archive, dest string, logf func(level, 
 			_ = os.Remove(target) // nunca escreve através de um link que já exista
 			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_EXCL, os.FileMode(h.Mode)&0o777)
 			if err != nil {
-				return items, bytes, err
+				return items, bytes, man, err
 			}
 			n, err := io.Copy(out, tr)
 			cerr := out.Close()
 			if err != nil || cerr != nil {
-				return items, bytes, errors.Join(err, cerr)
+				return items, bytes, man, errors.Join(err, cerr)
 			}
 			bytes += n
 			_ = os.Chtimes(target, h.ModTime, h.ModTime)
 		case tar.TypeSymlink:
 			if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
-				return items, bytes, err
+				return items, bytes, man, err
 			}
 			_ = os.Remove(target)
 			if err := os.Symlink(h.Linkname, target); err != nil {

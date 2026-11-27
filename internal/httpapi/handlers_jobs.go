@@ -44,6 +44,8 @@ type jobIn struct {
 	CloudKeep      *int    `json:"cloud_keep"`
 	CloudKeepDays  *int    `json:"cloud_keep_days"`
 	CloudDirect    *bool   `json:"cloud_direct"`
+	BackupMode     *string `json:"backup_mode"`
+	FullWeekday    *int    `json:"full_weekday"`
 	ClearCloud     bool    `json:"clear_cloud"`
 
 	Kind *string `json:"kind"`
@@ -296,6 +298,28 @@ func (s *Server) applyJobIn(ctx context.Context, j *store.Job, in jobIn) string 
 	if in.CloudDirect != nil {
 		j.CloudDirect = *in.CloudDirect
 	}
+	if in.BackupMode != nil {
+		j.BackupMode = *in.BackupMode
+	}
+	if in.FullWeekday != nil {
+		j.FullWeekday = *in.FullWeekday
+	}
+	switch j.BackupMode {
+	case "", "full":
+		j.BackupMode = "full"
+	case "incremental":
+		if j.Kind == "database" {
+			return "jobs de banco de dados são sempre completos (o dump é inteiro a cada execução)"
+		}
+		if a.AgentVersion != "" && !versionAtLeast(a.AgentVersion, [3]int{0, 0, 21}) {
+			return "o agente " + a.Name + " (versão " + a.AgentVersion + ") não faz backups incrementais: atualize-o para a versão 0.0.21 ou mais nova"
+		}
+	default:
+		return "tipo de backup inválido"
+	}
+	if j.FullWeekday < 0 || j.FullWeekday > 6 {
+		return "dia do backup full inválido"
+	}
 	if in.CloudAccountID != nil && *in.CloudAccountID > 0 {
 		acc, err := s.Store.GetCloud(ctx, *in.CloudAccountID)
 		if err != nil {
@@ -512,12 +536,13 @@ func (s *Server) runJobNow(w http.ResponseWriter, r *http.Request, cu *ctxUser) 
 		writeErr(w, 503, "canal dos agentes indisponível")
 		return
 	}
+	full := r.URL.Query().Get("full") == "1" // "executar full agora" num job incremental
 	uid := auth.NewUUID()
 	if err := s.Store.CreateQueuedRun(r.Context(), uid, j.ID, j.AgentID); err != nil {
 		writeErr(w, 500, "erro interno")
 		return
 	}
-	if err := s.Agents.RunNow(j.AgentID, j.ID, uid); err != nil {
+	if err := s.Agents.RunNow(j.AgentID, j.ID, uid, full); err != nil {
 		_ = s.Store.DeleteQueuedRun(r.Context(), uid)
 		if errors.Is(err, agentsrv.ErrOffline) {
 			writeErr(w, 409, "o agente está offline; não foi possível iniciar o backup agora")

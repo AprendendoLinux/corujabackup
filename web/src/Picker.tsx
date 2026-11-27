@@ -82,13 +82,17 @@ function SizeTag({ s, file }: { s?: DirSize; file?: number }) {
   return <span className="shrink-0 text-xs tabular-nums text-muted" title={`${s.files.toLocaleString('pt-BR')} arquivo(s)${s.complete ? '' : ' (contagem parcial: a pasta é grande demais para medir por completo)'}`}>{s.complete ? '' : 'mais de '}{size(s.bytes)}</span>
 }
 
-/** Árvore com caixas de marcar sobre o disco do agente. Marcar uma pasta inclui tudo o que há dentro dela. */
-export function TreePicker({ title, intro, agentId, roots, initial, lockRoots, confirmLabel, onConfirm, onClose }: {
-  title: string; intro: string; agentId: number; roots: string[]; initial: string[]; lockRoots?: boolean; confirmLabel: string
-  onConfirm: (paths: string[]) => void; onClose: () => void
+/**
+ * Árvore com caixas de marcar sobre o disco do agente. Marcar uma pasta inclui tudo o que há dentro dela; dentro de uma
+ * pasta marcada, desmarcar uma subpasta (ou arquivo) a deixa de fora. Devolve o que entra e o que fica de fora.
+ */
+export function TreePicker({ title, intro, agentId, roots, initial, initialExcludes = [], confirmLabel, onConfirm, onClose }: {
+  title: string; intro: string; agentId: number; roots: string[]; initial: string[]; initialExcludes?: string[]; confirmLabel: string
+  onConfirm: (paths: string[], excludes: string[]) => void; onClose: () => void
 }) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set(initial))
-  const [open, setOpen] = useState<Set<string>>(() => new Set([...roots, ...initial.flatMap(ancestors).filter((a) => roots.some((r) => a === r || isUnder(a, r)))]))
+  const [excluded, setExcluded] = useState<Set<string>>(() => new Set(initialExcludes.filter((e) => initial.some((p) => isUnder(e, p)))))
+  const [open, setOpen] = useState<Set<string>>(() => new Set([...roots, ...[...initial, ...initialExcludes].flatMap(ancestors).filter((a) => roots.some((r) => a === r || isUnder(a, r)))]))
   const [lists, setLists] = useState<Record<string, Listing>>({})
   const asked = useRef(new Set<string>())
   const { sizes, want } = useDirSizes(agentId)
@@ -117,21 +121,32 @@ export function TreePicker({ title, intro, agentId, roots, initial, lockRoots, c
     }
     setOpen(next)
   }
+  // a decisão mais próxima (a própria pasta ou a mais funda acima dela) vale: marcada entra, desmarcada fica de fora
+  function inherited(path: string, inc: Set<string>, exc: Set<string>, self = true): boolean {
+    let best = '', on = false
+    for (const [set, val] of [[inc, true], [exc, false]] as const) {
+      set.forEach((p) => { if ((self && p === path) || isUnder(path, p)) { if (p.length > best.length) { best = p; on = val } } })
+    }
+    return on
+  }
   function toggle(path: string, on: boolean) {
-    const next = new Set(selected)
-    if (on) { next.forEach((p) => { if (isUnder(p, path)) next.delete(p) }); next.add(path) } else next.delete(path)
-    setSelected(next)
+    const inc = new Set(selected), exc = new Set(excluded)
+    for (const set of [inc, exc]) set.forEach((p) => { if (p === path || isUnder(p, path)) set.delete(p) }) // decisões de dentro deixam de valer
+    const parent = inherited(path, inc, exc, false)
+    if (on && !parent) inc.add(path)
+    if (!on && parent) exc.add(path)
+    setSelected(inc); setExcluded(exc)
   }
 
   function Node({ path, label, entry, depth }: { path: string; label: string; entry: Entry; depth: number }) {
-    const covered = [...selected].find((s) => isUnder(path, s))
-    const partial = !covered && !selected.has(path) && [...selected].some((s) => isUnder(s, path))
+    const checked = inherited(path, selected, excluded)
+    const insideChosen = inherited(path, selected, excluded, false) // a pasta de cima está marcada
+    const partial = checked ? [...excluded].some((s) => isUnder(s, path)) : [...selected].some((s) => isUnder(s, path))
     const list = lists[path]
     // uma raiz da árvore de exclusões pode ser um arquivo: só se descobre ao tentar listá-la
     const isFile = !entry.dir || (depth === 0 && !!list?.error?.endsWith('não é uma pasta'))
     const expandable = !isFile && !entry.link
     const expanded = open.has(path)
-    const locked = lockRoots && depth === 0
     return (
       <li>
         <div className="flex items-center gap-1.5 rounded-md py-1 pr-2 hover:bg-bg" style={{ paddingLeft: depth * 20 + 4 }}>
@@ -140,13 +155,12 @@ export function TreePicker({ title, intro, agentId, roots, initial, lockRoots, c
               <span className={`inline-block transition-transform ${expanded ? 'rotate-90' : ''}`}>▸</span>
             </button>
           ) : <span className="w-5" />}
-          <label className={`flex min-w-0 flex-1 items-center gap-2 ${covered || locked ? 'cursor-default' : 'cursor-pointer'}`} title={covered ? `Já incluído pela pasta ${covered}` : path}>
-            {locked ? <span className="w-4" /> : (
-              <input type="checkbox" className="h-4 w-4 accent-primary" aria-label={path} checked={!!covered || selected.has(path)} disabled={!!covered}
-                ref={(el) => { if (el) el.indeterminate = partial }} onChange={(e) => toggle(path, e.target.checked)} />
-            )}
+          <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2" title={insideChosen && !checked ? `${path} fica de fora do backup` : path}>
+            <input type="checkbox" className="h-4 w-4 accent-primary" aria-label={path} checked={checked}
+              ref={(el) => { if (el) el.indeterminate = partial }} onChange={(e) => toggle(path, e.target.checked)} />
             {isFile ? <FileIcon /> : <FolderIcon />}
-            <span className={`truncate ${covered ? 'text-muted' : ''}`}>{label}</span>
+            <span className={`truncate ${insideChosen && !checked ? 'text-muted line-through' : ''}`}>{label}</span>
+            {insideChosen && !checked && <span className="shrink-0 rounded-full border border-danger/40 bg-danger/10 px-1.5 text-[11px] leading-4 text-danger">fica de fora</span>}
             {entry.link && <span className="shrink-0 text-xs text-muted">atalho (salva só o atalho)</span>}
           </label>
           {!entry.link && (isFile ? (entry.dir ? null : <SizeTag file={entry.size ?? 0} />) : <SizeTag s={sizes[path]} />)}
@@ -165,16 +179,20 @@ export function TreePicker({ title, intro, agentId, roots, initial, lockRoots, c
   }
 
   const chosen = [...selected].sort()
-  // total estimado do que está marcado: arquivos pelo tamanho da listagem, pastas pelo cálculo do agente
+  const outs = [...excluded].filter((e) => chosen.some((p) => isUnder(e, p))).sort()
+  // total estimado: o que está marcado menos o que foi desmarcado dentro; arquivos pelo tamanho da listagem, pastas pelo agente
+  const entryOf = (p: string) => { const cut = p.lastIndexOf('/'); return lists[p.slice(0, cut) || '/']?.entries?.find((x) => x.name === p.slice(cut + 1)) }
   let total = 0, pending = false, partial = false
-  for (const p of chosen) {
-    const cut = p.lastIndexOf('/')
-    const e = lists[p.slice(0, cut) || '/']?.entries?.find((x) => x.name === p.slice(cut + 1))
-    if (e && !e.dir) { total += e.size ?? 0; continue }
-    const s = sizes[p]
-    if (s && s !== 'loading' && s !== 'error') { total += s.bytes; if (!s.complete) partial = true } else pending = true
+  for (const [list, sign] of [[chosen, 1], [outs, -1]] as const) {
+    for (const p of list) {
+      const e = entryOf(p)
+      if (e && !e.dir) { total += sign * (e.size ?? 0); continue }
+      const s = sizes[p]
+      if (s && s !== 'loading' && s !== 'error') { total += sign * s.bytes; if (!s.complete) partial = true } else pending = true
+    }
   }
-  useEffect(() => { want(chosen.filter((p) => !lists[p.slice(0, p.lastIndexOf('/')) || '/']?.entries?.some((x) => x.name === p.slice(p.lastIndexOf('/') + 1) && !x.dir))) })
+  total = Math.max(0, total)
+  useEffect(() => { want([...chosen, ...outs].filter((p) => { const e = entryOf(p); return !e || e.dir })) })
   return (
     <Overlay title={title} onClose={onClose}>
       <div className="space-y-3 text-sm">
@@ -184,10 +202,10 @@ export function TreePicker({ title, intro, agentId, roots, initial, lockRoots, c
           <ul>{roots.map((r) => <li key={r}><ul>{Node({ path: r, label: r === '/' ? '/ (tudo)' : r, entry: { name: r, dir: true }, depth: 0 })}</ul></li>)}</ul>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <span className="text-muted">{chosen.length === 0 ? 'Nada marcado.' : <>{chosen.length} item(ns) marcado(s){total > 0 || !pending ? <> · <b className="text-text">{partial ? 'mais de ' : '~'}{size(total)}</b></> : null}{pending ? ' · calculando…' : ''}</>}</span>
+          <span className="text-muted">{chosen.length === 0 ? 'Nada marcado.' : <>{chosen.length} item(ns) marcado(s){outs.length ? `, ${outs.length} de fora` : ''}{total > 0 || !pending ? <> · <b className="text-text">{partial ? 'mais de ' : '~'}{size(total)}</b></> : null}{pending ? ' · calculando…' : ''}</>}</span>
           <div className="flex gap-2">
             <Button type="button" variant="ghost" onClick={onClose}>Cancelar</Button>
-            <Button type="button" onClick={() => onConfirm(chosen)}>{confirmLabel}</Button>
+            <Button type="button" onClick={() => onConfirm(chosen, outs)}>{confirmLabel}</Button>
           </div>
         </div>
       </div>
@@ -413,11 +431,13 @@ function KindIcon({ kind }: { kind?: Kind }) {
 }
 
 /** Lista de itens escolhidos, com remover, o botão que abre a árvore e (recolhida) a digitação, para casos especiais. */
-export function PathList({ agentId, label, hint, items, empty, pickLabel, pickDisabled, typeLabel, placeholder, onPick, onChange }: {
-  agentId: number; label: string; hint: string; items: string[]; empty: string; pickLabel: string; pickDisabled?: string
-  typeLabel: string; placeholder: string; onPick: () => void; onChange: (items: string[]) => void
+export function PathList({ agentId, label, hint, items, empty, pickLabel, pickDisabled, typeLabel, placeholder, onPick, onChange, except, onExceptChange }: {
+  agentId: number; label: string; hint: ReactNode; items: string[]; empty: string; pickLabel?: string; pickDisabled?: string
+  typeLabel: string; placeholder: string; onPick?: () => void; onChange: (items: string[]) => void
+  /** o que foi desmarcado na árvore dentro das pastas escolhidas: aparece abaixo, como "fica de fora" */
+  except?: string[]; onExceptChange?: (except: string[]) => void
 }) {
-  const kinds = useKinds(agentId, items)
+  const kinds = useKinds(agentId, [...items, ...(except ?? [])])
   const [typing, setTyping] = useState(false)
   const [text, setText] = useState('')
   function add() {
@@ -441,9 +461,23 @@ export function PathList({ agentId, label, hint, items, empty, pickLabel, pickDi
             ))}
           </ul>
         )}
+        {except && except.length > 0 && (
+          <ul className="scroll-fino max-h-36 overflow-y-auto divide-y divide-border border-t border-border bg-danger/5">
+            {except.map((p) => (
+              <li key={p} className="flex items-center gap-2 px-3 py-1.5" title="Desmarcado na árvore: fica de fora do backup">
+                <KindIcon kind={kinds[p]} />
+                <span className="min-w-0 flex-1 break-all font-mono text-xs text-muted line-through">{p}</span>
+                <span className="shrink-0 rounded-full border border-danger/40 bg-danger/10 px-2 py-0.5 text-[11px] leading-none text-danger">Fica de fora</span>
+                <button type="button" aria-label={`Voltar a incluir ${p}`} title="Voltar a incluir" className="text-muted hover:text-danger" onClick={() => onExceptChange?.(except.filter((x) => x !== p))}>✕</button>
+              </li>
+            ))}
+          </ul>
+        )}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border p-2">
-          <Button type="button" variant="ghost" onClick={onPick} disabled={!!pickDisabled} title={pickDisabled}>{pickLabel}</Button>
-          {!typing && <button type="button" className="text-xs text-primary hover:underline" onClick={() => setTyping(true)}>{typeLabel}</button>}
+          {onPick && <Button type="button" variant="ghost" onClick={onPick} disabled={!!pickDisabled} title={pickDisabled}>{pickLabel}</Button>}
+          {!typing && (onPick
+            ? <button type="button" className="text-xs text-primary hover:underline" onClick={() => setTyping(true)}>{typeLabel}</button>
+            : <Button type="button" variant="ghost" onClick={() => setTyping(true)}>+ {typeLabel}</Button>)}
           {typing && (
             <div className="flex min-w-60 flex-1 gap-2">
               <Input autoFocus aria-label={typeLabel} className="font-mono text-xs" placeholder={placeholder} value={text} onChange={(e) => setText(e.target.value)}

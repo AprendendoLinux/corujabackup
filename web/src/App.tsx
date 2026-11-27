@@ -50,7 +50,7 @@ export default function App() {
   const [brand, setBrand] = useState<Branding>({ name: 'Coruja Backup', theme: 'coruja', themes: [], has_logo: false })
   const [phase, setPhase] = useState<Phase>('loading')
   const [me, setMe] = useState<Me | null>(null)
-  const [version, setVersion] = useState('0.0.25')
+  const [version, setVersion] = useState('0.0.26')
   const [drawer, setDrawer] = useState(false)
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const route = useRoute()

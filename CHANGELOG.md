@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.0.26] - Desmarcar subpastas e padrões de exclusão
+- **Desmarcar subpastas na árvore:** dentro de uma pasta marcada, desmarque uma subpasta ou um arquivo para deixá-lo de fora (aparece riscado, com "fica de fora"). Dá para marcar de novo algo dentro de uma subpasta desmarcada. O total estimado já desconta o que ficou de fora, e o que foi desmarcado aparece na lista do job como "Fica de fora", com ✕ para voltar a incluir.
+- **Exclusões só por padrão:** a seção virou "Padrões de exclusão", com apenas o botão "Adicionar um padrão": `*.log` (arquivos por nome), `cache/` (pastas com esse nome, em qualquer lugar) e `*/www/tmp/` (pastas por caminho).
+- **Padrões de pasta (`cache/`, `tmp/`) no agente:** antes, um padrão terminado em `/` nunca batia. **Exige agente 0.0.26** (o Server recusa salvar esses padrões para agentes mais antigos, para não ignorá-los sem avisar).
+
 ## [0.0.25] - Instalação guiada, cancelamento imediato e tamanho das pastas
 - **Cancelar backup agora vale na hora:** antes, o agente só via o pedido de cancelamento entre um arquivo e outro, então no meio de um arquivo grande (dezenas de GB) o cancelamento demorava minutos e a tela não dava nenhum sinal. Agora a leitura para em menos de um segundo, o log mostra "cancelamento pedido" e, até o agente confirmar que parou, a execução aparece como **"Cancelando…"** para todos (Histórico, Jobs e detalhe, com a faixa "Cancelando, aguarde…"), mesmo fechando e abrindo a janela. O arquivo incompleto é apagado. Vale também para restaurações e downloads. **Exige agente 0.0.25.**
 - **Tamanho das pastas no seletor do que salvar:** cada pasta mostra o tamanho, calculado pelo agente em segundo plano (a árvore abre na hora, com "calculando…" em cada pasta). O rodapé mostra o total estimado do que está marcado. O cálculo não atravessa para outras partições, ignora `/proc`, `/sys` e `/dev`, conta hard links uma vez só, roda com prioridade de disco ociosa e para em 20 s por pasta (aí mostra "mais de X"). O resultado fica guardado por 5 minutos. **Exige agente 0.0.25** (com agente antigo, os tamanhos simplesmente não aparecem).

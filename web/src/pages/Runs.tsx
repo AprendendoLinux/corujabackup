@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Job, PHASE, Run, RunLog, User, api, ApiError, fmtBytes, fmtDate, fmtDuration, STATUS } from '../api'
 import { Badge, Button, Card, CopyBox, ErrorBox, Modal, Spinner } from '../ui'
 import { confirmar } from '../Dialogs'
+import PeriodPicker, { Period, presetPeriod } from '../Period'
 
 export function StatusBadge({ s }: { s: string }) {
   const v = STATUS[s] ?? { label: s, tone: 'off' as const }
@@ -18,27 +19,33 @@ export default function Runs({ me, jobFilter }: { me: User; jobFilter: number })
   const [job, setJob] = useState(jobFilter)
   const [err, setErr] = useState('')
   const [open, setOpen] = useState<number | null>(null)
+  const [period, setPeriod] = useState<Period | null>(null) // null = todo o período (as mais recentes)
+  const limit = period ? 500 : 200
 
   const load = useCallback(() => {
-    const q = new URLSearchParams({ limit: '200' })
+    const q = new URLSearchParams({ limit: String(limit) })
     if (status) q.set('status', status)
     if (job) q.set('job_id', String(job))
+    if (period) {
+      const cur = period.preset === 'custom' ? period : presetPeriod(period.preset)
+      q.set('from', cur.from); q.set('to', cur.to); q.set('tz', Intl.DateTimeFormat().resolvedOptions().timeZone)
+    }
     api<{ runs: Run[] }>('GET', `/api/runs?${q}`).then((r) => { setRuns(r.runs); setErr('') }).catch((x) => setErr((x as ApiError).message))
-  }, [status, job])
+  }, [status, job, period, limit])
   const anyRunning = runs.some((r) => r.status === 'running' || r.status === 'queued')
   useEffect(() => { load() }, [load])
   useEffect(() => { const t = setInterval(load, anyRunning ? 2000 : 5000); return () => clearInterval(t) }, [load, anyRunning])
   useEffect(() => { api<{ jobs: Job[] }>('GET', '/api/jobs').then((r) => setJobs(r.jobs)).catch(() => {}) }, [])
   useEffect(() => setJob(jobFilter), [jobFilter])
 
-  const sel = 'rounded-md border border-border bg-surface px-2 py-1.5 text-sm'
+  const sel = 'rounded-lg border border-border bg-surface px-2.5 py-2 text-sm'
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Histórico</h1>
         <p className="text-sm text-muted">Cada execução de backup, com o log completo.</p>
       </div>
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <select aria-label="Filtrar por job" className={sel} value={job} onChange={(e) => setJob(Number(e.target.value))}>
           <option value={0}>Todos os jobs</option>
           {jobs.map((j) => <option key={j.id} value={j.id}>{j.name}</option>)}
@@ -47,7 +54,10 @@ export default function Runs({ me, jobFilter }: { me: User; jobFilter: number })
           <option value="">Todos os estados</option>
           {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
         </select>
+        <PeriodPicker value={period} onChange={setPeriod} allowAll align="left" />
+        {(period || status || job !== 0) && <button type="button" className="text-sm text-primary hover:underline" onClick={() => { setPeriod(null); setStatus(''); setJob(0) }}>Limpar filtros</button>}
       </div>
+      {runs.length >= limit && <p className="-mt-3 text-xs text-muted">Mostrando as {limit} execuções mais recentes{period ? ' do período' : ''}. Escolha um período menor para ver as mais antigas.</p>}
       <ErrorBox message={err} />
       <Card className="overflow-x-auto p-0">
         <table className="w-full text-sm">

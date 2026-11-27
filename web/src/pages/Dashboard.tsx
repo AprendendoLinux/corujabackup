@@ -3,14 +3,14 @@ import { CLOUD_LABEL, STATUS, api, fmtBytes } from '../api'
 import { Badge, Button, Card } from '../ui'
 import Icon from '../Icon'
 import { Day, Legend, Meter, STATUS_SERIES, StatusColumns, VolumeArea, finished } from '../Charts'
+import PeriodPicker, { Period, br, periodShort, presetPeriod, ymd } from '../Period'
 
 type Totals = { runs: number; ok: number; warning: number; failed: number; missed: number; canceled: number; bytes: number }
 type JobHealth = { id: number; name: string; agent: string; enabled: boolean; runs: number; good: number; bytes: number; last: string; last_at: string | null; last_size: number; last_secs: number; storage: string }
 type StorageUse = { name: string; type: string; status: string; used: number; total: number; jobs: number }
-type Overview = { days: number; history: Day[]; totals: Totals; previous: Totals; jobs: JobHealth[] | null; storages: StorageUse[] | null; agents_total: number; agents_online: number; running: number }
+type Overview = { days: number; from: string; to: string; history: Day[]; totals: Totals; previous: Totals; jobs: JobHealth[] | null; storages: StorageUse[] | null; agents_total: number; agents_online: number; running: number }
 type Health = { status: string; database: boolean }
 
-const PERIODS = [7, 14, 30] as const
 const rateOf = (t: Totals) => { const n = t.ok + t.warning + t.failed + t.missed; return n ? (t.ok + t.warning) / n : null }
 const pct = (v: number) => `${Math.floor(v * 1000) / 10}%`.replace('.', ',')
 
@@ -84,7 +84,15 @@ function ChartCard({ title, sub, legend, children, table }: { title: string; sub
 }
 
 export default function Dashboard({ name, canReport }: { name: string; canReport: boolean }) {
-  const [days, setDays] = useState<number>(() => { try { return Number(localStorage.getItem('coruja.painel.dias')) || 14 } catch { return 14 } })
+  // atalhos são recalculados a cada dia; um período personalizado fica como foi escolhido
+  const [period, setPeriod] = useState<Period>(() => {
+    try {
+      const p = JSON.parse(localStorage.getItem('coruja.painel.periodo') ?? 'null') as Period | null
+      if (p?.preset === 'custom' && p.from && p.to) return p
+      if (p?.preset) return presetPeriod(p.preset)
+    } catch { /* sem armazenamento */ }
+    return presetPeriod('14')
+  })
   const [ov, setOv] = useState<Overview | null>(null)
   const [health, setHealth] = useState<Health | null>(null)
   const [err, setErr] = useState('')
@@ -92,14 +100,16 @@ export default function Dashboard({ name, canReport }: { name: string; canReport
     let live = true
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
     const load = () => {
-      api<Overview>('GET', `/api/dashboard?days=${days}&tz=${encodeURIComponent(tz)}`).then((r) => { if (live) { setOv(r); setErr('') } }).catch((x) => live && setErr((x as Error).message))
+      const cur = period.preset === 'custom' ? period : presetPeriod(period.preset) // virada do dia com a página aberta
+      api<Overview>('GET', `/api/dashboard?from=${cur.from}&to=${cur.to}&tz=${encodeURIComponent(tz)}`).then((r) => { if (live) { setOv(r); setErr('') } }).catch((x) => live && setErr((x as Error).message))
       fetch('/api/health').then((r) => r.json()).then((h) => live && setHealth(h)).catch(() => live && setHealth(null))
     }
     load()
     const t = setInterval(load, 15000)
     return () => { live = false; clearInterval(t) }
-  }, [days])
-  function pick(d: number) { setDays(d); try { localStorage.setItem('coruja.painel.dias', String(d)) } catch { /* sem armazenamento */ } }
+  }, [period])
+  function pick(p: Period | null) { if (!p) return; setPeriod(p); try { localStorage.setItem('coruja.painel.periodo', JSON.stringify(p)) } catch { /* sem armazenamento */ } }
+  const label = periodShort(period)
 
   const t = ov?.totals, prev = ov?.previous
   const rate = t ? rateOf(t) : null
@@ -120,12 +130,7 @@ export default function Dashboard({ name, canReport }: { name: string; canReport
           <p className="mt-1 text-sm text-muted">Visão geral do {name}.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div role="radiogroup" aria-label="Período" className="inline-flex rounded-lg border border-border bg-surface p-0.5">
-            {PERIODS.map((p) => (
-              <button key={p} type="button" role="radio" aria-checked={days === p} onClick={() => pick(p)}
-                className={`rounded-md px-3 py-1.5 text-sm transition ${days === p ? 'bg-primary text-primary-contrast' : 'text-muted hover:text-text'}`}>{p} dias</button>
-            ))}
-          </div>
+          <PeriodPicker value={period} onChange={pick} />
           {canReport && <a href="/api/reports/daily.pdf" target="_blank" rel="noopener noreferrer"><Button variant="ghost" className="gap-2"><Icon name="pdf" />Relatório de hoje (PDF)</Button></a>}
         </div>
       </div>
@@ -144,19 +149,26 @@ export default function Dashboard({ name, canReport }: { name: string; canReport
 
       {ov && t && prev && (<>
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Indicadores do período">
-          <Tile label={`Taxa de sucesso (${days} dias)`} value={rate === null ? '—' : pct(rate)} dot={rate === null ? undefined : rate === 1 ? 'ok' : rate >= 0.9 ? 'warn' : 'danger'}>
+          <Tile label={`Taxa de sucesso (${label})`} value={rate === null ? '—' : pct(rate)} dot={rate === null ? undefined : rate === 1 ? 'ok' : rate >= 0.9 ? 'warn' : 'danger'}>
             <Delta now={rate === null ? null : rate * 100} before={rateOf(prev) === null ? null : rateOf(prev)! * 100} unit=" p.p." fmt={(v) => v.toFixed(1).replace('.', ',')} />
           </Tile>
-          <Tile label={`Execuções (${days} dias)`} value={String(t.runs)}>
+          <Tile label={`Execuções (${label})`} value={String(t.runs)}>
             {t.ok + t.warning} concluídas · {t.canceled} canceladas
           </Tile>
           <Tile label="Falhas e perdidos" value={String(bad)} dot={bad ? 'danger' : 'ok'}>
             <Delta now={bad} before={prev.failed + prev.missed} unit="" upIsGood={false} fmt={(v) => String(v)} />
           </Tile>
-          <Tile label={`Volume gerado (${days} dias)`} value={t.bytes ? fmtBytes(t.bytes) : '0'}>
+          <Tile label={`Volume gerado (${label})`} value={t.bytes ? fmtBytes(t.bytes) : '0'}>
             <Delta now={t.bytes} before={prev.runs ? prev.bytes : null} unit="" fmt={fmtBytes} />
           </Tile>
         </section>
+
+        {(() => {
+          const f = new Date(`${ov.from}T12:00:00`)
+          const pf = new Date(f); pf.setDate(f.getDate() - ov.days)
+          const pt = new Date(f); pt.setDate(f.getDate() - 1)
+          return <p className="-mt-2 text-xs text-muted">Comparações com o período anterior de mesmo tamanho: {br(ymd(pf))} a {br(ymd(pt))}.</p>
+        })()}
 
         {attention.length > 0 && (
           <div className="flex items-start gap-3 rounded-xl border border-danger/40 bg-danger/10 px-4 py-3 text-sm">
@@ -166,7 +178,7 @@ export default function Dashboard({ name, canReport }: { name: string; canReport
         )}
 
         <div className="grid gap-4 xl:grid-cols-2">
-          <ChartCard title="Execuções por dia" sub="Pelo dia de início, no seu fuso horário" legend={<Legend items={STATUS_SERIES.map((s) => ({ label: s.label, color: s.color }))} />}
+          <ChartCard title="Execuções por dia" sub={`Pelo dia de início, no seu fuso horário · ${ov.history.length} dia${ov.history.length > 1 ? 's' : ''}`} legend={<Legend items={STATUS_SERIES.map((s) => ({ label: s.label, color: s.color }))} />}
             table={<table className="w-full text-xs"><thead className="text-muted"><tr><th className="py-1 text-left">Dia</th>{STATUS_SERIES.map((s) => <th key={s.key} className="py-1 text-right">{s.label}</th>)}<th className="py-1 text-right">Total</th></tr></thead>
               <tbody className="tabular-nums">{[...ov.history].reverse().map((d) => <tr key={d.date} className="border-t border-border"><td className="py-1">{d.date.split('-').reverse().join('/')}</td>{STATUS_SERIES.map((s) => <td key={s.key} className="py-1 text-right">{d[s.key]}</td>)}<td className="py-1 text-right font-medium">{finished(d)}</td></tr>)}</tbody></table>}>
             <StatusColumns days={ov.history} />
@@ -180,7 +192,7 @@ export default function Dashboard({ name, canReport }: { name: string; canReport
 
         <div className="grid gap-4 xl:grid-cols-3">
           <Card className="min-w-0 overflow-x-auto p-0 xl:col-span-2">
-            <div className="flex items-baseline justify-between px-5 pt-5"><h2 className="font-semibold">Saúde dos jobs</h2><span className="text-xs text-muted">sucesso nos últimos {days} dias</span></div>
+            <div className="flex items-baseline justify-between px-5 pt-5"><h2 className="font-semibold">Saúde dos jobs</h2><span className="text-xs text-muted">sucesso no período ({label})</span></div>
             {jobs.length === 0 ? <p className="p-5 text-sm text-muted">Nenhum job cadastrado. Crie o primeiro em <a className="text-primary underline" href="#/jobs">Jobs</a>.</p> : (
               <table className="mt-3 w-full text-sm">
                 <thead className="border-y border-border text-left text-xs text-muted"><tr><th className="px-5 py-2">Job</th><th className="px-3 py-2">Última</th><th className="px-3 py-2">Sucesso</th><th className="px-3 py-2 text-right">Tamanho</th><th className="px-3 py-2 text-right">Duração</th><th className="px-5 py-2">Storage</th></tr></thead>

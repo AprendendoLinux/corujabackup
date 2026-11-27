@@ -2,6 +2,7 @@ package notify
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"time"
 
@@ -13,6 +14,8 @@ import (
 // cada job, o uso dos storages e os agentes.
 type Overview struct {
 	Days        int              `json:"days"`
+	From        string           `json:"from"` // AAAA-MM-DD
+	To          string           `json:"to"`
 	History     []report.DayStat `json:"history"`
 	Totals      report.Totals    `json:"totals"`
 	Previous    report.Totals    `json:"previous"`
@@ -50,8 +53,20 @@ type StorageUse struct {
 // BuildOverview monta o painel dos últimos days dias (até now, no fuso loc).
 func BuildOverview(ctx context.Context, st *store.Store, now time.Time, loc *time.Location, days int) (*Overview, error) {
 	end := now.In(loc)
-	start := time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, loc).AddDate(0, 0, -(days - 1))
-	runs, err := st.RunsBetween(ctx, start.AddDate(0, 0, -days), now)
+	return BuildOverviewRange(ctx, st, now, loc, time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, loc).AddDate(0, 0, -(days-1)), end)
+}
+
+// BuildOverviewRange monta o painel dos dias de "from" a "to" (inclusive, no fuso loc). O período anterior, usado nas
+// comparações, tem o mesmo número de dias e termina na véspera de "from".
+func BuildOverviewRange(ctx context.Context, st *store.Store, now time.Time, loc *time.Location, from, to time.Time) (*Overview, error) {
+	start := time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, loc)
+	lastDay := time.Date(to.Year(), to.Month(), to.Day(), 0, 0, 0, 0, loc)
+	days := int(lastDay.Sub(start).Hours()/24+0.5) + 1
+	stop := lastDay.AddDate(0, 0, 1)
+	if stop.After(now) {
+		stop = now
+	}
+	runs, err := st.RunsBetween(ctx, start.AddDate(0, 0, -days), stop)
 	if err != nil {
 		return nil, err
 	}
@@ -72,6 +87,9 @@ func BuildOverview(ctx context.Context, st *store.Store, now time.Time, loc *tim
 		kind[j.ID] = j.Kind
 	}
 	o := &Overview{Days: days}
+	if days < 1 {
+		return nil, fmt.Errorf("período inválido")
+	}
 	var cur, prev []report.RunRow
 	perJob := map[int64]*report.Totals{}
 	for _, r := range runs {
@@ -90,7 +108,8 @@ func BuildOverview(ctx context.Context, st *store.Store, now time.Time, loc *tim
 		}
 		*perJob[r.JobID] = sumOne(*perJob[r.JobID], row)
 	}
-	o.History = report.History(cur, now, days, loc)
+	o.History = report.History(cur, lastDay, days, loc)
+	o.From, o.To = start.Format("2006-01-02"), lastDay.Format("2006-01-02")
 	o.Totals, o.Previous = report.Sum(cur), report.Sum(prev)
 
 	cloudName := map[int64]string{}

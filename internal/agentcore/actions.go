@@ -57,7 +57,7 @@ func (a *actionLog) flush(state, msg string, mod func(*pb.ActionLog)) {
 
 // HandleAction executa, em segundo plano, uma ação pedida pelo Server sobre um backup já feito.
 func (c *Core) HandleAction(parent context.Context, act *pb.AgentAction) {
-	key := act.Kind + ":" + act.RunUid
+	key := act.Kind + ":" + act.RunUid + ":" + act.DownloadId // downloads do mesmo backup podem correr juntos
 	c.mu.Lock()
 	if c.actions[key] {
 		c.mu.Unlock()
@@ -96,6 +96,10 @@ func (c *Core) HandleAction(parent context.Context, act *pb.AgentAction) {
 			err = c.restoreFiles(ctx, act, al)
 		case "index":
 			err = c.index(ctx, act, al)
+		case "download":
+			err = c.download(ctx, act, al)
+		case "restore_db":
+			err = c.restoreDB(ctx, act, al)
 		default:
 			err = fmt.Errorf("ação desconhecida: %s", act.Kind)
 		}

@@ -38,6 +38,7 @@ type AgentHub interface {
 	CancelRun(agentID int64, runUID string) error
 	Call(ctx context.Context, agentID int64, kind string, payload []byte, timeout time.Duration) ([]byte, error)
 	Action(agentID int64, act *pb.AgentAction) error
+	FetchDownload(ctx context.Context, agentID int64, act *pb.AgentAction, wait time.Duration) (io.ReadCloser, string, error)
 	Links() map[string]agentsrv.LinkState
 	Wake()
 }
@@ -165,6 +166,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/runs/{id}/index", s.authed(roleOperator, s.indexRun))
 	mux.HandleFunc("POST /api/runs/{id}/restore", s.authed(roleOperator, s.restoreRun))
 	mux.HandleFunc("GET /api/jobs/{id}/versions", s.authed(roleOperator, s.jobVersions))
+	mux.HandleFunc("POST /api/runs/{id}/download", s.authed(roleOperator, s.prepareDownload))
+	mux.HandleFunc("GET /api/runs/{id}/databases", s.authed(roleOperator, s.runDatabases))
+	mux.HandleFunc("POST /api/runs/{id}/restore-db", s.authed(roleOperator, s.restoreDatabases))
+	mux.HandleFunc("GET /api/downloads/{token}", s.authed(roleOperator, s.serveDownload))
 	mux.HandleFunc("POST /api/clouds/oauth/begin", s.authed(roleAdmin, s.beginCloudWeb))
 	mux.HandleFunc("POST /api/clouds/oauth/finish", s.authed(roleAdmin, s.finishCloudWeb))
 	mux.HandleFunc("GET /api/clouds/{id}/folders", s.authed(roleOperator, s.destFolders))

@@ -23,7 +23,7 @@
 - [x] **Fase 10, parte 1 – Full + incrementais (0.0.21):** full no dia da semana escolhido, incrementais por data/tamanho/inode com lista do que foi apagado, retenção por cadeia, restauração da cadeia em ordem e "Executar backup full agora".
 - [x] **Fase 10, parte 2 – MikroTik (0.0.22):** jobs de MikroTik pelo agente via SSH: export `.rsc` (com ou sem dados sensíveis) e arquivo `.backup` cifrado com senha; impressão digital fixada; restauração testada num RouterOS real (docs/MIKROTIK.md).
 - [x] **Fase 11, parte 1 – Restauração de arquivos (0.0.23):** página Restaurar com linha do tempo, navegação no estado de cada backup (inclusive incrementais), versões de um arquivo e restauração só do que for marcado (pasta de restauração ou local original).
-- [ ] **Fase 11, parte 2 – Restauração de bancos (0.0.24):** restaurar um banco pela interface, de preferência num banco novo.
+- [x] **Fase 11, parte 2 – Restauração de bancos e downloads (0.0.24):** restaurar bancos pela interface (num banco novo ou sobrescrevendo), "Restaurar esta versão", download de arquivos e pastas (.zip) pelo navegador e tamanho das pastas.
 - [ ] **Fase 12 – Piloto:** instalação em ambiente real, só com autorização e em paralelo ao backup existente; validação com contas reais de nuvem e Telegram.
 
 Decisões: formato próprio (compatível com `tar -xzf`) em vez de restic; NFS por cliente NFSv3 embutido no agente (sem privilégios) e iSCSI como "pasta local" num disco já montado no host; aplicativos OAuth registrados pelo mantenedor (pessoa física).

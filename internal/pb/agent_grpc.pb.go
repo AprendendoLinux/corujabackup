@@ -19,8 +19,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AgentService_Enroll_FullMethodName  = "/coruja.v1.AgentService/Enroll"
-	AgentService_Connect_FullMethodName = "/coruja.v1.AgentService/Connect"
+	AgentService_Enroll_FullMethodName   = "/coruja.v1.AgentService/Enroll"
+	AgentService_Connect_FullMethodName  = "/coruja.v1.AgentService/Connect"
+	AgentService_Download_FullMethodName = "/coruja.v1.AgentService/Download"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -33,6 +34,9 @@ type AgentServiceClient interface {
 	Enroll(ctx context.Context, in *EnrollRequest, opts ...grpc.CallOption) (*EnrollResponse, error)
 	// Canal permanente. Autenticado por metadata: "authorization: Bearer <agent_id>.<credential>".
 	Connect(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[AgentMessage, ServerMessage], error)
+	// Download para o navegador (0.0.24): o agente envia o conteúdo pedido (ação "download") num fluxo próprio, com o
+	// controle de fluxo do HTTP/2 — um navegador lento segura só este download, não o canal principal.
+	Download(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[DownloadChunk, DownloadDone], error)
 }
 
 type agentServiceClient struct {
@@ -66,6 +70,19 @@ func (c *agentServiceClient) Connect(ctx context.Context, opts ...grpc.CallOptio
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentService_ConnectClient = grpc.BidiStreamingClient[AgentMessage, ServerMessage]
 
+func (c *agentServiceClient) Download(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[DownloadChunk, DownloadDone], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AgentService_ServiceDesc.Streams[1], AgentService_Download_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[DownloadChunk, DownloadDone]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentService_DownloadClient = grpc.ClientStreamingClient[DownloadChunk, DownloadDone]
+
 // AgentServiceServer is the server API for AgentService service.
 // All implementations must embed UnimplementedAgentServiceServer
 // for forward compatibility.
@@ -76,6 +93,9 @@ type AgentServiceServer interface {
 	Enroll(context.Context, *EnrollRequest) (*EnrollResponse, error)
 	// Canal permanente. Autenticado por metadata: "authorization: Bearer <agent_id>.<credential>".
 	Connect(grpc.BidiStreamingServer[AgentMessage, ServerMessage]) error
+	// Download para o navegador (0.0.24): o agente envia o conteúdo pedido (ação "download") num fluxo próprio, com o
+	// controle de fluxo do HTTP/2 — um navegador lento segura só este download, não o canal principal.
+	Download(grpc.ClientStreamingServer[DownloadChunk, DownloadDone]) error
 	mustEmbedUnimplementedAgentServiceServer()
 }
 
@@ -91,6 +111,9 @@ func (UnimplementedAgentServiceServer) Enroll(context.Context, *EnrollRequest) (
 }
 func (UnimplementedAgentServiceServer) Connect(grpc.BidiStreamingServer[AgentMessage, ServerMessage]) error {
 	return status.Errorf(codes.Unimplemented, "method Connect not implemented")
+}
+func (UnimplementedAgentServiceServer) Download(grpc.ClientStreamingServer[DownloadChunk, DownloadDone]) error {
+	return status.Errorf(codes.Unimplemented, "method Download not implemented")
 }
 func (UnimplementedAgentServiceServer) mustEmbedUnimplementedAgentServiceServer() {}
 func (UnimplementedAgentServiceServer) testEmbeddedByValue()                      {}
@@ -138,6 +161,13 @@ func _AgentService_Connect_Handler(srv interface{}, stream grpc.ServerStream) er
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentService_ConnectServer = grpc.BidiStreamingServer[AgentMessage, ServerMessage]
 
+func _AgentService_Download_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(AgentServiceServer).Download(&grpc.GenericServerStream[DownloadChunk, DownloadDone]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentService_DownloadServer = grpc.ClientStreamingServer[DownloadChunk, DownloadDone]
+
 // AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -155,6 +185,11 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "Connect",
 			Handler:       _AgentService_Connect_Handler,
 			ServerStreams: true,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "Download",
+			Handler:       _AgentService_Download_Handler,
 			ClientStreams: true,
 		},
 	},

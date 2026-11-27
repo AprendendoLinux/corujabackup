@@ -114,6 +114,73 @@ func runAndRestore(t *testing.T, dk *dockerapi.Client, cfg Config, wantDBs map[s
 	if !strings.Contains(strings.Join(lg.lines, "\n"), "igual à origem") {
 		t.Fatalf("o teste de restauração deveria confirmar a igualdade:\n%s", strings.Join(lg.lines, "\n"))
 	}
+	restoreIntoServer(t, r, cfg, out, wantDBs)
+}
+
+// restoreIntoServer restaura cada banco no próprio servidor de origem: num banco novo, recusa nome existente e
+// sobrescreve (apagando o que foi criado depois do backup).
+func restoreIntoServer(t *testing.T, r Runner, cfg Config, out *Output, want map[string]int64) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	var lg logs
+	for _, f := range out.Files {
+		if f.DB == "" || f.DB == "admin" || f.DB == "postgres" {
+			continue
+		}
+		target := f.DB + "_rest"
+		n, err := RestoreInto(ctx, r, cfg, f, target, false, lg.hooks())
+		if err != nil {
+			t.Fatalf("restaurar %s em %s: %v\n%s", f.DB, target, err, strings.Join(lg.lines, "\n"))
+		}
+		if n != want[f.DB] {
+			t.Fatalf("%s: %d tabela(s) restaurada(s), esperado %d", target, n, want[f.DB])
+		}
+		if _, err := RestoreInto(ctx, r, cfg, f, target, false, lg.hooks()); err == nil || !strings.Contains(err.Error(), "já existe") {
+			t.Fatalf("restaurar por cima sem permissão deveria ser recusado: %v", err)
+		}
+		// algo criado depois do backup some quando o banco é sobrescrito
+		e := newEngine(cfg.Engine)
+		switch cfg.Engine {
+		case EngineMySQL, EngineMariaDB:
+			if _, err := (mysqlEngine{}).query(ctx, r, cfg, "CREATE TABLE `"+target+"`.depois (id INT)"); err != nil {
+				t.Fatal(err)
+			}
+		case EnginePostgres:
+			if _, err := (pgEngine{}).query(ctx, r, cfg, target, "CREATE TABLE depois (id int)"); err != nil {
+				t.Fatal(err)
+			}
+		case EngineMongo:
+			if _, err := (mongoEngine{}).eval(ctx, r, cfg, `db.getSiblingDB("`+target+`").depois.insertOne({x:1})`); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if n, _ := e.count(ctx, r, cfg, target); n != want[f.DB]+1 {
+			t.Fatalf("a tabela extra devia existir antes de sobrescrever: %d", n)
+		}
+		n, err = RestoreInto(ctx, r, cfg, f, target, true, lg.hooks())
+		if err != nil || n != want[f.DB] {
+			t.Fatalf("sobrescrever %s: %d %v\n%s", target, n, err, strings.Join(lg.lines, "\n"))
+		}
+		if !ValidName(target) {
+			t.Fatal(target)
+		}
+	}
+	if _, err := RestoreInto(ctx, r, cfg, out.Files[0], "nome inválido;", false, lg.hooks()); err == nil {
+		t.Fatal("nome inválido deveria ser recusado")
+	}
+}
+
+func TestRenomearDumpMySQL(t *testing.T) {
+	in := "-- MySQL dump\nCREATE DATABASE /*!32312 IF NOT EXISTS*/ `app` /*!40100 DEFAULT CHARACTER SET utf8mb4 */;\n\nUSE `app`;\nINSERT INTO t VALUES ('USE `app`;');\n"
+	var b strings.Builder
+	if err := renameMySQLDump(strings.NewReader(in), &b, "app", "app_rest"); err != nil {
+		t.Fatal(err)
+	}
+	want := "-- MySQL dump\nCREATE DATABASE /*!32312 IF NOT EXISTS*/ `app_rest` /*!40100 DEFAULT CHARACTER SET utf8mb4 */;\n\nUSE `app_rest`;\nINSERT INTO t VALUES ('USE `app`;');\n"
+	if b.String() != want {
+		t.Fatalf("%q", b.String())
+	}
 }
 
 func TestMySQLContainerDumpEDeRestauracao(t *testing.T) {

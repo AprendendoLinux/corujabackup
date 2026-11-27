@@ -1,6 +1,8 @@
 package agentcore
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"io"
 	"log/slog"
@@ -151,5 +153,65 @@ func TestCatalogosLimitados(t *testing.T) {
 	}
 	if _, err := st.LoadCatalog(9, "../../etc/passwd"); err == nil {
 		t.Fatal("nome inválido")
+	}
+}
+
+func TestZipDaSelecao(t *testing.T) {
+	root, bk := t.TempDir(), t.TempDir()
+	src := filepath.Join(root, "srv")
+	write(t, filepath.Join(src, "a.txt"), "a v1")
+	write(t, filepath.Join(src, "dir/b.txt"), "b v1")
+	ctx := context.Background()
+	base := time.Date(2026, 11, 22, 3, 0, 0, 0, time.UTC)
+	job := FilesJob{Name: "Z", Paths: []string{"/srv"}, Subdir: "z", Keep: 5}
+	j := job
+	j.inc = &incPlan{}
+	r1, err := RunFiles(ctx, j, root, bk, time.UTC, base, discard())
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(10 * time.Millisecond)
+	write(t, filepath.Join(src, "dir/b.txt"), "b v2")
+	j.inc = &incPlan{base: r1.Snapshot}
+	r2, err := RunFiles(ctx, j, root, bk, time.UTC, base.Add(time.Hour), discard())
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups, n := selectFiles(r2.Snapshot, []string{"/srv"})
+	if n < 3 || len(groups) != 2 {
+		t.Fatalf("grupos: %v", groups)
+	}
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for i, arc := range r2.Snapshot.Archives {
+		if err := zipMembers(ctx, filepath.Join(bk, "z", arc), groups[i], zw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	zw.Close()
+	zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, f := range zr.File {
+		if f.FileInfo().IsDir() {
+			got[f.Name] = "<dir>"
+			continue
+		}
+		rc, _ := f.Open()
+		b, _ := io.ReadAll(rc)
+		rc.Close()
+		got[f.Name] = string(b)
+	}
+	if got["srv/a.txt"] != "a v1" || got["srv/dir/b.txt"] != "b v2" || got["srv/dir/"] != "<dir>" {
+		t.Fatalf("zip: %v", got)
+	}
+	var one bytes.Buffer
+	if err := copyMember(ctx, filepath.Join(bk, "z", r1.OutputName), "srv/dir/b.txt", &one); err != nil || one.String() != "b v1" {
+		t.Fatalf("arquivo único da versão antiga: %q %v", one.String(), err)
+	}
+	if err := copyMember(ctx, filepath.Join(bk, "z", r1.OutputName), "srv/nao.txt", &one); err == nil {
+		t.Fatal("item inexistente deve falhar")
 	}
 }

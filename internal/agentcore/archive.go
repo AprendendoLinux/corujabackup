@@ -55,6 +55,7 @@ type Result struct {
 	// Kind é "full" ou "incremental"; Snapshot é o novo retrato (jobs incrementais), gravado só se a execução terminar bem.
 	Kind        string
 	Snapshot    *Snapshot
+	DBs         *DBContents // job de banco: o que o backup contém (para a restauração pela interface)
 	OutputName  string
 	OutputPath  string
 	DestDir     string

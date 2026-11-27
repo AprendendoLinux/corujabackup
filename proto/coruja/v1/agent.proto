@@ -8,7 +8,19 @@ service AgentService {
   rpc Enroll(EnrollRequest) returns (EnrollResponse);
   // Canal permanente. Autenticado por metadata: "authorization: Bearer <agent_id>.<credential>".
   rpc Connect(stream AgentMessage) returns (stream ServerMessage);
+  // Download para o navegador (0.0.24): o agente envia o conteúdo pedido (ação "download") num fluxo próprio, com o
+  // controle de fluxo do HTTP/2 — um navegador lento segura só este download, não o canal principal.
+  rpc Download(stream DownloadChunk) returns (DownloadDone);
 }
+
+// DownloadChunk: o primeiro traz o id do pedido e o nome do arquivo entregue; error encerra com falha.
+message DownloadChunk {
+  string id = 1;
+  string file_name = 2;
+  bytes data = 3;
+  string error = 4;
+}
+message DownloadDone {}
 
 message EnrollRequest {
   string token = 1;
@@ -237,7 +249,7 @@ message RpcResult { string id = 1; bool ok = 2; string error = 3; bytes payload 
 
 message AgentAction {
   string id = 1;
-  string kind = 2;                 // "reupload" | "extract" | "fetch" | "restore_files" | "index"
+  string kind = 2;                 // "reupload" | "extract" | "fetch" | "restore_files" | "index" | "download" | "restore_db"
   string run_uid = 3;
   int64 job_id = 4;
   string file_name = 5;            // arquivo de backup (no padrão do job) na pasta de destino do agente
@@ -248,6 +260,9 @@ message AgentAction {
   repeated string chain_sha256 = 10; // SHA-256 de cada arquivo de chain (para conferir o que for trazido do storage)
   repeated string paths = 11;      // restore_files: caminhos escolhidos (pastas incluem o que há dentro)
   bool original = 12;              // restore_files: grava no local original (sobrescreve), em vez de restores/<target>
+  string download_id = 13;         // download: id do pedido (vai no primeiro DownloadChunk)
+  bool zip = 14;                   // download: entrega um .zip (senão, o arquivo escolhido como está)
+  repeated string targets = 15;    // restore_db: nome de destino de cada banco de paths (mesma ordem); original = sobrescrever
 }
 
 message ActionLog {

@@ -206,6 +206,11 @@ func session(ctx, base context.Context, log *slog.Logger, st *Credentials, core 
 	}
 	core.SetSender(func(m *pb.AgentMessage) bool { return safeSend(m) == nil })
 	defer core.SetSender(nil)
+	auth := fmt.Sprintf("Bearer %d.%s", st.AgentID, st.Credential)
+	core.SetDownloader(func(c context.Context) (grpc.ClientStreamingClient[pb.DownloadChunk, pb.DownloadDone], error) {
+		return pb.NewAgentServiceClient(conn).Download(metadata.AppendToOutgoingContext(c, "authorization", auth))
+	})
+	defer core.SetDownloader(nil)
 	in := make(chan *pb.ServerMessage)
 	rerr := make(chan error, 1)
 	go func() {

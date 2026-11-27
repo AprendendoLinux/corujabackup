@@ -60,6 +60,21 @@ func (f *fakeHub) Links() map[string]agentsrv.LinkState {
 	return map[string]agentsrv.LinkState{"10.0.0.9:8443": {Address: "10.0.0.9:8443", State: "error", Error: "conexão recusada"}}
 }
 func (f *fakeHub) Wake() { f.wakes++ }
+func (f *fakeHub) FetchDownload(_ context.Context, _ int64, a *pb.AgentAction, _ time.Duration) (io.ReadCloser, string, error) {
+	if f.offline {
+		return nil, "", agentsrv.ErrOffline
+	}
+	if strings.Contains(strings.Join(a.Paths, ","), "/nao-existe") {
+		return nil, "", errors.New("nenhum dos itens escolhidos está neste backup")
+	}
+	name := "arquivo.txt"
+	if a.Zip {
+		name = "backup ção.zip"
+	}
+	f.actions = append(f.actions, a)
+	return io.NopCloser(strings.NewReader("conteudo:" + strings.Join(a.Paths, ","))), name, nil
+}
+
 func (f *fakeHub) Action(_ int64, a *pb.AgentAction) error {
 	if f.offline {
 		return agentsrv.ErrOffline
@@ -1791,5 +1806,91 @@ func TestRestauracaoPorSelecao(t *testing.T) {
 	e.api.Store.DB.Exec("UPDATE agents SET agent_version='0.0.22' WHERE id=?", ag.ID)
 	if code, m := adm.do("POST", base+"/restore", map[string]any{"paths": []string{"/srv"}}); code != 422 || !strings.Contains(m["error"].(string), "0.0.23") {
 		t.Fatalf("agente antigo: %d %v", code, m)
+	}
+}
+
+func TestDownloadPeloNavegador(t *testing.T) {
+	e := newEnv(t)
+	adm := setupAdmin(e)
+	ag := newAgent(t, e, "srv-dl")
+	e.api.Store.DB.Exec("UPDATE agents SET agent_version='0.0.24' WHERE id=?", ag.ID)
+	jid := int64(adm.mustOK("POST", "/api/jobs", map[string]any{"name": "dl", "agent_id": ag.ID, "paths": []string{"/srv"}, "keep": 3})["id"].(float64))
+	ctx := context.Background()
+	now := time.Now().UTC()
+	e.api.Store.ApplyReport(ctx, store.Report{UID: "d0", JobID: jid, AgentID: ag.ID, Final: true, Status: "ok", StartedAt: now, FinishedAt: now, OutputName: "dl-20261127-030000.tar.gz", SHA256: "x"})
+	r0, _ := e.api.Store.RunByUID(ctx, "d0")
+	base := "/api/runs/" + itoa(int(r0.ID)) + "/download"
+	m := adm.mustOK("POST", base, map[string]any{"paths": []string{"/srv/a", "/srv/b"}, "zip": true})
+	url := m["url"].(string)
+	if a := e.hub.actions[len(e.hub.actions)-1]; !a.Zip || a.FileName != "dl-20261127-030000.tar.gz" || len(a.Chain) != 1 {
+		t.Fatalf("pedido ao agente: %+v", a)
+	}
+	// outro usuário não usa o endereço de quem pediu
+	adm.mustOK("POST", "/api/users", map[string]string{"username": "outro", "password": pw, "role": "admin"})
+	o := e.client()
+	o.mustOK("POST", "/api/login", map[string]string{"username": "outro", "password": pw})
+	if code, _, _ := o.raw("GET", url, nil, ""); code != 404 {
+		t.Fatalf("outro usuário: %d", code)
+	}
+	code, body, h := adm.raw("GET", url, nil, "")
+	if code != 200 || string(body) != "conteudo:/srv/a,/srv/b" || h.Get("Content-Type") != "application/zip" || !strings.Contains(h.Get("Content-Disposition"), "attachment") {
+		t.Fatalf("download: %d %q %v", code, body, h)
+	}
+	if code, _, _ := adm.raw("GET", url, nil, ""); code != 404 {
+		t.Fatalf("o endereço é de uso único: %d", code)
+	}
+	if code, m := adm.do("POST", base, map[string]any{"paths": []string{"/nao-existe"}}); code != 422 || !strings.Contains(m["error"].(string), "nenhum") {
+		t.Fatalf("erro do agente deve voltar como mensagem: %d %v", code, m)
+	}
+	e.api.Store.DB.Exec("UPDATE agents SET agent_version='0.0.23' WHERE id=?", ag.ID)
+	if code, m := adm.do("POST", base, map[string]any{"paths": []string{"/srv/a"}}); code != 422 || !strings.Contains(m["error"].(string), "0.0.24") {
+		t.Fatalf("agente antigo: %d %v", code, m)
+	}
+}
+
+func TestRestaurarBancoPelaInterface(t *testing.T) {
+	e := newEnv(t)
+	adm := setupAdmin(e)
+	ag := newAgent(t, e, "srv-db")
+	e.api.Store.DB.Exec("UPDATE agents SET agent_version='0.0.24' WHERE id=?", ag.ID)
+	jid := int64(adm.mustOK("POST", "/api/jobs", map[string]any{"name": "bancos", "agent_id": ag.ID, "kind": "database", "keep": 3,
+		"db": map[string]any{"engine": "mysql", "mode": "docker", "container": "db1", "user": "root", "password": "x"}})["id"].(float64))
+	ctx := context.Background()
+	now := time.Now().UTC()
+	e.api.Store.ApplyReport(ctx, store.Report{UID: "b0", JobID: jid, AgentID: ag.ID, Final: true, Status: "ok", StartedAt: now, FinishedAt: now, OutputName: "bancos-20261127-030000.tar.gz", SHA256: "x"})
+	r0, _ := e.api.Store.RunByUID(ctx, "b0")
+	base := "/api/runs/" + itoa(int(r0.ID)) + "/restore-db"
+	adm.mustOK("POST", base, map[string]any{"databases": []map[string]string{{"source": "app", "target": "app_restaurado"}, {"source": "loja", "target": "loja_r"}}})
+	a := e.hub.actions[len(e.hub.actions)-1]
+	if a.Kind != "restore_db" || a.Original || strings.Join(a.Paths, ",") != "app,loja" || strings.Join(a.Targets, ",") != "app_restaurado,loja_r" {
+		t.Fatalf("ação: %+v", a)
+	}
+	for _, bad := range []map[string]any{
+		{"databases": []map[string]string{{"source": "app", "target": "app"}}},                                      // mesmo nome sem sobrescrever
+		{"databases": []map[string]string{{"source": "app", "target": "x; drop"}}},                                  // nome inválido
+		{"databases": []map[string]string{{"source": "app", "target": "dup"}, {"source": "loja", "target": "dup"}}}, // destino repetido
+		{"databases": []map[string]string{}},
+	} {
+		if code, _ := adm.do("POST", base, bad); code != 400 {
+			t.Fatalf("%v deveria dar 400: %d", bad, code)
+		}
+	}
+	adm.mustOK("POST", base, map[string]any{"databases": []map[string]string{{"source": "app", "target": "app"}}, "overwrite": true})
+	if a := e.hub.actions[len(e.hub.actions)-1]; !a.Original {
+		t.Fatal("sobrescrever")
+	}
+	adm.mustOK("POST", "/api/users", map[string]string{"username": "op2", "password": pw, "role": "operator"})
+	o := e.client()
+	o.mustOK("POST", "/api/login", map[string]string{"username": "op2", "password": pw})
+	if code, _ := o.do("POST", base, map[string]any{"databases": []map[string]string{{"source": "app", "target": "app"}}, "overwrite": true}); code != 403 {
+		t.Fatalf("operador sobrescrevendo: %d", code)
+	}
+	o.mustOK("POST", base, map[string]any{"databases": []map[string]string{{"source": "app", "target": "app_copia"}}})
+	// job de arquivos não restaura banco
+	fj := int64(adm.mustOK("POST", "/api/jobs", map[string]any{"name": "arqs", "agent_id": ag.ID, "paths": []string{"/srv"}, "keep": 3})["id"].(float64))
+	e.api.Store.ApplyReport(ctx, store.Report{UID: "f0", JobID: fj, AgentID: ag.ID, Final: true, Status: "ok", StartedAt: now, FinishedAt: now, OutputName: "arqs-20261127-030000.tar.gz", SHA256: "x"})
+	f0, _ := e.api.Store.RunByUID(ctx, "f0")
+	if code, _ := adm.do("POST", "/api/runs/"+itoa(int(f0.ID))+"/restore-db", map[string]any{"databases": []map[string]string{{"source": "a", "target": "b"}}}); code != 409 {
+		t.Fatalf("job de arquivos: %d", code)
 	}
 }

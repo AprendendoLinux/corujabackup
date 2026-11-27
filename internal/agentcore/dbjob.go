@@ -95,6 +95,7 @@ func runDatabase(ctx context.Context, name string, spec *pb.DbSpec, subdir strin
 	}
 	packed, err := packWork(ctx, work, dest, Slug(name), loc, now, h, out, int64(len(dumped.Files)), srcBytes, "bancos/arquivos")
 	packed.Warnings += res.Warnings // avisos do dump e do teste de restauração
+	packed.DBs = &DBContents{Engine: dumped.Engine, Version: dumped.Version, Files: dumped.Files}
 	return packed, err
 }
 
@@ -329,6 +330,22 @@ func (c *Core) rpc(ctx context.Context, m *pb.Rpc) ([]byte, error) {
 			return nil, err
 		}
 		return json.Marshal(out)
+	case "db_contents":
+		var req struct {
+			JobID   int64  `json:"job_id"`
+			Archive string `json:"archive"`
+			Subdir  string `json:"subdir"`
+			SHA256  string `json:"sha256"`
+		}
+		if err := json.Unmarshal(m.Payload, &req); err != nil {
+			return nil, errors.New("pedido inválido")
+		}
+		act := &pb.AgentAction{JobId: req.JobID, FileName: req.Archive, Subdir: req.Subdir, Sha256: req.SHA256}
+		d, err := c.dbContents(ctx, act, &actionLog{c: c, act: act})
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(d)
 	case "catalog_versions":
 		var req struct {
 			JobID int64  `json:"job_id"`

@@ -2562,6 +2562,7 @@ type AgentAction struct {
 	DownloadId    string                 `protobuf:"bytes,13,opt,name=download_id,json=downloadId,proto3" json:"download_id,omitempty"`    // download: id do pedido (vai no primeiro DownloadChunk)
 	Zip           bool                   `protobuf:"varint,14,opt,name=zip,proto3" json:"zip,omitempty"`                                   // download: entrega um .zip (senão, o arquivo escolhido como está)
 	Targets       []string               `protobuf:"bytes,15,rep,name=targets,proto3" json:"targets,omitempty"`                            // restore_db: nome de destino de cada banco de paths (mesma ordem); original = sobrescrever
+	DestDir       string                 `protobuf:"bytes,16,opt,name=dest_dir,json=destDir,proto3" json:"dest_dir,omitempty"`             // restore_files: pasta absoluta do servidor que recebe os itens (a partir da pasta-mãe comum deles)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2699,6 +2700,13 @@ func (x *AgentAction) GetTargets() []string {
 		return x.Targets
 	}
 	return nil
+}
+
+func (x *AgentAction) GetDestDir() string {
+	if x != nil {
+		return x.DestDir
+	}
+	return ""
 }
 
 type ActionLog struct {
@@ -3057,7 +3065,7 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x0e\n" +
 	"\x02ok\x18\x02 \x01(\bR\x02ok\x12\x14\n" +
 	"\x05error\x18\x03 \x01(\tR\x05error\x12\x18\n" +
-	"\apayload\x18\x04 \x01(\fR\apayload\"\xfe\x02\n" +
+	"\apayload\x18\x04 \x01(\fR\apayload\"\x99\x03\n" +
 	"\vAgentAction\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x17\n" +
@@ -3075,7 +3083,8 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\vdownload_id\x18\r \x01(\tR\n" +
 	"downloadId\x12\x10\n" +
 	"\x03zip\x18\x0e \x01(\bR\x03zip\x12\x18\n" +
-	"\atargets\x18\x0f \x03(\tR\atargets\"\xb1\x02\n" +
+	"\atargets\x18\x0f \x03(\tR\atargets\x12\x19\n" +
+	"\bdest_dir\x18\x10 \x01(\tR\adestDir\"\xb1\x02\n" +
 	"\tActionLog\x12\x17\n" +
 	"\arun_uid\x18\x01 \x01(\tR\x06runUid\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x14\n" +

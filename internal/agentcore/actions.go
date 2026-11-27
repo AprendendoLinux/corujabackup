@@ -312,12 +312,12 @@ func ExtractArchive(ctx context.Context, archive, dest string, logf func(level, 
 
 // extractOne extrai um arquivo e devolve o manifesto do incremental (que não é gravado na restauração), se houver.
 func extractOne(ctx context.Context, archive, dest string, logf func(level, f string, a ...any)) (items int, bytes int64, man *Manifest, err error) {
-	return extractSel(ctx, archive, dest, logf, nil)
+	return extractSel(ctx, archive, dest, "", logf, nil)
 }
 
-// extractSel é extractOne só com os itens aceitos por keep (caminho relativo, sem "/" inicial); keep nil = tudo. Cada
-// arquivo é gravado num temporário e renomeado no fim (nunca fica pela metade no lugar do original).
-func extractSel(ctx context.Context, archive, dest string, logf func(level, f string, a ...any), keep func(rel string) bool) (items int, bytes int64, man *Manifest, err error) {
+// extractSel é extractOne só com os itens aceitos por keep (caminho relativo, sem "/" inicial); keep nil = tudo. Com
+// strip (ex.: "home/ana"), só o que está dentro dele é gravado, sem esse começo do caminho. Cada arquivo é gravado num temporário e renomeado no fim (nunca fica pela metade no lugar do original).
+func extractSel(ctx context.Context, archive, dest, strip string, logf func(level, f string, a ...any), keep func(rel string) bool) (items int, bytes int64, man *Manifest, err error) {
 	f, err := os.Open(archive)
 	if err != nil {
 		return 0, 0, nil, err
@@ -359,6 +359,12 @@ func extractSel(ctx context.Context, archive, dest string, logf func(level, f st
 				man = &m
 			}
 			continue
+		}
+		if strip != "" { // grava a partir da pasta-mãe comum: home/ana/.ssh/x -> .ssh/x
+			if !strings.HasPrefix(rel, strip+"/") {
+				continue
+			}
+			rel = rel[len(strip)+1:]
 		}
 		target := filepath.Join(root, filepath.FromSlash(rel))
 		if !within(root, target) {

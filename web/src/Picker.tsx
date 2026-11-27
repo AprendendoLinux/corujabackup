@@ -270,8 +270,8 @@ export function SpaceBar({ free, total, usedBytes, mount, fs }: { free: number; 
 const folderNameOK = (n: string, strict: boolean) => (strict ? /^[A-Za-z0-9._-]+$/.test(n) : !/[\\/:*?"<>|]/.test(n)) && n !== '.' && n !== '..' && n.length <= 200
 
 /** Navegador para escolher UMA pasta. load("") lista a raiz; os caminhos são relativos a ela. */
-export function FolderPicker({ title, intro, rootLabel, initial, strictNames, load, onPick, onClose }: {
-  title: string; intro: string; rootLabel: string; initial: string; strictNames?: boolean
+export function FolderPicker({ title, intro, rootLabel, initial, strictNames, newHint = 'Pasta nova: será criada no primeiro backup.', load, onPick, onClose }: {
+  title: string; intro: string; rootLabel: string; initial: string; strictNames?: boolean; newHint?: string
   load: (path: string) => Promise<string[] | FolderList>; onPick: (path: string) => void; onClose: () => void
 }) {
   const [path, setPath] = useState(initial)
@@ -324,7 +324,7 @@ export function FolderPicker({ title, intro, rootLabel, initial, strictNames, lo
           {folders?.map((f) => (
             <li key={f}><button type="button" className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-bg" onClick={() => setPath(join(path, f))}><FolderIcon /><span className="truncate">{f}</span></button></li>
           ))}
-          {folders?.length === 0 && !err && <li className="px-2 py-1.5 text-muted">{isNew ? 'Pasta nova: será criada no primeiro backup.' : 'Nenhuma subpasta aqui.'}</li>}
+          {folders?.length === 0 && !err && <li className="px-2 py-1.5 text-muted">{isNew ? newHint : 'Nenhuma subpasta aqui.'}</li>}
         </ul>
         {info?.total ? <SpaceBar free={info.free ?? 0} total={info.total} usedBytes={info.used} mount={info.mount} fs={info.fs} /> : null}
         {info?.blocked && path && <p className="text-xs text-danger">{info.blocked}</p>}

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AprendendoLinux/corujabackup/internal/agentcore"
 	"github.com/AprendendoLinux/corujabackup/internal/agentsrv"
 	"github.com/AprendendoLinux/corujabackup/internal/auth"
 	"github.com/AprendendoLinux/corujabackup/internal/dbdump"
@@ -103,6 +104,7 @@ func (s *Server) restoreRun(w http.ResponseWriter, r *http.Request, cu *ctxUser)
 		Paths    []string `json:"paths"`
 		Original bool     `json:"original"`
 		Target   string   `json:"target"`
+		Dest     string   `json:"dest"` // pasta do servidor escolhida na navegação (absoluta)
 	}
 	if !decode(w, r, &in) {
 		return
@@ -121,8 +123,28 @@ func (s *Server) restoreRun(w http.ResponseWriter, r *http.Request, cu *ctxUser)
 		writeErr(w, 403, "só administradores restauram no local original (sobrescreve arquivos do servidor)")
 		return
 	}
-	in.Target = strings.TrimSpace(in.Target)
-	if !in.Original {
+	in.Target, in.Dest = strings.TrimSpace(in.Target), strings.TrimSpace(in.Dest)
+	if in.Dest != "" {
+		if in.Original {
+			writeErr(w, 400, "escolha um destino só: a pasta do servidor ou o local original")
+			return
+		}
+		if cu.User.Role != "admin" {
+			writeErr(w, 403, "só administradores restauram numa pasta do servidor (pode substituir arquivos que já estejam lá)")
+			return
+		}
+		clean, err := agentcore.CheckLocalDir(in.Dest)
+		if err != nil {
+			writeErr(w, 400, err.Error())
+			return
+		}
+		in.Dest = clean
+		if a, err := s.Store.AgentByID(r.Context(), run.AgentID); err == nil && a.AgentVersion != "" && !versionAtLeast(a.AgentVersion, restoreDestAgent) {
+			writeErr(w, 422, "o agente "+a.Name+" (versão "+a.AgentVersion+") não restaura numa pasta escolhida: atualize-o para a versão 0.0.27 ou mais nova")
+			return
+		}
+		in.Target = ""
+	} else if !in.Original {
 		if in.Target == "" {
 			in.Target = fmt.Sprintf("run-%d-%s", run.ID, time.Now().UTC().Format("20060102-150405"))
 		}
@@ -139,25 +161,31 @@ func (s *Server) restoreRun(w http.ResponseWriter, r *http.Request, cu *ctxUser)
 		return
 	}
 	act := &pb.AgentAction{Kind: "restore_files", RunUid: run.UID, JobId: job.ID, FileName: run.OutputName, Subdir: job.DestSubdir, Sha256: run.SHA256,
-		Chain: chain, ChainSha256: shas, Paths: in.Paths, Original: in.Original, Target: in.Target}
+		Chain: chain, ChainSha256: shas, Paths: in.Paths, Original: in.Original, Target: in.Target, DestDir: in.Dest}
 	if s.actionErr(w, s.Agents.Action(run.AgentID, act)) {
 		return
 	}
 	where := "pasta " + in.Target
-	if in.Original {
+	switch {
+	case in.Original:
 		where = "LOCAL ORIGINAL"
+	case in.Dest != "":
+		where = "pasta do servidor " + in.Dest
 	}
 	sample := strings.Join(in.Paths[:min(len(in.Paths), 5)], ", ")
 	if len(in.Paths) > 5 {
 		sample += fmt.Sprintf(" e mais %d", len(in.Paths)-5)
 	}
 	s.Store.Audit(r.Context(), cu.User.ID, cu.User.Username, "run.restore_files", fmt.Sprintf("%s / %s -> %s: %s", run.JobName, run.OutputName, where, sample), s.clientIP(r))
-	writeJSON(w, 202, map[string]any{"target": in.Target, "original": in.Original})
+	writeJSON(w, 202, map[string]any{"target": in.Target, "original": in.Original, "dest": in.Dest})
 }
 
 // ---------------------------------------------------------------- download para o navegador
 
 var downloadAgent = [3]int{0, 0, 24}
+
+// restoreDestAgent: a restauração numa pasta escolhida do servidor chegou na 0.0.27 do agente.
+var restoreDestAgent = [3]int{0, 0, 27}
 
 type readyDownload struct {
 	rc     io.ReadCloser

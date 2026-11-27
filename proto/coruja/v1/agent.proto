@@ -263,6 +263,7 @@ message AgentAction {
   string download_id = 13;         // download: id do pedido (vai no primeiro DownloadChunk)
   bool zip = 14;                   // download: entrega um .zip (senão, o arquivo escolhido como está)
   repeated string targets = 15;    // restore_db: nome de destino de cada banco de paths (mesma ordem); original = sobrescrever
+  string dest_dir = 16;            // restore_files: pasta absoluta do servidor que recebe os itens (a partir da pasta-mãe comum deles)
 }
 
 message ActionLog {

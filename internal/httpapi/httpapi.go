@@ -141,6 +141,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("DELETE /api/agents/{id}", s.authed(roleOperator, s.deleteAgent))
 	mux.HandleFunc("GET /api/agents/{id}/containers", s.authed(roleOperator, s.agentContainers))
 	mux.HandleFunc("GET /api/agents/{id}/browse", s.authed(roleOperator, s.agentBrowse))
+	mux.HandleFunc("GET /api/agents/{id}/size", s.authed(roleOperator, s.agentDirSize))
 	mux.HandleFunc("POST /api/agents/{id}/db-test", s.authed(roleOperator, s.dbTest))
 	mux.HandleFunc("POST /api/agents/{id}/mikrotik-test", s.authed(roleOperator, s.mikrotikTest))
 	mux.HandleFunc("GET /api/notifications/channels", s.authed(roleAdmin, s.listChannels))

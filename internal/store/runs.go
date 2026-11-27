@@ -35,6 +35,8 @@ type Run struct {
 	CloudHash       string `json:"cloud_hash"`
 	CloudVerifiedBy string `json:"cloud_verified_by"`
 	BackupKind      string `json:"backup_kind"` // full | incremental
+	// CancelRequested: alguém pediu para cancelar e o agente ainda está interrompendo (só faz sentido enquanto roda)
+	CancelRequested bool `json:"cancel_requested"`
 }
 
 type RunLog struct {
@@ -46,7 +48,7 @@ type RunLog struct {
 
 const runSelect = `SELECT r.id, r.uid, r.job_id, j.name, r.agent_id, a.name, r.trigger_kind, r.scheduled_for, r.status, r.started_at, r.finished_at,
   r.bytes_source, r.bytes_output, r.files, r.sha256, r.output_name, COALESCE(r.error,''), r.created_at,
-  r.phase, r.progress_pct, r.cloud_status, r.cloud_path, r.cloud_hash, r.cloud_verified_by, r.backup_kind
+  r.phase, r.progress_pct, r.cloud_status, r.cloud_path, r.cloud_hash, r.cloud_verified_by, r.backup_kind, r.cancel_requested_at IS NOT NULL
   FROM runs r JOIN jobs j ON j.id=r.job_id JOIN agents a ON a.id=r.agent_id `
 
 func scanRun(r interface{ Scan(...any) error }) (*Run, error) {
@@ -54,7 +56,7 @@ func scanRun(r interface{ Scan(...any) error }) (*Run, error) {
 	var sf, st, fi sql.NullTime
 	if err := r.Scan(&x.ID, &x.UID, &x.JobID, &x.JobName, &x.AgentID, &x.AgentName, &x.Trigger, &sf, &x.Status, &st, &fi,
 		&x.BytesSource, &x.BytesOutput, &x.Files, &x.SHA256, &x.OutputName, &x.Error, &x.CreatedAt,
-		&x.Phase, &x.ProgressPct, &x.CloudStatus, &x.CloudPath, &x.CloudHash, &x.CloudVerifiedBy, &x.BackupKind); err != nil {
+		&x.Phase, &x.ProgressPct, &x.CloudStatus, &x.CloudPath, &x.CloudHash, &x.CloudVerifiedBy, &x.BackupKind, &x.CancelRequested); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -481,4 +483,10 @@ func (s *Store) ApplyActionLog(ctx context.Context, agentID int64, a ActionResul
 		}
 	}
 	return tx.Commit()
+}
+
+// RequestCancel marca que o cancelamento foi pedido (a execução segue "running" até o agente confirmar).
+func (s *Store) RequestCancel(ctx context.Context, id int64) error {
+	_, err := s.DB.ExecContext(ctx, "UPDATE runs SET cancel_requested_at=COALESCE(cancel_requested_at, UTC_TIMESTAMP(3)) WHERE id=? AND status IN ('queued','running')", id)
+	return err
 }

@@ -52,7 +52,7 @@ export type Run = {
   id: number; uid: string; job_id: number; job_name: string; agent_id: number; agent_name: string; trigger: string
   scheduled_for: string | null; status: string; started_at: string | null; finished_at: string | null
   bytes_source: number; bytes_output: number; files: number; sha256: string; output_name: string; error: string; created_at: string
-  phase: string; progress_pct: number; cloud_status: string; cloud_path: string; cloud_hash: string; cloud_verified_by: string; backup_kind?: 'full' | 'incremental'
+  phase: string; progress_pct: number; cloud_status: string; cloud_path: string; cloud_hash: string; cloud_verified_by: string; backup_kind?: 'full' | 'incremental'; cancel_requested?: boolean
 }
 export type RunLog = { seq: number; at: string; level: string; text: string }
 export type Job = {

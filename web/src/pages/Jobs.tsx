@@ -134,6 +134,14 @@ const PHASE: Record<string, string> = { archiving: 'Compactando', uploading: 'En
 function LiveRun({ run }: { run: NonNullable<Job['last_run']> }) {
   const queued = run.status === 'queued'
   const pct = run.phase === 'uploading' && run.progress_pct > 0 ? run.progress_pct : null
+  if (run.cancel_requested) {
+    return (
+      <a href={`#/historico?job=${run.job_id}`} className="block min-w-40" aria-live="polite">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-danger/10 px-2 py-0.5 text-xs font-medium text-danger"><Spinner />Cancelando…</span>
+        <div className="mt-1 text-xs text-muted">aguardando o agente parar</div>
+      </a>
+    )
+  }
   return (
     <a href={`#/historico?job=${run.job_id}`} className="block min-w-40" aria-live="polite">
       <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">

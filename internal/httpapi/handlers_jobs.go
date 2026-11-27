@@ -652,6 +652,7 @@ func (s *Server) cancelRun(w http.ResponseWriter, r *http.Request, cu *ctxUser) 
 		writeErr(w, 409, "o agente está offline")
 		return
 	}
+	_ = s.Store.RequestCancel(r.Context(), run.ID)
 	s.Store.Audit(r.Context(), cu.User.ID, cu.User.Username, "run.cancel", run.JobName, s.clientIP(r))
 	writeJSON(w, 202, map[string]bool{"ok": true})
 }

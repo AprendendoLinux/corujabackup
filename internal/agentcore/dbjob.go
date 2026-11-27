@@ -175,7 +175,7 @@ func packFlat(ctx context.Context, dir, root string, w io.Writer) (sum string, s
 			src.Close()
 			return fail(err)
 		}
-		_, err = io.Copy(tw, src)
+		_, err = io.Copy(tw, ctxRd(ctx, src))
 		src.Close()
 		if err != nil {
 			return fail(err)
@@ -281,6 +281,20 @@ func (c *Core) rpc(ctx context.Context, m *pb.Rpc) ([]byte, error) {
 			return nil, errors.New("área de navegação inválida")
 		}
 		r, err := Browse(base, req, c.cfg.AllowedPaths)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(r)
+	case "fs_size":
+		var req SizeRequest
+		if err := json.Unmarshal(m.Payload, &req); err != nil {
+			return nil, fmt.Errorf("pedido inválido: %w", err)
+		}
+		base := c.cfg.HostRoot
+		if base == "" {
+			base = "/"
+		}
+		r, err := DirSize(ctx, base, req, c.cfg.AllowedPaths)
 		if err != nil {
 			return nil, err
 		}

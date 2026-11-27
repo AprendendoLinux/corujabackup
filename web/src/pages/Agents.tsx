@@ -136,7 +136,7 @@ function AgentWizard({ onChange, onClose }: { onChange: () => void; onClose: () 
   const [link, setLink] = useState<LinkState | undefined>()
   const STEPS = [
     { title: 'Identificação', hint: 'Como o agente vai aparecer e onde o Server encontra a máquina dele.' },
-    { title: 'Instalação', hint: 'Suba o agente na máquina que será protegida, com a stack abaixo (Portainer ou docker compose).' },
+    { title: 'Instalação', hint: 'Escolha como instalar e suba o agente na máquina que será protegida.' },
     { title: 'Conexão', hint: 'O Server tenta conectar a cada poucos segundos. Assim que o agente estiver no ar, ele aparece aqui sozinho.' },
   ]
   useEffect(() => {
@@ -204,45 +204,82 @@ function AgentWizard({ onChange, onClose }: { onChange: () => void; onClose: () 
   )
 }
 
+type Method = 'compose' | 'run'
+
+/** Passo de instalação: primeiro pergunta como instalar e só então mostra o comando daquele jeito. */
 function Created({ c }: { c: NewAgent }) {
   const { port } = splitAddress(c.address)
+  const [method, setMethod] = useState<Method | null>(null)
+  const [docker, setDocker] = useState(false)
+  const sock = docker ? '\n      - /var/run/docker.sock:/var/run/docker.sock   # jobs de banco em contêineres Docker' : ''
   const compose = `services:
   agent:
     image: ghcr.io/aprendendolinux/corujabackup-agent:latest
     container_name: corujabackup-agent
     restart: always
     ports:
-      - "${port}:23847"             # o Server conecta aqui (libere só para o IP do Server)
+      - "${port}:23847"
     environment:
       CORUJA_TOKEN: "${c.token}"
       CORUJA_HOST_ROOT: "/host"
     volumes:
       - agent-data:/var/lib/coruja-agent
-      - /:/host:ro                 # o que o agente pode salvar (somente leitura)
-      - /:/host-rw                 # só para gravar o backup local na pasta escolhida no painel
-      - /srv/coruja-backups:/backups   # pasta de backups padrão do agente
-      # - /var/run/docker.sock:/var/run/docker.sock   # só para jobs de banco de dados em contêineres Docker
+      - /:/host:ro
+      - /:/host-rw
+      - /srv/coruja-backups:/backups${sock}
 volumes:
   agent-data:`
-  const run = `docker run -d --name corujabackup-agent --restart always -p ${port}:23847 \\
-  -e CORUJA_TOKEN="${c.token}" -e CORUJA_HOST_ROOT=/host \\
-  -v coruja-agent-data:/var/lib/coruja-agent -v /:/host:ro -v /:/host-rw -v /srv/coruja-backups:/backups \\
-  ghcr.io/aprendendolinux/corujabackup-agent:latest`
+  const run = [
+    'docker run -d --name corujabackup-agent --restart always \\',
+    `  -p ${port}:23847 \\`,
+    `  -e CORUJA_TOKEN="${c.token}" \\`,
+    '  -e CORUJA_HOST_ROOT=/host \\',
+    '  -v coruja-agent-data:/var/lib/coruja-agent \\',
+    '  -v /:/host:ro \\',
+    '  -v /:/host-rw \\',
+    '  -v /srv/coruja-backups:/backups \\',
+    ...(docker ? ['  -v /var/run/docker.sock:/var/run/docker.sock \\'] : []),
+    '  ghcr.io/aprendendolinux/corujabackup-agent:latest',
+  ].join('\n')
+  const options: { id: Method; title: string; text: string }[] = [
+    { id: 'compose', title: 'docker-compose.yml', text: 'Para colar como stack no Portainer ou subir com docker compose up -d. Mais fácil de atualizar depois.' },
+    { id: 'run', title: 'docker run', text: 'Um único comando no terminal da máquina, sem arquivo de configuração.' },
+  ]
   return (
     <div className="space-y-4 text-sm">
-      <div className="rounded-lg border border-accent/50 bg-accent/10 p-3">
-        <b>Guarde este token agora:</b> ele não será mostrado de novo. Vale uma única vez e expira em {fmtDate(c.expires_at)}.
-      </div>
-      <Field label="Token de matrícula"><CopyBox text={c.token} /></Field>
+      <p className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-2">
+        O token de matrícula já vai dentro do comando. <b>Ele não será mostrado de novo</b>, vale uma única vez e expira em {fmtDate(c.expires_at)}.
+      </p>
       <div>
-        <div className="mb-1 font-medium">Opção 1 · docker-compose.yml (Portainer)</div>
-        <CopyBox text={compose} />
+        <div className="mb-2 font-medium">Como você quer instalar o agente?</div>
+        <div role="radiogroup" aria-label="Forma de instalação" className="grid gap-2 sm:grid-cols-2">
+          {options.map((o) => (
+            <label key={o.id} className={`flex cursor-pointer items-start gap-2.5 rounded-lg border p-3 hover:bg-bg ${method === o.id ? 'border-primary' : 'border-border'}`}>
+              <input type="radio" name="metodo" className="mt-1" checked={method === o.id} onChange={() => setMethod(o.id)} />
+              <span><b className="block font-mono">{o.title}</b><span className="text-xs text-muted">{o.text}</span></span>
+            </label>
+          ))}
+        </div>
       </div>
-      <div>
-        <div className="mb-1 font-medium">Opção 2 · docker run</div>
-        <CopyBox text={run} />
-      </div>
-      <p className="text-muted">O Server conecta no agente em <b className="font-mono">{c.address}</b>. Libere a porta <b>{port}</b> dessa máquina <b>só para o IP do Server</b>. O agente só aceita a conexão de quem prova ser este Server (pelo certificado). A origem dos backups é lida em /host, <b>somente leitura</b>; a montagem /host-rw dá ao agente permissão de gravação em todo o sistema de arquivos, usada na pasta do backup local escolhida no job.</p>
+      {method && (<>
+        <label className="flex items-start gap-2.5">
+          <input type="checkbox" className="mt-1" checked={docker} onChange={(e) => setDocker(e.target.checked)} />
+          <span>Vou fazer backup de bancos que rodam em <b>contêineres Docker</b> nesta máquina<span className="block text-xs text-muted">Dá ao agente acesso ao Docker (docker.sock) para rodar o dump dentro do contêiner do banco.</span></span>
+        </label>
+        <div>
+          <div className="mb-1 font-medium">{method === 'compose' ? 'Cole esta stack no Portainer (ou salve como docker-compose.yml e rode docker compose up -d)' : 'Rode este comando na máquina do agente'}</div>
+          <CopyBox text={method === 'compose' ? compose : run} />
+        </div>
+        <ul className="list-disc space-y-1 pl-5 text-muted">
+          <li>Libere a porta <b>{port}</b> desta máquina <b>só para o IP do Server</b>: é por ela que o Server conecta em <span className="font-mono">{c.address}</span>.</li>
+          <li>O agente lê os arquivos em <code>/host</code> (somente leitura). <code>/host-rw</code> só é usado para gravar o backup local na pasta escolhida no job.</li>
+          <li>Os backups locais ficam em <code>/srv/coruja-backups</code> (pode trocar a pasta antes de subir).</li>
+        </ul>
+        <details className="text-muted">
+          <summary className="cursor-pointer select-none">Ver só o token</summary>
+          <div className="mt-2"><CopyBox text={c.token} /></div>
+        </details>
+      </>)}
     </div>
   )
 }

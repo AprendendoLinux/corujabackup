@@ -148,6 +148,7 @@ export default function Appearance() {
             ))}
           </div>
           <p className="mt-1 text-xs text-muted">Automático segue o modo claro ou escuro do sistema de cada pessoa. E-mails e PDF usam sempre o modo claro.</p>
+          {THEMES.find((t) => t.id === theme)?.dark_only && <p className="mt-1 text-xs font-medium text-accent">Este tema é sempre escuro: o modo escolhido aqui não muda a interface.</p>}
         </div>
       </Card>
 

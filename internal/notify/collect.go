@@ -16,9 +16,14 @@ import (
 )
 
 var builtinColors = map[string]map[string]string{
-	"coruja":   {"bg": "#f6f5fb", "surface": "#ffffff", "text": "#1e1b2e", "muted": "#6b6784", "border": "#e3e0f0", "primary": "#3b2a6b", "accent": "#f5a524", "ok": "#1f9d55", "danger": "#d64545"},
-	"noturno":  {"bg": "#f6f5fb", "surface": "#ffffff", "text": "#1e1b2e", "muted": "#6b6784", "border": "#e3e0f0", "primary": "#5b45b8", "accent": "#f5a524", "ok": "#1f9d55", "danger": "#d64545"},
-	"floresta": {"bg": "#f1f6f2", "surface": "#ffffff", "text": "#16251b", "muted": "#5c7364", "border": "#d9e6dc", "primary": "#1f6b45", "accent": "#e0a526", "ok": "#1f9d55", "danger": "#c93c3c"},
+	"coruja":    {"bg": "#f6f5fb", "surface": "#ffffff", "text": "#1e1b2e", "muted": "#6b6784", "border": "#e3e0f0", "primary": "#3b2a6b", "accent": "#f5a524", "ok": "#1f9d55", "danger": "#d64545"},
+	"noturno":   {"bg": "#f6f5fb", "surface": "#ffffff", "text": "#1e1b2e", "muted": "#6b6784", "border": "#e3e0f0", "primary": "#5b45b8", "accent": "#f5a524", "ok": "#1f9d55", "danger": "#d64545"},
+	"floresta":  {"bg": "#f1f6f2", "surface": "#ffffff", "text": "#16251b", "muted": "#5c7364", "border": "#d9e6dc", "primary": "#1f6b45", "accent": "#e0a526", "ok": "#1f9d55", "danger": "#c93c3c"},
+	"oceano":    {"bg": "#f1f7f9", "surface": "#ffffff", "text": "#0f252d", "muted": "#4f6b74", "border": "#d3e4ea", "primary": "#0b5f74", "accent": "#e8693f", "ok": "#187f4e", "danger": "#c8363f"},
+	"grafite":   {"bg": "#f3f4f6", "surface": "#ffffff", "text": "#1a1e24", "muted": "#5b636e", "border": "#dde1e6", "primary": "#2c3541", "accent": "#1f7fd1", "ok": "#1a8a4c", "danger": "#cc3b3b"},
+	"bordo":     {"bg": "#faf5f6", "surface": "#ffffff", "text": "#2a1419", "muted": "#77575e", "border": "#ecdde0", "primary": "#7b1e34", "accent": "#a97616", "ok": "#1a8a4c", "danger": "#c22f2f"},
+	"terracota": {"bg": "#fbf6f2", "surface": "#ffffff", "text": "#2b1a11", "muted": "#7a6052", "border": "#eedfd4", "primary": "#a8441a", "accent": "#6b4fc4", "ok": "#1a8a4c", "danger": "#c22f2f"},
+	"onix":      {"bg": "#f5f5f4", "surface": "#ffffff", "text": "#0c0c0d", "muted": "#57575c", "border": "#e4e4e7", "primary": "#111113", "accent": "#9a7413", "ok": "#1a8a4c", "danger": "#c22f2f"},
 }
 
 // LoadBrand lê nome, cores do tema padrão, logo e endereço público configurados na interface. E-mails e PDFs usam sempre fundo

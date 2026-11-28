@@ -1,18 +1,43 @@
-# Desenvolvimento no echelon. Copie para docker-compose.dev.yml (ignorado pelo git) e ajuste a senha.
-#   docker compose -f docker-compose.dev.yml up -d --build      ->  http://187.110.161.52:8081
+# Desenvolvimento. Copie para docker-compose.dev.yml (ignorado pelo git), ajuste o banco e a senha:
+#   docker compose -f docker-compose.dev.yml up -d --build      ->  http://IP_DA_MAQUINA:8080
+# Pastas (uma vez): sudo mkdir -p /srv/coruja-dev/data /srv/coruja-dev/matricula && sudo chown 10001:10001 /srv/coruja-dev/data /srv/coruja-dev/matricula
 services:
   server:
-    build: { context: ., target: server, args: { VERSION: "0.0.31" } }
+    build: { context: ., target: server, args: { VERSION: "0.0.32" } }
+    image: corujabackup-server:dev
     container_name: corujabackup-dev-server
     restart: unless-stopped
-    ports: ["8081:8080"]   # interface web (o Server é quem conecta nos agentes)
+    ports: ["8080:8080"]   # interface web (o Server é quem conecta nos agentes)
     environment:
-      CORUJA_DB_HOST: db-server
+      CORUJA_DB_HOST: db-server              # contêiner do MySQL de desenvolvimento, na mesma rede
       CORUJA_DB_NAME: corujabackup_dev
       CORUJA_DB_USER: corujabackup_dev
       CORUJA_DB_PASSWORD: "troque-pela-senha"
-    volumes: ["/srv/coruja-dev/data:/data"]   # dono: usuário 10001 (sudo mkdir -p /srv/coruja-dev/data && sudo chown 10001:10001 /srv/coruja-dev/data)
-    networks: [echelon]
+      CORUJA_LOCAL_AGENT: "corujabackup-dev-agent:23847"   # agente desta máquina (serviço abaixo), matriculado sozinho
+    volumes:
+      - /srv/coruja-dev/data:/data
+      - /srv/coruja-dev/matricula:/matricula
+    networks: [dev]
+  agent:
+    build: { context: ., target: agent, args: { VERSION: "0.0.32" } }
+    image: corujabackup-agent:dev
+    container_name: corujabackup-dev-agent
+    restart: unless-stopped
+    environment:
+      CORUJA_TOKEN_FILE: "/matricula/token"
+      CORUJA_HOST_ROOT: "/host"
+      TZ: "America/Sao_Paulo"
+    volumes:
+      - /srv/coruja-dev/agente:/var/lib/coruja-agent
+      - /srv/coruja-dev/matricula:/matricula:ro
+      - /:/host:ro
+      - /:/host-rw
+      - /srv/coruja-dev/backups:/backups
+    cap_drop: [ALL]
+    cap_add: [DAC_READ_SEARCH, DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
+    networks: [dev]
 networks:
-  echelon:
+  dev:
+    name: echelon            # a rede onde está o MySQL de desenvolvimento
     external: true

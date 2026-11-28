@@ -4,6 +4,10 @@
 #   2) docker compose -f docker-compose.server.yml up -d       (os dados ficam em /srv/coruja-server, criada sozinha)
 #   3) abra http://SEU_IP:8080 e entre com usuário admin e senha admin: o sistema pede uma senha nova no primeiro login
 #
+# O serviço "agent" é o agente da própria máquina do Server: ele se matricula sozinho (sem token para copiar) e aparece em
+# Agentes como "coruja-server", pronto para jobs de backup desta máquina. Não quer? Remova o serviço "agent" e a variável
+# CORUJA_LOCAL_AGENT do Server.
+#
 # Só UMA variável é obrigatória (a senha do banco). O restante (nuvem, notificações, usuários, aparência) é feito na interface.
 # Opcionais do Server (descomente o que precisar):
 #   CORUJA_TRUST_PROXY=true        atrás de proxy reverso confiável (usa X-Forwarded-For/Proto; ativa HSTS e cookie "Secure")
@@ -32,11 +36,11 @@ services:
   # Prepara a pasta do Server: ele roda sem privilégios (usuário 10001) e não conseguiria gravar numa pasta nova do
   # Docker, que nasce do root. Roda uma vez a cada subida e termina; só tem a permissão de trocar o dono.
   permissoes:
-    image: ghcr.io/aprendendolinux/corujabackup-server:0.0.31
+    image: ghcr.io/aprendendolinux/corujabackup-server:0.0.32
     container_name: corujabackup-permissoes
     user: "0:0"
-    entrypoint: ["chown", "-R", "10001:10001", "/data"]
-    volumes: ["/srv/coruja-server/data:/data"]
+    entrypoint: ["chown", "-R", "10001:10001", "/data", "/matricula"]
+    volumes: ["/srv/coruja-server/data:/data", "/srv/coruja-server/matricula:/matricula"]
     network_mode: none
     restart: "no"
     cap_drop: [ALL]
@@ -44,7 +48,7 @@ services:
     security_opt: ["no-new-privileges:true"]
 
   server:
-    image: ghcr.io/aprendendolinux/corujabackup-server:0.0.31
+    image: ghcr.io/aprendendolinux/corujabackup-server:0.0.32
     container_name: corujabackup-server
     restart: always
     depends_on:
@@ -56,13 +60,42 @@ services:
     environment:
       CORUJA_DB_PASSWORD: "COLOQUE_UMA_SENHA_FORTE"
       # CORUJA_TRUST_PROXY: "true"
-    volumes: ["/srv/coruja-server/data:/data"]   # certificado do canal dos agentes + chave de criptografia (FAÇA BACKUP DESTA PASTA)
+      CORUJA_LOCAL_AGENT: "corujabackup-agent:23847"   # agente desta máquina (serviço "agent" abaixo), matriculado sozinho
+      # CORUJA_LOCAL_AGENT_NAME: "coruja-server"       # nome dele em Agentes
+    volumes:
+      - /srv/coruja-server/data:/data            # certificado do canal dos agentes + chave de criptografia (FAÇA BACKUP DESTA PASTA)
+      - /srv/coruja-server/matricula:/matricula  # entrega do token ao agente local (o arquivo some depois da matrícula)
     # Endurecimento: o Server não precisa de privilégios, nem de escrever fora de /data
     read_only: true
     tmpfs: ["/tmp:size=64m"]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     pids_limit: 512
+    networks: [echelon]
+
+  # Agente da máquina do Server: lê o token que o Server grava em /matricula e se matricula sozinho. Não publica porta: o
+  # Server fala com ele pela rede interna do Docker.
+  agent:
+    image: ghcr.io/aprendendolinux/corujabackup-agent:0.0.32
+    container_name: corujabackup-agent
+    restart: always
+    environment:
+      CORUJA_TOKEN_FILE: "/matricula/token"
+      CORUJA_HOST_ROOT: "/host"
+      TZ: "America/Sao_Paulo"
+      # CORUJA_ALLOWED_PATHS: "/etc,/srv,/home"    # opcional: limita o que pode ser salvo
+      # CORUJA_BACKUP_ROOTS: "/srv,/mnt"           # opcional: limita onde o painel pode mandar gravar o backup local
+    volumes:
+      - /srv/coruja-server/agente:/var/lib/coruja-agent   # credencial, agenda, catálogos e fila (fica fora dos backups)
+      - /srv/coruja-server/matricula:/matricula:ro        # token de matrícula entregue pelo Server
+      - /:/host:ro                                        # origem dos backups, SOMENTE LEITURA
+      - /:/host-rw                                        # backup local numa pasta escolhida no painel (dá permissão de gravação)
+      - /srv/coruja-backups:/backups                      # pasta de backups padrão
+      # Jobs de banco em contêiner: descomente (dá ao agente controle total do Docker deste servidor).
+      # - /var/run/docker.sock:/var/run/docker.sock
+    cap_drop: [ALL]
+    cap_add: [DAC_READ_SEARCH, DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
     networks: [echelon]
 
 networks:

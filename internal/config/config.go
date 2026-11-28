@@ -20,6 +20,10 @@ type Config struct {
 	DBName     string
 	DBUser     string
 	DBPassword string
+	// Agente local (o serviço "agent" do compose do Server): o Server o matricula sozinho. LocalAgent vazio = desligado.
+	LocalAgent          string // host:porta do agente na rede interna, ex.: corujabackup-agent:23847
+	LocalAgentName      string
+	LocalAgentTokenFile string
 }
 
 // Load lê o ambiente. Só CORUJA_DB_PASSWORD é obrigatória.
@@ -36,6 +40,10 @@ func Load(getenv func(string) string) (Config, error) {
 		DBName:     or(getenv("CORUJA_DB_NAME"), "corujabackup"),
 		DBUser:     or(getenv("CORUJA_DB_USER"), "corujabackup"),
 		DBPassword: getenv("CORUJA_DB_PASSWORD"),
+
+		LocalAgent:          strings.TrimSpace(getenv("CORUJA_LOCAL_AGENT")),
+		LocalAgentName:      or(strings.TrimSpace(getenv("CORUJA_LOCAL_AGENT_NAME")), "coruja-server"),
+		LocalAgentTokenFile: or(strings.TrimSpace(getenv("CORUJA_LOCAL_AGENT_TOKEN_FILE")), "/matricula/token"),
 	}
 	if strings.TrimSpace(c.DBPassword) == "" {
 		return c, fmt.Errorf("a variável CORUJA_DB_PASSWORD é obrigatória")

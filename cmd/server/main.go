@@ -24,6 +24,7 @@ import (
 	"github.com/AprendendoLinux/corujabackup/internal/config"
 	"github.com/AprendendoLinux/corujabackup/internal/db"
 	"github.com/AprendendoLinux/corujabackup/internal/httpapi"
+	"github.com/AprendendoLinux/corujabackup/internal/localagent"
 	"github.com/AprendendoLinux/corujabackup/internal/notify"
 	"github.com/AprendendoLinux/corujabackup/internal/secrets"
 	"github.com/AprendendoLinux/corujabackup/internal/store"
@@ -109,6 +110,14 @@ func main() {
 		log.Error("não foi possível criar o administrador padrão", "erro", err.Error())
 	} else if created {
 		log.Warn("PRIMEIRA SUBIDA: entre com o usuário admin e a senha admin; o sistema pede uma senha nova antes de liberar o uso")
+	}
+	// agente local: o Server já nasce com um agente que faz backup da própria máquina
+	la := localagent.Config{Address: cfg.LocalAgent, Name: cfg.LocalAgentName, TokenFile: cfg.LocalAgentTokenFile}
+	if created, err := localagent.Ensure(ctx, st, fp, la); err != nil {
+		log.Error("não foi possível preparar a matrícula do agente local", "erro", err.Error())
+	} else if created {
+		log.Info("matrícula do agente local preparada: ele se conecta sozinho", "agente", la.Name, "endereço", la.Address)
+		go localagent.Watch(ctx, st, la, log)
 	}
 	if n, err := st.CountUsers(ctx); err == nil && n == 0 { // sem o padrão (falhou): configuração inicial pela interface
 		code, _ := auth.RandomToken(9)

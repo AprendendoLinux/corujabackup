@@ -67,6 +67,20 @@ O canal dos agentes não passa pelo proxy HTTP: o Server conecta direto em cada 
 ### Banco em outro servidor
 Defina `CORUJA_DB_HOST`, `CORUJA_DB_NAME`, `CORUJA_DB_USER`, `CORUJA_DB_PASSWORD` e, se não estiver na mesma rede Docker, `CORUJA_DB_TLS=true` (ou `skip-verify`).
 
+### Agente da própria máquina do Server
+O compose do Server já traz o serviço **`agent`**: o agente da máquina do Server, para ela fazer backup **dela mesma**.
+- Ele se **matricula sozinho**: na subida, o Server cria o agente `coruja-server` (nome em `CORUJA_LOCAL_AGENT_NAME`) e grava um token de
+  uso único em `/srv/coruja-server/matricula`, pasta que só os dois contêineres montam. O agente lê o token, o Server conecta nele pela
+  rede interna do Docker (o agente **não publica porta**) e o arquivo é apagado assim que a matrícula termina. Em segundos ele aparece
+  **online** em Agentes, sem nada para copiar e colar.
+- **O que vale salvar dele:** a pasta `/srv/coruja-server/data` (certificado e chave de criptografia, essenciais para restaurar o Server) e
+  o **banco**, com um job de banco de dados em modo **rede**: servidor `corujabackup-db`, porta 3306, usuário `corujabackup` com a senha
+  do compose e **ignorar verificação do certificado** ligado (o MySQL sobe com certificado autoassinado). Copiar a pasta do MySQL
+  com o banco rodando não é um backup confiável: use o job de banco. Envie os dois para um storage **fora** desta máquina.
+- **Não quer o agente local?** Remova o serviço `agent` e a variável `CORUJA_LOCAL_AGENT` do Server.
+- **Excluiu o agente `coruja-server` na interface?** A próxima subida do Server gera outro token. Para o agente aceitar, apague também a
+  pasta `/srv/coruja-server/agente` (a credencial antiga) e recrie o contêiner do agente.
+
 ## 2. Agente
 Na interface: **Agentes > Novo agente** pede o nome, o **IP e a porta** da máquina do agente e gera a stack pronta (com o token de uso único). Depois que o agente sobe, o Server conecta nele sozinho. Em resumo:
 

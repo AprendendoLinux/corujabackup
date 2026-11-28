@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.0.30] - Tela de entrada nova
+- **Login com visual novo:** no computador, um painel na cor do tema com a logo, o nome do sistema e os destaques do produto, ao lado do formulário; no celular e no tablet, uma faixa na cor do tema com o cartão de login por cima. Tudo segue o tema ativo (cores e logo da página Aparência), inclusive no modo escuro.
+- **Formulário mais fácil:** ícones nos campos, botão para mostrar/ocultar a senha, aviso de **Caps Lock ativado**, botão com "Entrando…" enquanto confere. A verificação em duas etapas ganhou tela própria, com o código em destaque e **Voltar** para entrar com outro usuário. A configuração inicial usa o mesmo visual.
+
 ## [0.0.29] - Backup em pasta, com os arquivos abertos
 - **Novo formato: pasta com os arquivos abertos.** Nos jobs de pastas e arquivos que gravam na pasta do agente ou num storage de rede (SFTP, FTP, SMB, NFS ou pasta local), o job pode escolher, em **Storage → Formato do backup**, entre o **.tar.gz** (como sempre) e uma **pasta** por execução (`<job>-AAAAMMDD-HHMMSS/`) com a árvore original, arquivo por arquivo: dá para abrir e copiar sem o Coruja. Nas nuvens, continua só o `.tar.gz`.
 - **Nada pela metade:** a pasta é gravada com nome provisório (`.coruja-part`) e só ganha o nome final quando todos os arquivos foram gravados e conferidos (cada um relido do destino e comparado pelo SHA-256 da origem, na conferência completa; ou pelo tamanho, na rápida). Falha ou cancelamento apagam a provisória, inclusive no SMB, onde o arquivo aberto na hora do cancelamento segurava a pasta.

@@ -4,6 +4,7 @@
 | Ameaça | Proteção |
 | :--- | :--- |
 | Alguém cria o administrador antes de você | Código de configuração por execução (nos logs) + limite de tentativas |
+| Senha padrão (`admin`/`admin`) | Criada só na primeira subida (banco sem usuários); no primeiro login a troca é obrigatória e, até ela, a API só aceita a troca de senha |
 | Adivinhar senhas | argon2id; limite de tentativas por IP e por usuário; mensagens iguais para "usuário" e "senha" errados |
 | Roubo de senha | 2FA (TOTP) com códigos de recuperação e anti-reuso; política para exigir 2FA; sessões listáveis e revogáveis |
 | Sequestro de sessão / CSRF / XSS | Cookie `HttpOnly` + `SameSite=Strict` (+ `Secure` em HTTPS); cabeçalho CSRF e checagem de `Origin`; CSP restritiva; logo SVG servida isolada (`sandbox`); saída HTML sempre escapada |
@@ -27,6 +28,7 @@
 ## Checklist de endurecimento
 - [ ] HTTPS na interface (proxy reverso com `CORUJA_TRUST_PROXY=true`, ou `CORUJA_TLS_CERT/KEY`).
 - [ ] Porta `8080` acessível só a quem administra; a porta de cada agente (padrão `23847`) acessível só ao IP do Server (firewall).
+- [ ] Primeiro acesso com `admin`/`admin` feito logo após a instalação (senha padrão trocada) antes de expor a porta 8080.
 - [ ] 2FA ativo e **exigido** (Segurança > Exigir 2FA); sessão curta (ex.: 8 h).
 - [ ] Backup do banco **e** da pasta `/data` (`/srv/coruja-server/data`) guardados **fora** do servidor (veja Operação).
 - [ ] Agentes com `CORUJA_ALLOWED_PATHS` / `CORUJA_ALLOWED_CONTAINERS` e `/host` montado só com o necessário.

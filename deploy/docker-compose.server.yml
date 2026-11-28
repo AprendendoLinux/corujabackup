@@ -2,8 +2,7 @@
 #
 #   1) troque COLOQUE_UMA_SENHA_FORTE (nos dois lugares)
 #   2) docker compose -f docker-compose.server.yml up -d       (os dados ficam em /srv/coruja-server, criada sozinha)
-#   3) docker logs corujabackup-server     <- procure "CONFIGURAÇÃO INICIAL PENDENTE": é o código para criar o administrador
-#   4) abra http://SEU_IP:8080
+#   3) abra http://SEU_IP:8080 e entre com usuário admin e senha admin: o sistema pede uma senha nova no primeiro login
 #
 # Só UMA variável é obrigatória (a senha do banco). O restante (nuvem, notificações, usuários, aparência) é feito na interface.
 # Opcionais do Server (descomente o que precisar):

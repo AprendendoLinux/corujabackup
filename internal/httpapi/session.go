@@ -47,6 +47,11 @@ func (s *Server) authed(min int, h func(http.ResponseWriter, *http.Request, *ctx
 			writeErr(w, 403, "sem permissão para esta ação")
 			return
 		}
+		// senha padrão (admin/admin da primeira subida): até trocar, só vê os próprios dados e troca a senha
+		if cu.User.MustChangePassword && !(r.Method == http.MethodGet && r.URL.Path == "/api/me") && !(r.Method == http.MethodPost && r.URL.Path == "/api/me/password") {
+			writeJSON(w, 403, map[string]string{"error": "troque a senha padrão antes de continuar", "code": "password_change_required"})
+			return
+		}
 		// política "exigir 2FA": enquanto o usuário não ativar, só acessa a própria conta (para poder ativar)
 		if !strings.HasPrefix(r.URL.Path, "/api/me") && s.needs2FA(r, cu.User) {
 			writeJSON(w, 403, map[string]string{"error": "a política de segurança exige a verificação em duas etapas: ative o 2FA em Minha conta", "code": "2fa_required"})

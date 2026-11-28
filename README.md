@@ -40,9 +40,11 @@ nos servidores de destino e se conectam a ele informando só **IP:porta + token*
 # Server + MySQL (troque COLOQUE_UMA_SENHA_FORTE nos dois lugares do arquivo)
 curl -fsSLO https://raw.githubusercontent.com/AprendendoLinux/corujabackup/main/deploy/docker-compose.server.yml
 docker compose -f docker-compose.server.yml up -d
-docker logs corujabackup-server 2>&1 | grep "CONFIGURAÇÃO INICIAL"     # código para criar o administrador
-# abra http://IP_DO_SERVER:8080, crie o administrador e vá em Agentes > Novo agente
+# abra http://IP_DO_SERVER:8080 e entre com usuário admin e senha admin (o sistema pede uma senha nova no primeiro login)
+# depois: Agentes > Novo agente
 ```
+
+> **Acesso padrão:** usuário **`admin`**, senha **`admin`**. Ele só existe na primeira subida (banco sem usuários) e, no primeiro login, o sistema **obriga a trocar a senha** antes de liberar qualquer tela. Troque logo após instalar e não deixe a porta 8080 aberta para a internet antes disso.
 
 O guia completo (HTTPS, proxy reverso, firewall, agentes, nuvem) está em [docs/INSTALACAO.md](docs/INSTALACAO.md).
 

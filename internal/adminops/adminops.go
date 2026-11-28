@@ -70,3 +70,30 @@ func CreateAdmin(ctx context.Context, st *store.Store, username, password string
 	st.Audit(ctx, id, username, "cli.create_admin", "", "cli")
 	return nil
 }
+
+// Usuário e senha padrão da primeira subida.
+const (
+	DefaultAdminUser     = "admin"
+	DefaultAdminPassword = "admin"
+)
+
+// EnsureDefaultAdmin cria o administrador padrão (admin/admin) quando o banco ainda não tem nenhum usuário. Ele é
+// obrigado a trocar a senha no primeiro login: até lá, a API só aceita a troca de senha. created=false se já havia
+// usuários.
+func EnsureDefaultAdmin(ctx context.Context, st *store.Store) (created bool, err error) {
+	n, err := st.CountUsers(ctx)
+	if err != nil || n > 0 {
+		return false, err
+	}
+	hash, err := auth.HashPassword(DefaultAdminPassword)
+	if err != nil {
+		return false, err
+	}
+	if _, err := st.CreateDefaultAdmin(ctx, DefaultAdminUser, hash); err != nil {
+		if errors.Is(err, store.ErrDuplicate) { // outro processo criou ao mesmo tempo
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}

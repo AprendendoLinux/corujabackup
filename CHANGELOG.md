@@ -1,6 +1,7 @@
 # Changelog
 
-## [0.0.31] - Dados em pastas de /srv, sem volumes do Docker
+## [0.0.31] - Acesso padrão admin/admin e dados em pastas de /srv
+- **Acesso padrão `admin` / `admin`:** na primeira subida (banco sem usuários), o Server cria o administrador `admin` com a senha `admin`. No primeiro login, o sistema **obriga a trocar a senha** (mínimo de 10 caracteres, diferente da atual) numa tela própria, antes de liberar qualquer outra; até lá, a API recusa todo o resto (só aceita ver os próprios dados e trocar a senha). Substitui o código de configuração dos logs, que só volta a aparecer se a criação do usuário padrão falhar. Numa instalação existente, nada muda. Documentado no README, em docs/INSTALACAO.md e em docs/SEGURANCA.md.
 - **Composes e assistente de instalação usam pastas, não volumes:** o Server guarda os dados em `/srv/coruja-server/mysql` (banco) e `/srv/coruja-server/data` (certificado do canal dos agentes e chave de criptografia), e o agente em `/srv/coruja-agente` (credencial, agenda local e fila), ao lado da pasta de backups padrão `/srv/coruja-backups`. Fica mais simples de achar, copiar e fazer backup.
 - **Sem `chown` à mão:** o compose do Server traz o serviço `permissoes`, que acerta o dono da pasta do Server (ele roda sem privilégios, como o usuário 10001) e termina; só tem a permissão de trocar o dono.
 - **Instalações anteriores:** os volumes antigos continuam funcionando com o compose antigo. Para trocar, copie os dados dos volumes para as pastas antes de subir o compose novo (passo a passo em docs/INSTALACAO.md); sem isso, o Server gera um certificado novo e os agentes precisam ser matriculados de novo.

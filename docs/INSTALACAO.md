@@ -11,7 +11,6 @@
 curl -fsSLO https://raw.githubusercontent.com/AprendendoLinux/corujabackup/main/deploy/docker-compose.server.yml
 # edite o arquivo: troque COLOQUE_UMA_SENHA_FORTE (nos dois lugares)
 docker compose -f docker-compose.server.yml up -d
-docker logs corujabackup-server 2>&1 | grep "CONFIGURAÇÃO INICIAL"
 ```
 
 O compose usa a rede Docker externa `echelon`; crie-a (`docker network create echelon`) ou troque o nome no arquivo.
@@ -28,10 +27,16 @@ Os dados ficam em **pastas do servidor**, não em volumes do Docker: `/srv/coruj
 > ```
 > Depois suba o compose **novo** e confira (login, agentes online). Só então apague os volumes antigos. Sem a pasta `/data` antiga, os agentes não reconhecem o Server e os tokens de nuvem não abrem.
 
-1. Abra `http://IP_DO_SERVER:8080`.
-2. Informe o **código de configuração** (do log acima) e crie o administrador. O código existe só enquanto não há usuários e muda a cada início;
-   ele impede que um estranho crie o administrador antes de você.
-3. Em **Minha conta**, ative o **2FA** e, em **Segurança**, considere exigi-lo dos administradores.
+### Primeiro acesso: `admin` / `admin`
+1. Abra `http://IP_DO_SERVER:8080` e entre com o usuário **`admin`** e a senha **`admin`**.
+2. O sistema pede **uma senha nova** (mínimo de 10 caracteres, diferente da atual) antes de liberar qualquer tela. Até a troca, a API recusa
+   todo o resto. A senha padrão deixa de valer na hora.
+3. Em **Minha conta**, ajuste o nome, ative o **2FA** e, em **Segurança**, considere exigi-lo dos administradores. Crie usuários nominais
+   para as outras pessoas em **Usuários**.
+
+> **Faça o primeiro acesso logo após subir o Server**, de preferência antes de liberar a porta `8080` na rede: enquanto a senha padrão não é
+> trocada, qualquer um que alcance a interface pode entrar como `admin`. O usuário padrão só é criado quando o banco não tem nenhum usuário
+> (a primeira subida); numa instalação existente, nada muda. Perdeu a senha? `docker exec -it corujabackup-server coruja-server admin reset-password -user admin` (veja docs/OPERACAO.md).
 
 ### Portas
 | Porta | Para quê | Quem deve alcançar |

@@ -222,3 +222,26 @@ func (s *Store) DialTargets(ctx context.Context) ([]DialTarget, error) {
 	}
 	return out, rows.Err()
 }
+
+// AgentNameExists diz se há um agente com esse nome (ativo ou revogado).
+func (s *Store) AgentNameExists(ctx context.Context, name string) (bool, error) {
+	var n int
+	err := s.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM agents WHERE name=?", name).Scan(&n)
+	return n > 0, err
+}
+
+// ReplacePendingToken troca os tokens ainda não usados de um agente por um novo (matrícula automática do agente local).
+func (s *Store) ReplacePendingToken(ctx context.Context, tokenHash, name, address string, expires time.Time) error {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, "DELETE FROM enrollment_tokens WHERE name=? AND used_at IS NULL", name); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "INSERT INTO enrollment_tokens (token_hash, name, address, expires_at) VALUES (?,?,?,?)", tokenHash, name, address, expires.UTC()); err != nil {
+		return err
+	}
+	return tx.Commit()
+}

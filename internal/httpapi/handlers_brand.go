@@ -23,7 +23,7 @@ const (
 
 var (
 	// Temas embutidos (cada um com modo claro e escuro). "noturno" é o antigo tema escuro da Coruja: vira coruja + modo escuro.
-	builtinThemes = map[string]bool{"coruja": true, "floresta": true, "oceano": true, "grafite": true, "bordo": true, "terracota": true}
+	builtinThemes = map[string]bool{"coruja": true, "floresta": true, "oceano": true, "grafite": true, "bordo": true, "terracota": true, "onix": true}
 	themeModes    = map[string]bool{"auto": true, "light": true, "dark": true}
 	themeIDRE     = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,29}$`)
 	colorRE       = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)

@@ -51,6 +51,11 @@
   --bg: #18110d; --surface: #241a14; --text: #f6ece4; --muted: #bba293; --border: #3d2d23;
   --primary: #f39461; --primary-contrast: #18110d; --accent: #b6a1ff; --ok: #45cf82; --danger: #ff7272;
 }
+/* Ônix: preto profundo, monocromático, com detalhes dourados. Sempre escuro (ignora o modo claro). */
+[data-theme="onix"] {
+  --bg: #000000; --surface: #0f0f11; --text: #f4f4f5; --muted: #a1a1aa; --border: #27272a;
+  --primary: #f4f4f5; --primary-contrast: #000000; --accent: #e3b341; --ok: #4ade80; --danger: #f87171;
+}
 
 @theme inline {
   --color-bg: var(--bg); --color-surface: var(--surface); --color-text: var(--text); --color-muted: var(--muted);
@@ -78,6 +83,14 @@ html[data-mode="dark"] .auth-hero {
     radial-gradient(circle at 92% 92%, color-mix(in srgb, var(--accent) 26%, transparent) 0, transparent 48%),
     linear-gradient(150deg, color-mix(in srgb, var(--primary) 14%, var(--bg)) 0%, color-mix(in srgb, var(--primary) 32%, var(--bg)) 60%, color-mix(in srgb, var(--accent) 22%, var(--bg)) 100%);
 }
+/* Ônix: painel quase preto, com um brilho dourado */
+html[data-theme="onix"] .auth-hero {
+  background:
+    radial-gradient(circle at 15% 10%, rgb(255 255 255 / 0.07) 0, transparent 40%),
+    radial-gradient(circle at 90% 95%, color-mix(in srgb, var(--accent) 34%, transparent) 0, transparent 50%),
+    linear-gradient(150deg, #050505 0%, #141416 60%, #1d1a12 100%);
+}
+html[data-theme="onix"][data-mode] .auth-chip { color: var(--accent); }
 .auth-dots {
   background-image: radial-gradient(color-mix(in srgb, var(--hero-ink) 24%, transparent) 1px, transparent 1.4px);
   background-size: 22px 22px;

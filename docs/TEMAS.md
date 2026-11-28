@@ -13,8 +13,9 @@ cores, logo e metadados. Ele é importado em **Aparência › Importar pacote (.
 | **Grafite** | Cinza-chumbo e azul: sóbrio, bom para ambiente corporativo. |
 | **Bordô** | Vinho e dourado. |
 | **Terracota** | Argila e lilás. |
+| **Ônix** | Preto profundo, monocromático, com detalhes dourados. **Sempre escuro** (o modo claro não se aplica). |
 
-Oceano, Grafite, Bordô e Terracota têm o contraste conferido pelas regras WCAG AA nos dois modos (texto, texto secundário, botões e mensagens de erro).
+Oceano, Grafite, Bordô, Terracota e Ônix têm o contraste conferido pelas regras WCAG AA nos dois modos (texto, texto secundário, botões e mensagens de erro).
 
 Pacotes prontos estão na pasta [`themes/`](../themes): `exemplo` (neutro, ponto de partida), `melloait`, `umami` e `clube-naval`.
 
@@ -55,7 +56,7 @@ Limites: `.zip` até 3 MiB; cada arquivo até 1 MiB; até 12 arquivos; nomes só
 | Campo | Regras |
 | :--- | :--- |
 | `schema` | Sempre `1`. |
-| `id` | 2 a 30 caracteres: minúsculas, números e hífen. Identifica o tema; importar outro pacote com o mesmo `id` **atualiza** o existente. Não pode ser o de um tema embutido: `coruja`, `noturno`, `floresta`, `oceano`, `grafite`, `bordo` ou `terracota` (nem esses com `-escuro`). |
+| `id` | 2 a 30 caracteres: minúsculas, números e hífen. Identifica o tema; importar outro pacote com o mesmo `id` **atualiza** o existente. Não pode ser o de um tema embutido: `coruja`, `noturno`, `floresta`, `oceano`, `grafite`, `bordo`, `terracota` ou `onix` (nem esses com `-escuro`). |
 | `name` | Nome exibido (1 a 40 caracteres). |
 | `version`, `author`, `description` | Opcionais, informativos. |
 | `colors` | As 10 cores da interface, **todas obrigatórias**, no formato `#RRGGBB`. |

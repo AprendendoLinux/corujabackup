@@ -23,6 +23,7 @@ var builtinColors = map[string]map[string]string{
 	"grafite":   {"bg": "#f3f4f6", "surface": "#ffffff", "text": "#1a1e24", "muted": "#5b636e", "border": "#dde1e6", "primary": "#2c3541", "accent": "#1f7fd1", "ok": "#1a8a4c", "danger": "#cc3b3b"},
 	"bordo":     {"bg": "#faf5f6", "surface": "#ffffff", "text": "#2a1419", "muted": "#77575e", "border": "#ecdde0", "primary": "#7b1e34", "accent": "#a97616", "ok": "#1a8a4c", "danger": "#c22f2f"},
 	"terracota": {"bg": "#fbf6f2", "surface": "#ffffff", "text": "#2b1a11", "muted": "#7a6052", "border": "#eedfd4", "primary": "#a8441a", "accent": "#6b4fc4", "ok": "#1a8a4c", "danger": "#c22f2f"},
+	"onix":      {"bg": "#f5f5f4", "surface": "#ffffff", "text": "#0c0c0d", "muted": "#57575c", "border": "#e4e4e7", "primary": "#111113", "accent": "#9a7413", "ok": "#1a8a4c", "danger": "#c22f2f"},
 }
 
 // LoadBrand lê nome, cores do tema padrão, logo e endereço público configurados na interface. E-mails e PDFs usam sempre fundo

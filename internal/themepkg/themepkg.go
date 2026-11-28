@@ -176,7 +176,7 @@ func Read(data []byte) (*Package, error) {
 		return nil, errors.New("theme.json: \"id\" deve ter 2 a 30 caracteres: letras minúsculas, números e hífen")
 	}
 	switch m.ID {
-	case "coruja", "noturno", "floresta", "floresta-escuro", "oceano", "oceano-escuro", "grafite", "grafite-escuro", "bordo", "bordo-escuro", "terracota", "terracota-escuro":
+	case "coruja", "noturno", "floresta", "floresta-escuro", "oceano", "oceano-escuro", "grafite", "grafite-escuro", "bordo", "bordo-escuro", "terracota", "terracota-escuro", "onix":
 		return nil, errors.New("theme.json: esse \"id\" é de um tema embutido")
 	}
 	m.Name = strings.TrimSpace(m.Name)

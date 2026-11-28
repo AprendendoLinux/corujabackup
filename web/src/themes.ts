@@ -3,15 +3,16 @@
 
 export type ThemeMode = 'auto' | 'light' | 'dark'
 
-/** Temas embutidos: id do tema e o bloco de CSS (index.css) de cada modo. */
-export const THEMES = [
+/** Temas embutidos: id do tema e o bloco de CSS (index.css) de cada modo. dark_only: o tema é sempre escuro. */
+export const THEMES: { id: string; label: string; light: string; dark: string; dark_only?: boolean }[] = [
   { id: 'coruja', label: 'Coruja', light: 'coruja', dark: 'noturno' },
   { id: 'floresta', label: 'Floresta', light: 'floresta', dark: 'floresta-escuro' },
   { id: 'oceano', label: 'Oceano', light: 'oceano', dark: 'oceano-escuro' },
   { id: 'grafite', label: 'Grafite', light: 'grafite', dark: 'grafite-escuro' },
   { id: 'bordo', label: 'Bordô', light: 'bordo', dark: 'bordo-escuro' },
   { id: 'terracota', label: 'Terracota', light: 'terracota', dark: 'terracota-escuro' },
-] as const
+  { id: 'onix', label: 'Ônix (preto)', light: 'onix', dark: 'onix', dark_only: true },
+]
 
 export const MODES: { id: ThemeMode; label: string }[] = [
   { id: 'auto', label: 'Automático (segue o sistema de cada pessoa)' }, { id: 'light', label: 'Claro' }, { id: 'dark', label: 'Escuro' },
@@ -29,6 +30,7 @@ export const BUILTIN_SWATCH: Record<string, { light: string[]; dark: string[] }>
   oceano: { light: ['#f1f7f9', '#0b5f74', '#e8693f'], dark: ['#0a1519', '#45c4da', '#ff8d63'] },
   grafite: { light: ['#f3f4f6', '#2c3541', '#1f7fd1'], dark: ['#101216', '#a9bccf', '#5ab2ff'] },
   bordo: { light: ['#faf5f6', '#7b1e34', '#a97616'], dark: ['#170d10', '#e68aa0', '#e8b54d'] },
+  onix: { light: ['#000000', '#f4f4f5', '#e3b341'], dark: ['#000000', '#f4f4f5', '#e3b341'] },
   terracota: { light: ['#fbf6f2', '#a8441a', '#6b4fc4'], dark: ['#18110d', '#f39461', '#b6a1ff'] },
 }
 
@@ -45,7 +47,7 @@ export function applyTheme(id: string, custom: CustomTheme[] = [], mode: ThemeMo
   const ct = custom.find((t) => t.id === id)
   const bt = THEMES.find((t) => t.id === id)
   const ok = ct || bt ? id : 'coruja'
-  const m = effectiveMode(mode)
+  const m = bt?.dark_only ? 'dark' : effectiveMode(mode)
   const root = document.documentElement
   VAR_KEYS.forEach((k) => root.style.removeProperty(cssName(k)))
   const builtin = THEMES.find((t) => t.id === ok) ?? THEMES[0]

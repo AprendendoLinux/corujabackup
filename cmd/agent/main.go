@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/AprendendoLinux/corujabackup/internal/agentcore"
 	"github.com/AprendendoLinux/corujabackup/internal/version"
@@ -21,6 +22,7 @@ import (
 func main() {
 	listen := flag.String("listen", envOr("CORUJA_LISTEN", ":23847"), "porta onde o agente espera a conexão do Server")
 	token := flag.String("token", os.Getenv("CORUJA_TOKEN"), "token de matrícula (gerado na interface web; uso único)")
+	tokenFile := flag.String("token-file", os.Getenv("CORUJA_TOKEN_FILE"), "arquivo de onde ler o token de matrícula (agente local do Server: ele grava o token ali)")
 	dataDir := flag.String("data", envOr("CORUJA_DATA_DIR", "/var/lib/coruja-agent"), "pasta onde o agente guarda a própria credencial e a fila local")
 	hostRoot := flag.String("host-root", envOr("CORUJA_HOST_ROOT", "/"), "raiz da máquina vista pelo agente (use /host se montar a máquina nesse caminho)")
 	backupDir := flag.String("backup-dir", envOr("CORUJA_BACKUP_DIR", "/backups"), "pasta onde os arquivos de backup são gravados")
@@ -42,6 +44,9 @@ func main() {
 	st, err := agentcore.LoadCredentials(stPath)
 	if err != nil {
 		st = nil
+		if strings.TrimSpace(*token) == "" && *tokenFile != "" {
+			*token = waitTokenFile(ctx, log, *tokenFile)
+		}
 		if strings.TrimSpace(*token) == "" {
 			log.Error("agente ainda não matriculado: informe o token gerado na interface (CORUJA_TOKEN)")
 			os.Exit(2)
@@ -92,4 +97,24 @@ func splitList(v string) []string {
 		}
 	}
 	return out
+}
+
+// waitTokenFile espera o Server gravar o token de matrícula (agente local) e o devolve. "" se o agente for encerrado antes.
+func waitTokenFile(ctx context.Context, log *slog.Logger, path string) string {
+	logged := false
+	for {
+		if b, err := os.ReadFile(path); err == nil && strings.TrimSpace(string(b)) != "" {
+			log.Info("token de matrícula lido do arquivo entregue pelo Server", "arquivo", path)
+			return strings.TrimSpace(string(b))
+		}
+		if !logged {
+			log.Info("aguardando o Server entregar o token de matrícula", "arquivo", path)
+			logged = true
+		}
+		select {
+		case <-ctx.Done():
+			return ""
+		case <-time.After(3 * time.Second):
+		}
+	}
 }

@@ -1,7 +1,10 @@
 # Changelog
 
-## [0.0.32] - Quatro temas novos
-- **Novos temas embutidos em Aparência:** **Oceano** (azul-petróleo e coral), **Grafite** (cinza-chumbo e azul, sóbrio, bom para ambiente corporativo), **Bordô** (vinho e dourado) e **Terracota** (argila e lilás), além do Coruja e do Floresta. Cada um tem modo claro e escuro, vale para a interface, a tela de entrada, os e-mails e os PDFs, e tem o contraste conferido pelas regras WCAG AA (texto, texto secundário, botões e mensagens de erro) nos dois modos.
+## [0.0.32] - Server com agente próprio e cinco temas novos
+- **O Server já vem com um agente:** o compose do Server traz o serviço `agent`, o agente da própria máquina do Server, para ela fazer backup **dela mesma** (a pasta de dados do Server e o banco). Ele se **matricula sozinho**: o Server cria o agente `coruja-server` e entrega um token de uso único por uma pasta que só os dois contêineres montam (`/srv/coruja-server/matricula`); o agente o lê, o Server conecta pela rede interna (sem porta publicada) e o arquivo some depois da matrícula. Reiniciar não gera token novo. Variáveis novas: `CORUJA_LOCAL_AGENT`, `CORUJA_LOCAL_AGENT_NAME` e `CORUJA_LOCAL_AGENT_TOKEN_FILE` (Server) e `CORUJA_TOKEN_FILE` (agente). Passo a passo em docs/INSTALACAO.md.
+- **Tema Ônix (preto):** preto profundo, monocromático (botões e destaques em branco) com detalhes dourados e tela de entrada própria. É sempre escuro: o modo claro não se aplica (Aparência avisa).
+- **Correção: jobs de banco MySQL 8 em modo rede:** a imagem do agente não trazia o plugin `caching_sha2_password` (a autenticação padrão do MySQL 8), e o login falhava com "Plugin caching_sha2_password could not be loaded". Agora vem junto (pacote `mariadb-connector-c`).
+- **Mais quatro temas embutidos em Aparência:** **Oceano** (azul-petróleo e coral), **Grafite** (cinza-chumbo e azul, sóbrio, bom para ambiente corporativo), **Bordô** (vinho e dourado) e **Terracota** (argila e lilás), além do Coruja e do Floresta. Cada um tem modo claro e escuro, vale para a interface, a tela de entrada, os e-mails e os PDFs, e tem o contraste conferido pelas regras WCAG AA (texto, texto secundário, botões e mensagens de erro) nos dois modos.
 - **Tela de entrada no modo escuro:** o painel lateral passou a ser um degradê profundo tingido pela cor do tema, com texto claro (antes ficava claro demais, destoando do resto escuro). Vale para todos os temas, inclusive Coruja e Floresta.
 - Os `id` desses temas ficam reservados: um pacote `.zip` não pode usá-los.
 

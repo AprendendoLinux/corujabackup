@@ -3,7 +3,7 @@
 # O Server conecta no agente pela porta publicada abaixo: libere-a só para o IP do Server.
 services:
   agent:
-    image: ghcr.io/aprendendolinux/corujabackup-agent:0.0.30
+    image: ghcr.io/aprendendolinux/corujabackup-agent:0.0.31
     container_name: corujabackup-agent
     restart: always
     ports:
@@ -17,7 +17,7 @@ services:
       # CORUJA_ALLOWED_CONTAINERS: "db-*,mongo"          # contêineres de banco em que o dump pode rodar
       # CORUJA_BACKUP_ROOTS: "/mnt,/srv/backups"         # onde o painel pode mandar gravar o backup local
     volumes:
-      - agent-data:/var/lib/coruja-agent   # credencial do agente, agenda local e fila de resultados
+      - /srv/coruja-agente:/var/lib/coruja-agent   # credencial do agente, agenda local e fila de resultados (fica fora dos backups)
       - /:/host:ro                         # tudo o que o agente pode salvar, SOMENTE LEITURA (restrinja às pastas necessárias, se preferir)
       # Grava o backup local na pasta escolhida no painel. Atenção: dá ao agente permissão de GRAVAÇÃO no servidor. Para
       # limitar onde ele pode gravar, use CORUJA_BACKUP_ROOTS; para não conceder a permissão, remova a linha (o backup
@@ -33,9 +33,6 @@ services:
     cap_add: [DAC_READ_SEARCH, DAC_OVERRIDE]
     security_opt: ["no-new-privileges:true"]
     networks: [echelon]
-
-volumes:
-  agent-data:
 
 networks:
   echelon:

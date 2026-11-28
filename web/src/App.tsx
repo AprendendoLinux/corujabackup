@@ -6,7 +6,7 @@ import Icon, { IconName } from './Icon'
 import TipLayer from './TipLayer'
 import Avatar from './Avatar'
 import DialogHost from './Dialogs'
-import { Login, Setup } from './pages/Auth'
+import { ForcePassword, Login, Setup } from './pages/Auth'
 import Agents from './pages/Agents'
 import Dashboard from './pages/Dashboard'
 import Restore from './pages/Restore'
@@ -50,7 +50,7 @@ export default function App() {
   const [brand, setBrand] = useState<Branding>({ name: 'Coruja Backup', theme: 'coruja', themes: [], has_logo: false })
   const [phase, setPhase] = useState<Phase>('loading')
   const [me, setMe] = useState<Me | null>(null)
-  const [version, setVersion] = useState('0.0.30')
+  const [version, setVersion] = useState('0.0.31')
   const [drawer, setDrawer] = useState(false)
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const route = useRoute()
@@ -92,6 +92,16 @@ export default function App() {
   async function logout() { try { await api('POST', '/api/logout') } catch { /* ignora */ } setMe(null); setPhase('login'); window.location.hash = '' }
 
   const footer = <Footer brand={brand} version={version} />
+
+  if (phase === 'app' && me?.user.must_change_password) {
+    return (
+      <BrandCtx.Provider value={{ brand, reload: loadBrand }}>
+        <ForcePassword username={me.user.username} onDone={refresh} onLogout={logout} footer={footer} />
+        <TipLayer />
+        <DialogHost />
+      </BrandCtx.Provider>
+    )
+  }
 
   if (phase !== 'app' || !me) {
     return (

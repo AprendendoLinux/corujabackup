@@ -220,6 +220,10 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, cu *ctxU
 		writeErr(w, 400, err.Error())
 		return
 	}
+	if in.New == in.Current {
+		writeErr(w, 400, "a nova senha precisa ser diferente da atual")
+		return
+	}
 	hash, err := auth.HashPassword(in.New)
 	if err != nil {
 		writeErr(w, 500, "erro interno")

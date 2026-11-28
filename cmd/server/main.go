@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/AprendendoLinux/corujabackup/internal/adminops"
 	"github.com/AprendendoLinux/corujabackup/internal/agentsrv"
 	"github.com/AprendendoLinux/corujabackup/internal/auth"
 	"github.com/AprendendoLinux/corujabackup/internal/cloud"
@@ -103,7 +104,13 @@ func main() {
 	hub.Dialer = dialer
 	api := &httpapi.Server{DB: d, Store: st, Pinger: d, Agents: hub, Clouds: clouds, Box: box, Notifier: notifier, Started: time.Now(), Web: webui.Handler(),
 		Fingerprint: fp, TrustProxy: cfg.TrustProxy}
-	if n, err := st.CountUsers(ctx); err == nil && n == 0 {
+	// primeira subida: administrador padrão admin/admin, obrigado a trocar a senha no primeiro login
+	if created, err := adminops.EnsureDefaultAdmin(ctx, st); err != nil {
+		log.Error("não foi possível criar o administrador padrão", "erro", err.Error())
+	} else if created {
+		log.Warn("PRIMEIRA SUBIDA: entre com o usuário admin e a senha admin; o sistema pede uma senha nova antes de liberar o uso")
+	}
+	if n, err := st.CountUsers(ctx); err == nil && n == 0 { // sem o padrão (falhou): configuração inicial pela interface
 		code, _ := auth.RandomToken(9)
 		api.SetupCode = code
 		log.Warn("CONFIGURAÇÃO INICIAL PENDENTE: abra a interface e informe este código para criar o administrador", "código", code)

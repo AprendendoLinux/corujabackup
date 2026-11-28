@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AprendendoLinux/corujabackup/internal/adminops"
 	"github.com/AprendendoLinux/corujabackup/internal/agentsrv"
 	"github.com/AprendendoLinux/corujabackup/internal/auth"
 	"github.com/AprendendoLinux/corujabackup/internal/cloud"
@@ -197,6 +198,54 @@ func setupAdmin(e *env) *client {
 	c := e.client()
 	c.mustOK("POST", "/api/setup", map[string]string{"username": "admin", "password": pw})
 	return c
+}
+
+// Primeira subida: admin/admin criado sozinho, obrigado a trocar a senha antes de qualquer outra coisa.
+func TestAdminPadraoTrocaSenha(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	if created, err := adminops.EnsureDefaultAdmin(ctx, e.api.Store); err != nil || !created {
+		t.Fatalf("deveria criar o admin padrão: %v %v", created, err)
+	}
+	if created, err := adminops.EnsureDefaultAdmin(ctx, e.api.Store); err != nil || created {
+		t.Fatalf("com usuário no banco, não cria de novo: %v %v", created, err)
+	}
+	c := e.client()
+	if _, m := c.do("GET", "/api/setup/status", nil); m["needs_setup"] != false {
+		t.Fatalf("com o admin padrão, não há configuração inicial: %v", m)
+	}
+	if code, _ := c.do("POST", "/api/login", map[string]string{"username": "admin", "password": "errada"}); code != 401 {
+		t.Fatalf("senha errada: %d", code)
+	}
+	c.mustOK("POST", "/api/login", map[string]string{"username": "admin", "password": "admin"})
+	me := c.mustOK("GET", "/api/me", nil)
+	if u := me["user"].(map[string]any); u["must_change_password"] != true || u["role"] != "admin" {
+		t.Fatalf("admin padrão: %v", u)
+	}
+	for _, p := range []string{"/api/jobs", "/api/agents", "/api/users", "/api/me/sessions"} {
+		if code, m := c.do("GET", p, nil); code != 403 || m["code"] != "password_change_required" {
+			t.Fatalf("%s antes de trocar a senha: %d %v", p, code, m)
+		}
+	}
+	if code, _ := c.do("PATCH", "/api/me", map[string]string{"first_name": "Outro"}); code != 403 {
+		t.Fatalf("nada além da troca de senha: %d", code)
+	}
+	for _, bad := range []string{"admin", "curta"} {
+		if code, _ := c.do("POST", "/api/me/password", map[string]string{"current": "admin", "new": bad}); code != 400 {
+			t.Fatalf("senha nova %q deveria ser recusada: %d", bad, code)
+		}
+	}
+	c.mustOK("POST", "/api/me/password", map[string]string{"current": "admin", "new": pw})
+	c.mustOK("GET", "/api/jobs", nil) // a mesma sessão segue valendo, agora liberada
+	if u := c.mustOK("GET", "/api/me", nil)["user"].(map[string]any); u["must_change_password"] != false {
+		t.Fatalf("depois da troca: %v", u)
+	}
+	c2 := e.client()
+	if code, _ := c2.do("POST", "/api/login", map[string]string{"username": "admin", "password": "admin"}); code != 401 {
+		t.Fatal("a senha padrão não vale mais")
+	}
+	c2.mustOK("POST", "/api/login", map[string]string{"username": "admin", "password": pw})
+	c2.mustOK("GET", "/api/jobs", nil)
 }
 
 func TestSetupSoUmaVez(t *testing.T) {

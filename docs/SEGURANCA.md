@@ -4,10 +4,11 @@
 | Ameaça | Proteção |
 | :--- | :--- |
 | Alguém cria o administrador antes de você | Código de configuração por execução (nos logs) + limite de tentativas |
+| Senha padrão (`admin`/`admin`) | Criada só na primeira subida (banco sem usuários); no primeiro login a troca é obrigatória e, até ela, a API só aceita a troca de senha |
 | Adivinhar senhas | argon2id; limite de tentativas por IP e por usuário; mensagens iguais para "usuário" e "senha" errados |
 | Roubo de senha | 2FA (TOTP) com códigos de recuperação e anti-reuso; política para exigir 2FA; sessões listáveis e revogáveis |
 | Sequestro de sessão / CSRF / XSS | Cookie `HttpOnly` + `SameSite=Strict` (+ `Secure` em HTTPS); cabeçalho CSRF e checagem de `Origin`; CSP restritiva; logo SVG servida isolada (`sandbox`); saída HTML sempre escapada |
-| Vazamento do banco MySQL | Tokens de nuvem, senhas SMTP/Telegram e de bancos **cifrados** (AES-256-GCM); a chave fica no volume `/data`, fora do banco |
+| Vazamento do banco MySQL | Tokens de nuvem, senhas SMTP/Telegram e de bancos **cifrados** (AES-256-GCM); a chave fica na pasta `/data` (`/srv/coruja-server/data`), fora do banco |
 | Vazamento de credenciais pela API/logs | Segredos nunca voltam pela API; erros passam por filtro que remove senha/token |
 | Servidor falso se passando pelo Server | O agente **fixa a impressão digital** do certificado (vem dentro do token de matrícula): sem "confiar no primeiro uso" |
 | Token de matrícula roubado | Uso único, expira (até 7 dias), só o hash é guardado; revogar um agente derruba o canal na hora |
@@ -27,8 +28,9 @@
 ## Checklist de endurecimento
 - [ ] HTTPS na interface (proxy reverso com `CORUJA_TRUST_PROXY=true`, ou `CORUJA_TLS_CERT/KEY`).
 - [ ] Porta `8080` acessível só a quem administra; a porta de cada agente (padrão `23847`) acessível só ao IP do Server (firewall).
+- [ ] Primeiro acesso com `admin`/`admin` feito logo após a instalação (senha padrão trocada) antes de expor a porta 8080.
 - [ ] 2FA ativo e **exigido** (Segurança > Exigir 2FA); sessão curta (ex.: 8 h).
-- [ ] Backup do banco **e** do volume `/data` guardados **fora** do servidor (veja Operação).
+- [ ] Backup do banco **e** da pasta `/data` (`/srv/coruja-server/data`) guardados **fora** do servidor (veja Operação).
 - [ ] Agentes com `CORUJA_ALLOWED_PATHS` / `CORUJA_ALLOWED_CONTAINERS` e `/host` montado só com o necessário.
 - [ ] Contas de nuvem com acesso mínimo (Google: escopo `drive.file`; OneDrive: `Files.ReadWrite`).
 - [ ] Imagens fixadas por versão (nunca `latest` em produção) e atualizadas com o [CHANGELOG](../CHANGELOG.md) em mãos.

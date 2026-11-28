@@ -27,6 +27,7 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
 export type User = {
   id: number; username: string; display_name: string; first_name?: string; last_name?: string; role: 'admin' | 'operator' | 'viewer'
   totp_enabled: boolean; disabled: boolean; created_at: string; last_login_at: string | null; avatar_version?: string
+  must_change_password?: boolean // senha padrão (admin/admin): troca obrigatória antes de usar o sistema
 }
 /** Nome completo do usuário ou, sem nome, o login. */
 export const userName = (u: Pick<User, 'username' | 'display_name'>) => u.display_name || u.username

@@ -223,18 +223,16 @@ function Created({ c }: { c: NewAgent }) {
       CORUJA_TOKEN: "${c.token}"
       CORUJA_HOST_ROOT: "/host"
     volumes:
-      - agent-data:/var/lib/coruja-agent
+      - /srv/coruja-agente:/var/lib/coruja-agent
       - /:/host:ro
       - /:/host-rw
-      - /srv/coruja-backups:/backups${sock}
-volumes:
-  agent-data:`
+      - /srv/coruja-backups:/backups${sock}`
   const run = [
     'docker run -d --name corujabackup-agent --restart always \\',
     `  -p ${port}:23847 \\`,
     `  -e CORUJA_TOKEN="${c.token}" \\`,
     '  -e CORUJA_HOST_ROOT=/host \\',
-    '  -v coruja-agent-data:/var/lib/coruja-agent \\',
+    '  -v /srv/coruja-agente:/var/lib/coruja-agent \\',
     '  -v /:/host:ro \\',
     '  -v /:/host-rw \\',
     '  -v /srv/coruja-backups:/backups \\',

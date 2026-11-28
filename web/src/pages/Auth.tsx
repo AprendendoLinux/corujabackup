@@ -173,3 +173,39 @@ export function Login({ onDone, footer }: { onDone: () => void; footer: ReactNod
     </Shell>
   )
 }
+
+/** Troca obrigatória da senha padrão (admin/admin da primeira subida): nada do sistema abre antes disso. */
+export function ForcePassword({ username, onDone, onLogout, footer }: { username: string; onDone: () => void; onLogout: () => void; footer: ReactNode }) {
+  const [f, setF] = useState({ current: '', next: '', confirm: '' })
+  const [show, setShow] = useState(false)
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    if (f.next !== f.confirm) return setErr('As senhas novas não conferem.')
+    setBusy(true); setErr('')
+    try { await api('POST', '/api/me/password', { current: f.current, new: f.next }); onDone() }
+    catch (x) { setErr((x as ApiError).message) } finally { setBusy(false) }
+  }
+  const eye = <button type="button" onClick={() => setShow(!show)} aria-label={show ? 'Ocultar senhas' : 'Mostrar senhas'} title={show ? 'Ocultar senhas' : 'Mostrar senhas'}
+    className="rounded-md p-1.5 text-muted transition hover:bg-bg hover:text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"><Icon name={show ? 'ocultar' : 'ver'} size={18} /></button>
+  return (
+    <Shell title="Crie uma senha nova" icon="senha" footer={footer}
+      subtitle={<>Você entrou com a senha padrão do usuário <b>{username}</b>. Por segurança, defina uma senha nova antes de continuar.</>}>
+      <form onSubmit={submit} className="space-y-4">
+        <Field label="Senha atual">
+          <IconInput icon="senha" type={show ? 'text' : 'password'} autoComplete="current-password" autoFocus value={f.current} onChange={(e) => setF({ ...f, current: e.target.value })} required end={eye} />
+        </Field>
+        <Field label="Senha nova" hint="Mínimo de 10 caracteres, diferente da atual">
+          <IconInput icon="senha" type={show ? 'text' : 'password'} autoComplete="new-password" minLength={10} value={f.next} onChange={(e) => setF({ ...f, next: e.target.value })} required />
+        </Field>
+        <Field label="Confirme a senha nova">
+          <IconInput icon="senha" type={show ? 'text' : 'password'} autoComplete="new-password" minLength={10} value={f.confirm} onChange={(e) => setF({ ...f, confirm: e.target.value })} required />
+        </Field>
+        <ErrorBox message={err} />
+        <Button className="h-11 w-full text-base" disabled={busy}>{busy ? <><Spinner className="h-4 w-4" />Salvando…</> : 'Salvar e continuar'}</Button>
+        <button type="button" onClick={onLogout} className="mx-auto flex items-center gap-1.5 text-sm text-muted hover:text-text"><Icon name="sair" size={16} />Sair</button>
+      </form>
+    </Shell>
+  )
+}

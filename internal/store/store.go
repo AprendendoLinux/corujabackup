@@ -40,15 +40,17 @@ type User struct {
 	CreatedAt       time.Time  `json:"created_at"`
 	LastLoginAt     *time.Time `json:"last_login_at"`
 	AvatarVersion   string     `json:"avatar_version"` // vazio = sem foto
+	// MustChangePassword: só pode trocar a senha antes de usar o sistema (o admin/admin criado na primeira subida)
+	MustChangePassword bool `json:"must_change_password"`
 }
 
-const userCols = "id, username, display_name, password_hash, role, COALESCE(totp_secret,''), totp_enabled, totp_last_counter, COALESCE(recovery_codes,''), disabled, created_at, last_login_at, avatar_version, first_name, last_name"
+const userCols = "id, username, display_name, password_hash, role, COALESCE(totp_secret,''), totp_enabled, totp_last_counter, COALESCE(recovery_codes,''), disabled, created_at, last_login_at, avatar_version, first_name, last_name, must_change_password"
 
 func scanUser(r interface{ Scan(...any) error }) (*User, error) {
 	var u User
 	var ll sql.NullTime
 	if err := r.Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.Role, &u.TOTPSecret, &u.TOTPEnabled,
-		&u.TOTPLastCounter, &u.RecoveryCodes, &u.Disabled, &u.CreatedAt, &ll, &u.AvatarVersion, &u.FirstName, &u.LastName); err != nil {
+		&u.TOTPLastCounter, &u.RecoveryCodes, &u.Disabled, &u.CreatedAt, &ll, &u.AvatarVersion, &u.FirstName, &u.LastName, &u.MustChangePassword); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -92,6 +94,16 @@ func (s *Store) CreateUser(ctx context.Context, username, first, last, hash, rol
 // CreateFirstAdmin cria o primeiro usuário só se a tabela estiver vazia (atômico: dois pedidos simultâneos no
 // assistente inicial não criam dois administradores).
 func (s *Store) CreateFirstAdmin(ctx context.Context, username, first, last, hash string) (int64, error) {
+	return s.createFirstAdmin(ctx, username, first, last, hash, false)
+}
+
+// CreateDefaultAdmin cria o administrador padrão (admin/admin) da primeira subida, obrigado a trocar a senha no primeiro
+// login. Só funciona enquanto não existe nenhum usuário (ErrDuplicate depois disso).
+func (s *Store) CreateDefaultAdmin(ctx context.Context, username, hash string) (int64, error) {
+	return s.createFirstAdmin(ctx, username, "Administrador", "", hash, true)
+}
+
+func (s *Store) createFirstAdmin(ctx context.Context, username, first, last, hash string, mustChange bool) (int64, error) {
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
@@ -104,8 +116,8 @@ func (s *Store) CreateFirstAdmin(ctx context.Context, username, first, last, has
 	if n > 0 {
 		return 0, ErrDuplicate
 	}
-	res, err := tx.ExecContext(ctx, "INSERT INTO users (username, display_name, first_name, last_name, password_hash, role) VALUES (?,?,?,?,?, 'admin')",
-		username, FullName(first, last), first, last, hash)
+	res, err := tx.ExecContext(ctx, "INSERT INTO users (username, display_name, first_name, last_name, password_hash, role, must_change_password) VALUES (?,?,?,?,?, 'admin', ?)",
+		username, FullName(first, last), first, last, hash, mustChange)
 	if err != nil {
 		return 0, err
 	}
@@ -151,7 +163,7 @@ func (s *Store) SetUserName(ctx context.Context, id int64, first, last string) e
 }
 
 func (s *Store) SetPassword(ctx context.Context, id int64, hash string) error {
-	_, err := s.DB.ExecContext(ctx, "UPDATE users SET password_hash=? WHERE id=?", hash, id)
+	_, err := s.DB.ExecContext(ctx, "UPDATE users SET password_hash=?, must_change_password=0 WHERE id=?", hash, id)
 	return err
 }
 

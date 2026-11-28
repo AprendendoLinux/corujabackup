@@ -83,7 +83,7 @@ var ErrOffline = errors.New("o agente está offline")
 func SpecFromJob(j store.Job) *pb.JobSpec {
 	return &pb.JobSpec{JobId: j.ID, Name: j.Name, Kind: j.Kind, Enabled: j.Enabled, Cron: j.Cron, Timezone: j.Timezone,
 		Paths: j.Paths, Excludes: j.Excludes, DestSubdir: j.DestSubdir, Keep: int32(j.Keep), Version: int32(j.Version),
-		CloudFolder: j.CloudFolder, BackupMode: j.BackupMode, FullWeekday: int32(j.FullWeekday)}
+		CloudFolder: j.CloudFolder, BackupMode: j.BackupMode, FullWeekday: int32(j.FullWeekday), Format: j.Format}
 }
 
 // specFor monta a definição do job enviada ao agente (decifrando a configuração de banco, se houver).

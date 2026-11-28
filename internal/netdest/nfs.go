@@ -92,6 +92,8 @@ func (n *nfsConn) Rename(dir, from, to string) error {
 }
 
 func (n *nfsConn) Remove(dir, name string) error { return n.cl.Remove(n.ctx, n.p(dir, name)) }
+func (n *nfsConn) RemoveAll(dir string) error    { return n.cl.RemoveAll(n.ctx, n.p(dir)) }
+func (n *nfsConn) Link(from, to string) error    { return n.cl.Link(n.ctx, n.p(from), n.p(to)) }
 
 func (n *nfsConn) Close() error { return n.cl.Close() }
 

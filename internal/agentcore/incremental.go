@@ -40,6 +40,11 @@ type fileMeta struct {
 	Mode  uint32 `json:"t,omitempty"`
 	A     int    `json:"a,omitempty"` // índice em Snapshot.Archives do .tar.gz que guarda o conteúdo
 	B     int    `json:"b,omitempty"` // bloco desse .tar.gz onde o item começa (1 = o primeiro; 0 = sem índice de blocos)
+	// backups em pasta (0.0.29): o SHA-256 do conteúdo, dono e destino do link simbólico (o storage pode não guardá-los)
+	H string `json:"h,omitempty"`
+	U int    `json:"u,omitempty"`
+	G int    `json:"g,omitempty"`
+	L string `json:"l,omitempty"`
 }
 
 // Block é um bloco gzip independente de um .tar.gz (0.0.28): começa e termina na divisa entre itens do tar, então dá
@@ -53,6 +58,7 @@ type Block struct {
 // sameVersion compara a versão de dois itens (sem olhar onde o conteúdo está guardado).
 func sameVersion(a, b fileMeta) bool {
 	a.A, b.A, a.B, b.B = 0, 0, 0, 0
+	a.H, b.H, a.U, b.U, a.G, b.G, a.L, b.L = "", "", 0, 0, 0, 0, "", "" // dono e link mudam o ctime
 	return a == b
 }
 

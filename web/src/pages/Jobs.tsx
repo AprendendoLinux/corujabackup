@@ -59,7 +59,7 @@ export default function Jobs({ me }: { me: User }) {
                 <tr key={j.id} className="border-b border-border align-top last:border-0">
                   <td className="p-3">
                     <b>{j.name}</b> {!j.enabled && <Badge tone="off">Pausado</Badge>}
-                    <div className="text-xs text-muted">{j.agent_name} {j.agent_online ? <span className="text-ok">● online</span> : <span>○ offline</span>} · {j.kind === 'database' ? `🗄 ${ENGINE_LABEL[j.db?.engine ?? ''] ?? 'Banco'}${j.db?.mode === 'docker' ? ` · ${j.db?.container}` : ` · ${j.db?.host}`}` : j.kind === 'mikrotik' ? `MikroTik · ${j.mikrotik?.host ?? ''}` : `${j.paths.length} origem(ns)`}{j.backup_mode === 'incremental' && ` · full ${fullDay(j.full_weekday ?? 0)} + incrementais`} · {j.cloud_account_id ? <span title={j.cloud_folder}>☁ {clouds.find((c) => c.id === j.cloud_account_id)?.name ?? 'nuvem'}</span> : 'só local'}</div>
+                    <div className="text-xs text-muted">{j.agent_name} {j.agent_online ? <span className="text-ok">● online</span> : <span>○ offline</span>} · {j.kind === 'database' ? `🗄 ${ENGINE_LABEL[j.db?.engine ?? ''] ?? 'Banco'}${j.db?.mode === 'docker' ? ` · ${j.db?.container}` : ` · ${j.db?.host}`}` : j.kind === 'mikrotik' ? `MikroTik · ${j.mikrotik?.host ?? ''}` : `${j.paths.length} origem(ns)`}{j.backup_mode === 'incremental' && ` · full ${fullDay(j.full_weekday ?? 0)} + incrementais`}{j.format === 'dir' && ' · pasta com arquivos abertos'} · {j.cloud_account_id ? <span title={j.cloud_folder}>☁ {clouds.find((c) => c.id === j.cloud_account_id)?.name ?? 'nuvem'}</span> : 'só local'}</div>
                   </td>
                   <td className="p-3 text-muted">{describeSched(j.cron)}<div className="text-xs">{j.timezone}</div></td>
                   <td className="p-3 text-muted">{j.enabled ? fmtDate(j.next_run_at) : '—'}</td>
@@ -164,6 +164,7 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
     cloud_account_id: job?.cloud_account_id ?? 0, cloud_folder: job?.cloud_folder ?? '', cloud_keep: job?.cloud_keep ?? 7, cloud_keep_days: job?.cloud_keep_days ?? 0,
     cloud_direct: job?.cloud_direct ?? false,
     backup_mode: job?.backup_mode ?? 'full', full_weekday: job?.full_weekday ?? 0,
+    format: job?.format ?? 'tar',
   })
   const [db, setDb] = useState<DbState>({
     engine: job?.db?.engine ?? 'mysql', mode: job?.db?.mode ?? 'docker', container: job?.db?.container ?? '', host: job?.db?.host ?? '', port: job?.db?.port ?? 0,
@@ -181,8 +182,12 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
   const agentVersion = agents.find((a) => a.id === Number(f.agent_id))?.agent_version ?? ''
   const dest = clouds.find((c) => c.id === f.cloud_account_id)
   const destIsCloud = !!dest && ['gdrive', 'onedrive', 'dropbox'].includes(dest.type)
-  const direct = !!dest && !destIsCloud && f.cloud_direct // grava direto no storage, sem arquivo no agente
+  // backup em pasta (arquivos abertos): só jobs de arquivos, fora da nuvem; num storage, sempre direto
+  const asDir = f.kind === 'files' && !destIsCloud && f.format === 'dir'
+  const direct = !!dest && !destIsCloud && (f.cloud_direct || asDir) // grava direto no storage, sem arquivo no agente
   const inc = f.kind === 'files' && f.backup_mode === 'incremental'
+  const chains = inc && !asDir // retenção por semana (full + incrementais); em pasta, cada execução é completa
+  const noLinks = !!dest && ['smb', 'ftp'].includes(dest.type) // storages sem links físicos
   const allZones: string[] = (Intl as any).supportedValuesOf ? (Intl as any).supportedValuesOf('timeZone') : ['America/Sao_Paulo', 'UTC']
   // fusos do Brasil primeiro; o do job aparece mesmo que o navegador não o conheça
   const zones = [...new Set([f.timezone, ...allZones.filter((z) => z.startsWith('America/') && /Sao_Paulo|Manaus|Recife|Fortaleza|Belem|Bahia|Cuiaba|Campo_Grande|Porto_Velho|Boa_Vista|Rio_Branco|Noronha|Maceio|Araguaina|Santarem|Eirunepe/.test(z)), ...allZones])]
@@ -227,6 +232,7 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
     for (let i = 0; i < 4; i++) { const m = check(i); if (m) { setStep(i); setErr(m); return } }
     setErr(''); setBusy(true)
     const body: Record<string, unknown> = { name: f.name, agent_id: Number(f.agent_id), kind: f.kind, paths: f.paths, excludes: f.excludes, cron: f.cron, timezone: f.timezone, dest_subdir: f.dest_subdir, keep: Number(f.keep), enabled: f.enabled, backup_mode: inc ? 'incremental' : 'full', full_weekday: f.full_weekday }
+    if (f.kind === 'files') body.format = asDir ? 'dir' : 'tar'
     if (f.cloud_account_id) Object.assign(body, { cloud_account_id: Number(f.cloud_account_id), cloud_folder: f.cloud_folder, cloud_keep: Number(f.cloud_keep), cloud_keep_days: Number(f.cloud_keep_days), cloud_direct: direct })
     else Object.assign(body, { clear_cloud: true })
     if (f.kind === 'database') body.db = dbPayload(db)
@@ -242,9 +248,10 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
       ? ['Roteador', `${mt.user}@${mt.host}:${mt.port || 22} · ${[mt.export && '.rsc', mt.export_sensitive && '.rsc com dados sensíveis', mt.binary && '.backup cifrado'].filter(Boolean).join(', ')}`]
       : [f.kind === 'files' ? 'O que salvar' : 'Banco', f.kind === 'files' ? f.paths.join(', ') : db.mode === 'docker' ? `contêiner ${db.container}` : `${db.host}${db.port ? ':' + db.port : ''}`],
     ...(f.kind === 'files' && f.excludes.length ? [['Fica de fora', f.excludes.join(', ')] as [string, ReactNode]] : []),
-    ['Agenda', `${cronLabel} · ${f.timezone}`], ['Tipo de backup', inc ? `Full ${fullDay(f.full_weekday)}, incrementais nos outros dias` : 'Completo (full) a cada execução'],
+    ['Agenda', `${cronLabel} · ${f.timezone}`], ['Tipo de backup', inc ? (asDir ? `Pasta completa ${fullDay(f.full_weekday)}; nos outros dias, o que não mudou é link físico para a pasta anterior` : `Full ${fullDay(f.full_weekday)}, incrementais nos outros dias`) : 'Completo (full) a cada execução'],
+    ...(f.kind === 'files' ? [['Formato', asDir ? 'Pasta com os arquivos abertos (sem compactar)' : 'Compactado (.tar.gz)'] as [string, ReactNode]] : []),
     ['Backup local', direct ? 'nenhum: gravado direto no storage' : `${f.dest_subdir.startsWith('/') ? f.dest_subdir : 'pasta padrão do agente'} · ${f.keep === 0 ? 'apagado após o envio' : `mantém ${f.keep} cópia(s)`}`],
-    ['Storage', dest ? `${dest.name} · ${f.cloud_folder || 'pasta automática'} · ${retentionText(f.cloud_keep, f.cloud_keep_days, '', inc)}` : 'só a cópia local'],
+    ['Storage', dest ? `${dest.name} · ${f.cloud_folder || 'pasta automática'} · ${retentionText(f.cloud_keep, f.cloud_keep_days, '', chains)}` : 'só a cópia local'],
     ['Situação', f.enabled ? 'Ativo' : 'Pausado'],
   ]
   return (
@@ -317,8 +324,9 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
                 ))}
               </div>
               <p className="text-muted">
-                Full {fullDay(f.full_weekday)}; nos outros dias, só os arquivos novos ou alterados (e a lista do que foi apagado). Se o full do dia marcado não rodar,
-                o próximo backup faz o full. Mudar as origens ou exclusões também inicia um full. Para restaurar um incremental, o Coruja aplica o full e os incrementais da semana, em ordem.
+                {f.format === 'dir' ? <>Em pasta: {fullDay(f.full_weekday)} a pasta é copiada inteira; nos outros dias, só os arquivos novos ou alterados são copiados, e o que não mudou
+                vira um link físico para o arquivo da pasta anterior (sem ocupar espaço de novo). Cada pasta continua completa: dá para abrir qualquer uma sozinha.</> : <>Full {fullDay(f.full_weekday)}; nos outros dias, só os arquivos novos ou alterados (e a lista do que foi apagado). Se o full do dia marcado não rodar,
+                o próximo backup faz o full. Mudar as origens ou exclusões também inicia um full. Para restaurar um incremental, o Coruja aplica o full e os incrementais da semana, em ordem.</>}
               </p>
             </div>
           )}
@@ -326,10 +334,33 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={f.enabled} onChange={(e) => setF({ ...f, enabled: e.target.checked })} /> Job ativo (roda sozinho na agenda)</label>
       </>)}
       {step === 3 && (<>
+        {f.kind === 'files' && (
+          <div>
+            <span className="mb-1.5 block text-sm font-medium">Formato do backup</span>
+            <div role="radiogroup" aria-label="Formato do backup" className="grid gap-3 sm:grid-cols-2">
+              <button type="button" role="radio" aria-checked={!asDir} onClick={() => setF({ ...f, format: 'tar' })}
+                className={`rounded-xl border p-4 text-left transition ${!asDir ? 'border-primary ring-2 ring-primary/30' : 'border-border hover:border-primary/60'}`}>
+                <b className="block text-sm">Compactado (.tar.gz)</b><span className="text-xs text-muted">Um arquivo por execução, menor e fácil de mover. Vale para qualquer storage, inclusive as nuvens.</span>
+              </button>
+              <button type="button" role="radio" aria-checked={asDir} disabled={destIsCloud} onClick={() => setF({ ...f, format: 'dir', cloud_direct: !!dest || f.cloud_direct })}
+                className={`rounded-xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${asDir ? 'border-primary ring-2 ring-primary/30' : 'border-border hover:border-primary/60'}`}>
+                <b className="block text-sm">Pasta com os arquivos abertos</b>
+                <span className="text-xs text-muted">{destIsCloud ? 'Nas nuvens, só o formato .tar.gz.' : 'Cada execução vira uma pasta com os arquivos como estão: dá para abrir e copiar sem o Coruja. Ocupa mais espaço (sem compactação).'}</span>
+              </button>
+            </div>
+            {asDir && (
+              <p className="mt-2 rounded-lg bg-bg px-3 py-2 text-xs text-muted">
+                A pasta é gravada com nome provisório e só vale quando todos os arquivos foram conferidos. Dono, permissões e links simbólicos ficam também no catálogo dentro da pasta, e a restauração pelo Coruja os recria.
+                {inc && (noLinks ? <b className="text-accent"> Este storage ({CLOUD_LABEL[dest!.type]}) não tem links físicos: cada pasta será uma cópia completa, ocupando o espaço inteiro a cada execução.</b>
+                  : ' Nos incrementais, o que não mudou vira link físico para a pasta anterior.')}
+              </p>
+            )}
+          </div>
+        )}
         {direct ? (
           <div className="flex items-start gap-3 rounded-xl border border-primary/40 bg-primary/5 p-4 text-sm">
             <span className="mt-0.5 text-primary"><Icon name="destinos" /></span>
-            <div><b>Gravação direta no storage.</b> Nada fica guardado no agente: o arquivo é gravado em {dest?.name}, relido e conferido lá antes de valer.
+            <div><b>Gravação direta no storage.</b> Nada fica guardado no agente: {asDir ? `os arquivos são gravados em ${dest?.name} e cada um é conferido lá antes de valer.` : `o arquivo é gravado em ${dest?.name}, relido e conferido lá antes de valer.`}
               {f.kind === 'database' && ' O dump do banco ainda passa por uma pasta temporária do agente, apagada ao final.'}</div>
           </div>
         ) : (<>
@@ -339,9 +370,9 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
           <span className="mb-1.5 block text-sm font-medium">Cópias no agente</span>
           <div role="radiogroup" aria-label="Cópias no agente" className="space-y-2">
             <Choice on={f.keep > 0} onClick={() => f.keep === 0 && setF({ ...f, keep: 3 })}>
-              Manter as últimas <Count value={f.keep || 3} min={1} max={365} onChange={(keep) => setF({ ...f, keep })} unit={inc ? 'semanas' : 'cópias'} /> no agente{inc && <span className="text-muted"> (cada semana: o full e os incrementais dela)</span>}
+              Manter as últimas <Count value={f.keep || 3} min={1} max={365} onChange={(keep) => setF({ ...f, keep })} unit={chains ? 'semanas' : asDir ? 'pastas' : 'cópias'} /> no agente{chains && <span className="text-muted"> (cada semana: o full e os incrementais dela)</span>}
             </Choice>
-            {f.cloud_account_id !== 0 && (
+            {f.cloud_account_id !== 0 && !asDir && (
               <Choice on={f.keep === 0} onClick={() => setF({ ...f, keep: 0 })}>Não guardar no agente: apagar a cópia local depois que o storage confirmar o envio</Choice>
             )}
           </div>
@@ -350,12 +381,17 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
         <fieldset className="space-y-3 rounded-xl border border-border p-4">
           <legend className="px-1 text-sm font-medium">Enviar para um storage (opcional)</legend>
           <Field label="Storage" hint={clouds.length === 0 ? 'Nenhum storage cadastrado. Cadastre um na página Storages.' : undefined}>
-            <select className={sel} value={f.cloud_account_id} onChange={(e) => setF({ ...f, cloud_account_id: Number(e.target.value), cloud_folder: '', cloud_direct: false, keep: Number(e.target.value) ? (f.keep === 7 ? 0 : f.keep) : (f.keep || 3) })}>
+            <select className={sel} value={f.cloud_account_id} onChange={(e) => {
+              const id = Number(e.target.value)
+              const c = clouds.find((x) => x.id === id)
+              const cloudy = !!c && ['gdrive', 'onedrive', 'dropbox'].includes(c.type)
+              setF({ ...f, cloud_account_id: id, cloud_folder: '', cloud_direct: !!c && !cloudy && f.format === 'dir', format: cloudy ? 'tar' : f.format, keep: id ? (f.keep === 7 ? 0 : f.keep) : (f.keep || 3) })
+            }}>
               <option value={0}>Só cópia local</option>
               {clouds.map((c) => <option key={c.id} value={c.id}>{c.name} ({CLOUD_LABEL[c.type]})</option>)}
             </select>
           </Field>
-          {f.cloud_account_id !== 0 && !destIsCloud && (
+          {f.cloud_account_id !== 0 && !destIsCloud && !asDir && (
             <div>
               <span className="mb-1.5 block text-sm font-medium">Como gravar</span>
               <div role="radiogroup" aria-label="Como gravar no storage" className="space-y-2">
@@ -380,17 +416,17 @@ function JobForm({ job, agents, clouds, onDone }: { job: Job | null; agents: Age
               <span className="mb-1.5 block text-sm font-medium">Por quanto tempo guardar no storage</span>
               <div role="radiogroup" aria-label="Retenção no storage" className="space-y-2">
                 <Choice on={f.cloud_keep > 0 && !f.cloud_keep_days} onClick={() => setF({ ...f, cloud_keep: f.cloud_keep || 7, cloud_keep_days: 0 })}>
-                  As últimas <Count value={f.cloud_keep || 7} min={1} max={3650} onChange={(n) => setF({ ...f, cloud_keep: n, cloud_keep_days: 0 })} unit={inc ? 'semanas' : 'cópias'} />
+                  As últimas <Count value={f.cloud_keep || 7} min={1} max={3650} onChange={(n) => setF({ ...f, cloud_keep: n, cloud_keep_days: 0 })} unit={chains ? 'semanas' : asDir ? 'pastas' : 'cópias'} />
                 </Choice>
                 <Choice on={!f.cloud_keep && f.cloud_keep_days > 0} onClick={() => setF({ ...f, cloud_keep: 0, cloud_keep_days: f.cloud_keep_days || 30 })}>
                   Tudo dos últimos <Count value={f.cloud_keep_days || 30} min={1} max={3650} onChange={(n) => setF({ ...f, cloud_keep: 0, cloud_keep_days: n })} unit="dias" />
                 </Choice>
                 <Choice on={f.cloud_keep > 0 && f.cloud_keep_days > 0} onClick={() => setF({ ...f, cloud_keep: f.cloud_keep || 7, cloud_keep_days: f.cloud_keep_days || 30 })}>
-                  No máximo <Count value={f.cloud_keep || 7} min={1} max={3650} onChange={(n) => setF({ ...f, cloud_keep: n, cloud_keep_days: f.cloud_keep_days || 30 })} unit={inc ? 'semanas' : 'cópias'} />
+                  No máximo <Count value={f.cloud_keep || 7} min={1} max={3650} onChange={(n) => setF({ ...f, cloud_keep: n, cloud_keep_days: f.cloud_keep_days || 30 })} unit={chains ? 'semanas' : asDir ? 'pastas' : 'cópias'} />
                   {' '}e nenhuma com mais de <Count value={f.cloud_keep_days || 30} min={1} max={3650} onChange={(n) => setF({ ...f, cloud_keep: f.cloud_keep || 7, cloud_keep_days: n })} unit="dias" />
                 </Choice>
               </div>
-              <p className="mt-2 rounded-lg bg-bg px-3 py-2 text-sm"><b>Resumo:</b> {retentionText(f.cloud_keep, f.cloud_keep_days, dest?.name ?? 'storage', inc)} {inc ? 'A semana mais recente nunca é apagada, e uma semana só sai inteira (nunca um pedaço que deixe um incremental sem o seu full).' : 'A cópia mais recente nunca é apagada.'} A limpeza só roda depois que o envio novo é conferido.</p>
+              <p className="mt-2 rounded-lg bg-bg px-3 py-2 text-sm"><b>Resumo:</b> {retentionText(f.cloud_keep, f.cloud_keep_days, dest?.name ?? 'storage', chains)} {chains ? 'A semana mais recente nunca é apagada, e uma semana só sai inteira (nunca um pedaço que deixe um incremental sem o seu full).' : 'A cópia mais recente nunca é apagada.'} A limpeza só roda depois que o envio novo é conferido.</p>
             </div>
           </>)}
         </fieldset>

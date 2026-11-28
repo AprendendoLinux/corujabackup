@@ -19,6 +19,7 @@ import (
 	"github.com/AprendendoLinux/corujabackup/internal/bkname"
 	"github.com/AprendendoLinux/corujabackup/internal/netdest"
 	"github.com/AprendendoLinux/corujabackup/internal/pb"
+	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -169,6 +170,11 @@ func (c *Core) reupload(ctx context.Context, act *pb.AgentAction, al *actionLog)
 func (c *Core) extract(ctx context.Context, act *pb.AgentAction, al *actionLog) error {
 	if !targetRE.MatchString(act.Target) || strings.Contains(act.Target, "..") {
 		return errors.New("nome de pasta de destino inválido")
+	}
+	if isDirBackup(act.FileName) { // backup em pasta: copia tudo dela para restores/<pasta>, conferindo cada arquivo
+		all := proto.Clone(act).(*pb.AgentAction)
+		all.Paths, all.Original, all.DestDir = []string{"/"}, false, ""
+		return c.restoreFiles(ctx, all, al)
 	}
 	dest := filepath.Join(c.cfg.BackupDir, "restores", act.Target)
 	if _, err := os.Lstat(dest); err == nil {

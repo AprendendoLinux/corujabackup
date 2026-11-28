@@ -15,10 +15,16 @@ import (
 // IncSuffix marca um backup incremental no nome.
 const IncSuffix = "-inc"
 
-// Any reconhece qualquer nome de backup (de qualquer job).
-var Any = regexp.MustCompile(`^[a-z0-9-]+-\d{8}-\d{6}(-inc)?\.tar\.gz$`)
+// Any reconhece qualquer nome de backup (de qualquer job): um .tar.gz ou uma pasta (backup em pasta, sem extensão).
+var Any = regexp.MustCompile(`^[a-z0-9-]+-\d{8}-\d{6}(-inc)?(\.tar\.gz)?$`)
 
-var tail = regexp.MustCompile(`^-(\d{8}-\d{6})(-inc)?\.tar\.gz$`)
+var tail = regexp.MustCompile(`^-(\d{8}-\d{6})(-inc)?(\.tar\.gz)?$`)
+
+// DirName monta o nome da pasta de um backup em pasta (cada uma completa: não há cadeia entre elas).
+func DirName(prefix string, t time.Time) string { return prefix + "-" + t.Format("20060102-150405") }
+
+// IsDir diz se o nome é de um backup em pasta (e não de um .tar.gz).
+func IsDir(name string) bool { return Any.MatchString(name) && !strings.HasSuffix(name, ".tar.gz") }
 
 // Name monta o nome de um backup.
 func Name(prefix string, t time.Time, incremental bool) string {

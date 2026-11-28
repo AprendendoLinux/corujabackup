@@ -23,6 +23,19 @@ Nos storages desta página (não nas nuvens), o job escolhe **como gravar**:
   - Se a rede cair no meio, o backup daquela execução falha (não há cópia local para reenviar depois). A próxima execução agendada tenta de novo.
   - Exige agente **0.0.19** ou mais novo.
 
+## Formato: .tar.gz ou pasta com os arquivos abertos (0.0.29)
+
+Nos jobs de pastas e arquivos, **Storage → Formato do backup**:
+
+- **Compactado (.tar.gz)** (padrão): um arquivo por execução, como sempre. Vale também nas nuvens.
+- **Pasta com os arquivos abertos:** cada execução vira uma pasta `<job>-AAAAMMDD-HHMMSS/` com a árvore original, arquivo por arquivo, gravada **direto** no storage (ou na pasta do backup local, num job sem storage). Dá para abrir e copiar sem o Coruja.
+  - A pasta é gravada como `<nome>.coruja-part` e só recebe o nome final com tudo conferido; uma falha ou um cancelamento a apagam. Uma provisória deixada por um agente que parou no meio é apagada na execução seguinte.
+  - Cada arquivo tem o SHA-256 calculado na leitura da origem e é conferido depois de gravado (relido do storage, na conferência completa).
+  - **Incrementais:** o que não mudou vira um **link físico** para o arquivo da pasta anterior. Cada pasta continua completa por si. Pasta local, NFS e SFTP (servidor OpenSSH) têm link físico; **SMB e FTP não têm**, então cada pasta é uma cópia completa.
+  - O catálogo `.coruja-catalogo.json.gz`, na raiz da pasta, guarda SHA-256, permissões, dono, data e links simbólicos de cada item (SMB e FTP não guardam esses dados). A restauração pelo Coruja confere cada arquivo e reaplica tudo.
+  - A pasta de cada execução fica só com o dono (700) onde o storage permite. Com os arquivos abertos, quem tem acesso ao storage lê o conteúdo diretamente: proteja o storage de acordo.
+  - A retenção conta pastas (e `.tar.gz` antigos do mesmo job). Nas nuvens, só `.tar.gz`. Exige agente **0.0.29**.
+
 ## SFTP
 - Senha ou chave privada (sem frase-senha). Caminho relativo à pasta do usuário; comece com `/` para um caminho absoluto.
 - No primeiro teste, a **impressão digital** do servidor é mostrada para você confirmar e fica fixada. Se o servidor mudar de chave (reinstalação ou ataque), o envio é recusado; crie o storage de novo depois de conferir.
@@ -63,4 +76,4 @@ Qualquer pasta da máquina do agente: outro disco, um volume **iSCSI** ou um **H
 Storages "pasta local" antigos (criados antes da 0.0.19, dentro de `/destinos`) continuam funcionando.
 
 ## Restauração
-O Server não acessa storages de rede, então não há download direto pelo navegador. Na execução, use **Trazer do storage para o agente** (o arquivo é conferido pelo SHA-256) e depois **Extrair no agente**, ou copie o arquivo. Isso vale também para backups gravados direto no storage.
+O Server não acessa storages de rede, então não há download direto pelo navegador. Na execução, use **Trazer do storage para o agente** (o arquivo é conferido pelo SHA-256) e depois **Extrair no agente**, ou copie o arquivo. Isso vale também para backups gravados direto no storage. Num backup em pasta, use **Navegar e restaurar** ou **Copiar a pasta para o agente**: o agente lê os arquivos direto do storage, conferindo cada um pelo catálogo.

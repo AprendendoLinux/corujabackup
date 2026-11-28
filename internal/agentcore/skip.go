@@ -68,7 +68,8 @@ func newArtifacts(dirs []ArtifactDir) artifacts {
 		}
 		// o arquivo final, o temporário, o que está sendo trazido de um destino, o que está sendo enviado a um storage local e
 		// as pastas de trabalho dos bancos
-		name := regexp.QuoteMeta(d.Prefix) + `-\d{8}-\d{6}(-inc)?\.tar\.gz`
+		// (e as pastas dos backups em pasta, com o mesmo nome sem a extensão)
+		name := regexp.QuoteMeta(d.Prefix) + `-\d{8}-\d{6}(-inc)?(\.tar\.gz)?`
 		out = append(out, artifact{st, regexp.MustCompile(`^(` + name + `|\.` + name + `\.tmp|` + name + `\.baixando|` + name + `\.coruja-part|\.tmp-[0-9a-f]{12})$`)})
 	}
 	return out

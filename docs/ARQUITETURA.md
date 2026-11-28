@@ -89,6 +89,13 @@
 - **Cadeia:** um full e os incrementais seguintes. A retenção (local, nuvem e storages) conta **cadeias** ("semanas"): apaga cadeias inteiras, nunca um pedaço do meio, e nunca a mais recente; por dias, uma cadeia sai quando o arquivo mais novo dela passa do prazo. Num job só de fulls, cada arquivo é uma cadeia: o comportamento antigo não muda.
 - **Restauração:** "Extrair no agente" de um incremental aplica, em ordem, o full e os incrementais até ele, removendo o que o manifesto marca como apagado. O que não estiver no agente é trazido do storage de rede (conferido pelo SHA-256) e apagado depois da extração. Nas nuvens, a cadeia precisa estar no agente.
 
+## Backup em pasta (0.0.29)
+
+- **Formato do job:** `tar` (padrão, um `.tar.gz`) ou `dir` (campo `format` do job e do `JobSpec`). `dir` só vale para jobs de arquivos sem nuvem: na pasta do agente ou num storage de rede, sempre gravando direto (sem cópia no agente).
+- **Gravação:** a mesma varredura do `.tar.gz` (exclusões, pastas do agente, sistemas virtuais), mas cada item vai para `<pasta do job>/<job>-AAAAMMDD-HHMMSS.coruja-part/<caminho>`; no fim vão o catálogo `.coruja-catalogo.json.gz` (o retrato do backup, com SHA-256, dono e link de cada item) e o rename para o nome final. O SHA-256 da execução é o do catálogo. Pasta local, NFS e SFTP gravam 4 arquivos ao mesmo tempo; FTP e SMB, um por vez (uma conexão só).
+- **Incremental:** o retrato anterior decide o que mudou (como no `.tar.gz`); o que não mudou vira link físico (`os.Root.Link`, `LINK` do NFSv3, `hardlink@openssh.com`) para o arquivo da pasta anterior, com o SHA-256 dela. Sem link físico (SMB, FTP, ou se o link falhar), o arquivo é copiado e a execução conta como full. Não há cadeia: cada pasta é completa, e a retenção (`bkname.Retention`) trata cada uma como uma cadeia de um item.
+- **Leitura:** `eachSelected` trata a pasta como mais um tipo de pacote: cada arquivo marcado é aberto no agente (`os.Root`, sem escapar da pasta) ou no storage e passa pelo mesmo `verifiedBlocks` dos blocos do `.tar.gz` (um bloco do tamanho do arquivo, com o SHA-256 do catálogo), então nada adulterado chega a ser gravado. Restauração, download e "Copiar a pasta" (a ação `extract`, que vira um `restore_files` de `/`) usam esse caminho.
+
 ## Restauração por seleção (0.0.23)
 
 - **Catálogo por backup:** a cada backup de arquivos que termina bem, o agente grava o estado de cada item (tamanho, data, tipo) e o índice do `.tar.gz` da cadeia que guarda o conteúdo dele, em `<dados do agente>/catalogs/<job>/<arquivo>.json.gz` (permissão 600; os 120 mais recentes por job). Num incremental, um arquivo sem mudança aponta para o pacote anterior onde ele está.

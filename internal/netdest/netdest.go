@@ -253,6 +253,7 @@ type Conn interface {
 	Dirs(dir string) ([]string, error) // só subpastas; pasta inexistente = lista vazia
 	Rename(dir, from, to string) error
 	Remove(dir, name string) error
+	RemoveAll(dir string) error // apaga uma pasta com tudo dentro (inexistente = nada a fazer)
 	Close() error
 }
 

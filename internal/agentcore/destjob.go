@@ -64,6 +64,9 @@ func (c *Core) fetch(ctx context.Context, act *pb.AgentAction, al *actionLog) er
 	if !backupFileRE.MatchString(act.FileName) {
 		return errors.New("nome de arquivo de backup inválido")
 	}
+	if isDirBackup(act.FileName) {
+		return errors.New("este backup é uma pasta com os arquivos abertos no storage: use “Navegar e restaurar” para trazer o que precisar")
+	}
 	dir, err := c.localDir(act.Subdir)
 	if err != nil {
 		return err

@@ -136,4 +136,17 @@ func (f *ftpConn) Rename(dir, from, to string) error {
 	return f.cl.Rename(f.p(dir, from), f.p(dir, to))
 }
 func (f *ftpConn) Remove(dir, name string) error { return f.cl.Delete(f.p(dir, name)) }
-func (f *ftpConn) Close() error                  { return f.cl.Quit() }
+func (f *ftpConn) RemoveAll(dir string) error {
+	parent, leaf := path.Split(path.Clean(dir))
+	ds, err := f.Dirs(strings.TrimSuffix(parent, "/"))
+	if err != nil {
+		return err
+	}
+	for _, d := range ds {
+		if d == leaf {
+			return f.cl.RemoveDirRecur(f.p(dir))
+		}
+	}
+	return nil
+}
+func (f *ftpConn) Close() error { return f.cl.Quit() }

@@ -124,15 +124,20 @@ func New(cfg Config, st *State, log *slog.Logger) *Core {
 			}
 			return runDatabase(ctx, job.Name, job.DB, job.Subdir, c.docker, c.cfg.BackupDir, loc, now, h, job.out)
 		}
-		job.DestPath, job.Artifacts = chosen, c.artifactDirs()
-		job.OwnDirs = []string{c.cfg.DestDir}
-		if c.st != nil {
-			// dados do agente: a credencial e os jobs (com senhas de bancos e de destinos) não podem ir para um backup
-			job.OwnDirs = append(job.OwnDirs, c.st.dir)
-		}
+		job.DestPath, job.Artifacts, job.OwnDirs = chosen, c.artifactDirs(), c.ownDirs()
 		return RunFiles(ctx, job, c.cfg.HostRoot, c.cfg.BackupDir, loc, now, h)
 	}
 	return c
+}
+
+// ownDirs são as pastas do agente que nunca entram num backup (além da pasta de backups).
+func (c *Core) ownDirs() []string {
+	dirs := []string{c.cfg.DestDir}
+	if c.st != nil {
+		// dados do agente: a credencial e os jobs (com senhas de bancos e de destinos) não podem ir para um backup
+		dirs = append(dirs, c.st.dir)
+	}
+	return dirs
 }
 
 // SetSender liga/desliga o canal com o Server (nil = offline: os resultados vão para a fila local).
@@ -422,6 +427,8 @@ func (c *Core) execute(parent context.Context, r runReq) {
 		plan = &incPlan{day: local.Format("2006-01-02")}
 		if full, why := needFull(prevSnap, sig, local, int(r.spec.FullWeekday), r.forceFull); full {
 			logf("info", "backup full: %s", why)
+		} else if isDirBackup(prevSnap.Last) != (r.spec.Format == FormatDir) {
+			logf("info", "backup full: o formato do job mudou (.tar.gz ↔ pasta)")
 		} else {
 			plan.base = prevSnap
 			logf("info", "backup incremental (cadeia iniciada em %s, base %s)", prevSnap.Chain, prevSnap.Last)
@@ -437,6 +444,9 @@ func (c *Core) execute(parent context.Context, r runReq) {
 	var res Result
 	if perr := c.policyCheck(r.spec); perr != nil {
 		err = perr
+	} else if r.spec.Format == FormatDir && (r.spec.Kind == "files" || r.spec.Kind == "") {
+		// backup em pasta: os arquivos vão abertos para o destino (a pasta local ou o storage), sem .tar.gz
+		res, err = c.runDirJob(ctx, r.spec, job, loc, started, c.progressHooks(base, logf))
 	} else if d := r.spec.Dest; d != nil && d.Direct && r.spec.CloudAccountId != 0 {
 		// modo direto: o .tar.gz vai em fluxo para o storage, sem arquivo no agente
 		var cfg netdest.Config
@@ -552,11 +562,16 @@ func (c *Core) execute(parent context.Context, r runReq) {
 
 // runExec roda o executor informando o andamento da compactação.
 func (c *Core) runExec(ctx context.Context, job FilesJob, loc *time.Location, started time.Time, base *pb.RunReport, logf func(level, f string, a ...any)) (Result, error) {
-	return c.exec(ctx, job, loc, started, Hooks{Logf: logf, Progress: func(p Result) {
+	return c.exec(ctx, job, loc, started, c.progressHooks(base, logf))
+}
+
+// progressHooks envia o andamento (bytes e itens) à interface enquanto o backup roda.
+func (c *Core) progressHooks(base *pb.RunReport, logf func(level, f string, a ...any)) Hooks {
+	return Hooks{Logf: logf, Progress: func(p Result) {
 		pr := proto.Clone(base).(*pb.RunReport)
 		pr.State, pr.Phase, pr.BytesSource, pr.BytesOutput, pr.Files = pb.RunReport_PROGRESS, "archiving", p.BytesSource, p.BytesOutput, p.Files
 		c.trySend(&pb.AgentMessage{Body: &pb.AgentMessage_RunReport{RunReport: pr}})
-	}})
+	}}
 }
 
 // localRetention aplica a retenção local depois do fim do backup. Com keep=0 (só faz sentido com nuvem) o arquivo local

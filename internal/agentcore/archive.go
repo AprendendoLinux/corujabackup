@@ -129,13 +129,6 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 		}
 		out = &localOut{dest: dest}
 	}
-	arts := job.Artifacts
-	if dest != "" {
-		arts = append([]ArtifactDir{{Path: dest, Prefix: prefix}}, arts...)
-	}
-	generated := newArtifacts(arts)
-	skipInDir := map[string][]*regexp.Regexp{} // por pasta percorrida: o que o agente gerou nela
-	virtual := readVirtualMounts()
 	inc := job.inc
 	// o catálogo (estado de cada item e onde está o conteúdo) é montado em todo job de arquivos; num job
 	// incremental ele também é a base do próximo backup
@@ -164,175 +157,88 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 		}
 		return tw.WriteHeader(hdr)
 	}
-	ex := NewExcluder(job.Excludes)
-	own := findOwnDirs(append([]string{backupDir}, job.OwnDirs...)...)
 	var entries int64
 	last := time.Now()
 
 	fail := func(err error) (Result, error) { tw.Close(); bg.Close(); out.abort(); return res, err }
 
-	for _, p := range job.Paths {
-		if ctx.Err() != nil {
-			return fail(ErrCanceled)
+	walkErr := walkSources(ctx, job, hostRoot, backupDir, dest, prefix, "compactando", h, &res, func(cur, logical string, info fs.FileInfo, link string) error {
+		mode := info.Mode()
+		meta := metaOf(info)
+		meta.A = cat.current()
+		record := func() { cat.next.Files[logical] = meta }
+		// incremental: o que não mudou desde o backup anterior fica de fora (mas continua no retrato, apontando
+		// para o arquivo da cadeia que guarda o conteúdo)
+		if inc != nil && !mode.IsDir() && inc.unchanged(logical, meta) {
+			meta.A, meta.B = inc.archiveOf(logical)
+			record()
+			inc.same++
+			return nil
 		}
-		real := filepath.Join(hostRoot, p)
-		if _, err := os.Lstat(real); err != nil {
-			h.log("warn", "origem não encontrada, ignorada: %s", p)
+		hdr, err := tar.FileInfoHeader(info, link)
+		if err != nil {
 			res.Warnings++
-			continue
+			return nil
 		}
-		// a origem escolhida está dentro de uma pasta do agente: avisa, em vez de simplesmente não salvar nada
-		top := hostRoot
-		if top == "" {
-			top = "/"
+		hdr.Name = strings.TrimPrefix(logical, "/")
+		if mode.IsDir() {
+			hdr.Name += "/"
 		}
-		if own.contains(real, top) {
-			h.log("warn", "origem ignorada: %s fica dentro de uma pasta do próprio agente (o que é do agente não entra no backup)", p)
-			res.Warnings++
-			continue
+		if sys, ok := info.Sys().(*syscall.Stat_t); ok {
+			hdr.Uid, hdr.Gid = int(sys.Uid), int(sys.Gid)
 		}
-		h.log("info", "compactando %s", p)
-		walkErr := filepath.WalkDir(real, func(cur string, d fs.DirEntry, err error) error {
-			if ctx.Err() != nil {
-				return ErrCanceled
-			}
-			logical := "/" + strings.TrimPrefix(strings.TrimPrefix(cur, hostRoot), "/")
-			if hostRoot == "/" || hostRoot == "" {
-				logical = cur
-			}
+		hdr.Uname, hdr.Gname = "", ""
+		if mode.IsRegular() {
+			src, err := os.Open(cur)
 			if err != nil {
-				h.log("warn", "sem acesso a %s: %v", logical, err)
+				h.log("warn", "sem permissão para ler %s: %v", logical, err)
 				res.Warnings++
-				if d != nil && d.IsDir() {
-					return fs.SkipDir
-				}
 				return nil
 			}
-			if ex.MatchEntry(logical, d.IsDir()) {
-				if d.IsDir() {
-					return fs.SkipDir
-				}
-				return nil
+			defer src.Close()
+			if err := writeHeader(hdr); err != nil {
+				return err
 			}
-			info, err := d.Info()
+			meta.B = bg.current()
+			n, err := io.Copy(tw, io.LimitReader(ctxRd(ctx, src), hdr.Size))
 			if err != nil {
-				h.log("warn", "não foi possível ler %s: %v", logical, err)
-				res.Warnings++
-				return nil
+				return err
 			}
-			if d.IsDir() && own.is(info) {
-				h.log("info", "pasta do próprio agente deixada de fora: %s", logical)
-				return fs.SkipDir
-			}
-			for _, re := range skipInDir[filepath.Dir(cur)] {
-				if cur != real && re.MatchString(d.Name()) {
-					if d.IsDir() {
-						return fs.SkipDir
-					}
-					return nil
-				}
-			}
-			// a pasta virtual entra vazia (para a restauração ter o ponto de montagem), sem o conteúdo
-			var after error
-			if d.IsDir() {
-				if p := generated.patterns(info); p != nil {
-					skipInDir[cur] = p
-				}
-				if typ, ok := virtual[cur]; ok {
-					h.log("info", "sistema de arquivos virtual deixado de fora: %s (%s)", logical, typ)
-					after = fs.SkipDir
-				}
-			}
-			mode := info.Mode()
-			if !(mode.IsRegular() || mode.IsDir() || mode&fs.ModeSymlink != 0) {
-				h.log("warn", "tipo de arquivo não suportado, ignorado: %s (%s)", logical, mode.Type())
-				res.Warnings++
-				return nil
-			}
-			meta := metaOf(info)
-			meta.A = cat.current()
-			record := func() { cat.next.Files[logical] = meta }
-			// incremental: o que não mudou desde o backup anterior fica de fora (mas continua no retrato, apontando
-			// para o arquivo da cadeia que guarda o conteúdo)
-			if inc != nil && !mode.IsDir() && inc.unchanged(logical, meta) {
-				meta.A, meta.B = inc.archiveOf(logical)
-				record()
-				inc.same++
-				return after
-			}
-			link := ""
-			if mode&fs.ModeSymlink != 0 {
-				if link, err = os.Readlink(cur); err != nil {
-					h.log("warn", "link ilegível %s: %v", logical, err)
-					res.Warnings++
-					return nil
-				}
-			}
-			hdr, err := tar.FileInfoHeader(info, link)
-			if err != nil {
-				res.Warnings++
-				return nil
-			}
-			hdr.Name = strings.TrimPrefix(logical, "/")
-			if mode.IsDir() {
-				hdr.Name += "/"
-			}
-			if sys, ok := info.Sys().(*syscall.Stat_t); ok {
-				hdr.Uid, hdr.Gid = int(sys.Uid), int(sys.Gid)
-			}
-			hdr.Uname, hdr.Gname = "", ""
-			if mode.IsRegular() {
-				src, err := os.Open(cur)
-				if err != nil {
-					h.log("warn", "sem permissão para ler %s: %v", logical, err)
-					res.Warnings++
-					return nil
-				}
-				defer src.Close()
-				if err := writeHeader(hdr); err != nil {
+			if n < hdr.Size { // o arquivo encolheu durante a leitura: completa com zeros para manter o tar válido
+				if _, err := io.CopyN(tw, zeroReader{}, hdr.Size-n); err != nil {
 					return err
 				}
-				meta.B = bg.current()
-				n, err := io.Copy(tw, io.LimitReader(ctxRd(ctx, src), hdr.Size))
-				if err != nil {
-					return err
-				}
-				if n < hdr.Size { // o arquivo encolheu durante a leitura: completa com zeros para manter o tar válido
-					if _, err := io.CopyN(tw, zeroReader{}, hdr.Size-n); err != nil {
-						return err
-					}
-					h.log("warn", "arquivo mudou durante o backup: %s", logical)
-					res.Warnings++
-				} else {
-					record() // só entra no retrato o que foi lido por inteiro
-				}
-				if inc != nil {
-					inc.reads++
-				}
-				res.BytesSource += hdr.Size
-				res.Files++
+				h.log("warn", "arquivo mudou durante o backup: %s", logical)
+				res.Warnings++
 			} else {
-				if err := writeHeader(hdr); err != nil {
-					return err
-				}
-				meta.B = bg.current()
-				record()
-				if mode.IsDir() {
-					res.Files++
-				}
+				record() // só entra no retrato o que foi lido por inteiro
 			}
-			entries++
-			if h.Progress != nil && time.Since(last) > 2*time.Second {
-				last = time.Now()
-				r := res
-				r.BytesOutput = cw.n
-				h.Progress(r)
+			if inc != nil {
+				inc.reads++
 			}
-			return after
-		})
-		if walkErr != nil {
-			return fail(walkErr)
+			res.BytesSource += hdr.Size
+			res.Files++
+		} else {
+			if err := writeHeader(hdr); err != nil {
+				return err
+			}
+			meta.B = bg.current()
+			record()
+			if mode.IsDir() {
+				res.Files++
+			}
 		}
+		entries++
+		if h.Progress != nil && time.Since(last) > 2*time.Second {
+			last = time.Now()
+			r := res
+			r.BytesOutput = cw.n
+			h.Progress(r)
+		}
+		return nil
+	})
+	if walkErr != nil {
+		return fail(walkErr)
 	}
 	if entries == 0 {
 		return fail(errors.New("nada foi salvo: nenhuma das origens existe ou todas foram excluídas"))
@@ -409,26 +315,147 @@ func RunFiles(ctx context.Context, job FilesJob, hostRoot, backupDir string, loc
 	return res, nil
 }
 
+// walkSources percorre as origens do job aplicando as regras de sempre: exclusões, pastas do próprio agente, arquivos
+// gerados pelos jobs nas pastas de backup local, sistemas de arquivos virtuais e tipos não suportados. visit recebe cada
+// item salvável (link: o destino, nos links simbólicos); um erro de visit interrompe a varredura.
+func walkSources(ctx context.Context, job FilesJob, hostRoot, backupDir, dest, prefix, verb string, h Hooks, res *Result,
+	visit func(cur, logical string, info fs.FileInfo, link string) error) error {
+	arts := job.Artifacts
+	if dest != "" {
+		arts = append([]ArtifactDir{{Path: dest, Prefix: prefix}}, arts...)
+	}
+	generated := newArtifacts(arts)
+	skipInDir := map[string][]*regexp.Regexp{} // por pasta percorrida: o que o agente gerou nela
+	virtual := readVirtualMounts()
+	ex := NewExcluder(job.Excludes)
+	own := findOwnDirs(append([]string{backupDir}, job.OwnDirs...)...)
+	for _, p := range job.Paths {
+		if ctx.Err() != nil {
+			return ErrCanceled
+		}
+		real := filepath.Join(hostRoot, p)
+		if _, err := os.Lstat(real); err != nil {
+			h.log("warn", "origem não encontrada, ignorada: %s", p)
+			res.Warnings++
+			continue
+		}
+		// a origem escolhida está dentro de uma pasta do agente: avisa, em vez de simplesmente não salvar nada
+		top := hostRoot
+		if top == "" {
+			top = "/"
+		}
+		if own.contains(real, top) {
+			h.log("warn", "origem ignorada: %s fica dentro de uma pasta do próprio agente (o que é do agente não entra no backup)", p)
+			res.Warnings++
+			continue
+		}
+		h.log("info", "%s %s", verb, p)
+		walkErr := filepath.WalkDir(real, func(cur string, d fs.DirEntry, err error) error {
+			if ctx.Err() != nil {
+				return ErrCanceled
+			}
+			logical := "/" + strings.TrimPrefix(strings.TrimPrefix(cur, hostRoot), "/")
+			if hostRoot == "/" || hostRoot == "" {
+				logical = cur
+			}
+			if err != nil {
+				h.log("warn", "sem acesso a %s: %v", logical, err)
+				res.Warnings++
+				if d != nil && d.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
+			}
+			if ex.MatchEntry(logical, d.IsDir()) {
+				if d.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
+			}
+			info, err := d.Info()
+			if err != nil {
+				h.log("warn", "não foi possível ler %s: %v", logical, err)
+				res.Warnings++
+				return nil
+			}
+			if d.IsDir() && own.is(info) {
+				h.log("info", "pasta do próprio agente deixada de fora: %s", logical)
+				return fs.SkipDir
+			}
+			for _, re := range skipInDir[filepath.Dir(cur)] {
+				if cur != real && re.MatchString(d.Name()) {
+					if d.IsDir() {
+						return fs.SkipDir
+					}
+					return nil
+				}
+			}
+			// a pasta virtual entra vazia (para a restauração ter o ponto de montagem), sem o conteúdo
+			var after error
+			if d.IsDir() {
+				if p := generated.patterns(info); p != nil {
+					skipInDir[cur] = p
+				}
+				if typ, ok := virtual[cur]; ok {
+					h.log("info", "sistema de arquivos virtual deixado de fora: %s (%s)", logical, typ)
+					after = fs.SkipDir
+				}
+			}
+			mode := info.Mode()
+			if !(mode.IsRegular() || mode.IsDir() || mode&fs.ModeSymlink != 0) {
+				h.log("warn", "tipo de arquivo não suportado, ignorado: %s (%s)", logical, mode.Type())
+				res.Warnings++
+				return nil
+			}
+			link := ""
+			if mode&fs.ModeSymlink != 0 {
+				if link, err = os.Readlink(cur); err != nil {
+					h.log("warn", "link ilegível %s: %v", logical, err)
+					res.Warnings++
+					return nil
+				}
+			}
+			if err := visit(cur, logical, info, link); err != nil {
+				return err
+			}
+			return after
+		})
+		if walkErr != nil {
+			return walkErr
+		}
+	}
+	return nil
+}
+
 type zeroReader struct{}
 
 func (zeroReader) Read(p []byte) (int, error) { clear(p); return len(p), nil }
 
 // ApplyRetention mantém as keep cadeias mais novas do job (um full e os incrementais dele; num job só de fulls, as keep
-// cópias mais novas) e apaga as outras. Só mexe em arquivos com o padrão de nome do job.
+// cópias mais novas) e apaga as outras. Só mexe em arquivos (e pastas de backups em pasta) com o padrão de nome do job.
 func ApplyRetention(dir, prefix string, keep int) []string {
 	ents, err := os.ReadDir(dir)
 	if err != nil || keep < 1 {
 		return nil
 	}
 	var files []bkname.File
+	isDir := map[string]bool{}
 	for _, e := range ents {
-		if !e.IsDir() {
+		switch {
+		case e.Type().IsRegular():
 			files = append(files, bkname.File{Name: e.Name()})
+		case e.IsDir() && bkname.IsDir(e.Name()):
+			files = append(files, bkname.File{Name: e.Name()})
+			isDir[e.Name()] = true
 		}
 	}
 	var removed []string
 	for _, f := range bkname.Retention(files, prefix, keep, 0, time.Time{}) {
-		if os.Remove(filepath.Join(dir, f.Name)) == nil {
+		rm := os.Remove
+		if isDir[f.Name] {
+			rm = os.RemoveAll
+		}
+		if rm(filepath.Join(dir, f.Name)) == nil {
 			removed = append(removed, f.Name)
 		}
 	}

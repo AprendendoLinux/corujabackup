@@ -3,7 +3,7 @@
 Sistema de backup **centralizado**, em Docker, gerenciado por **interface web**. Um **Server** orquestra tudo; **Agentes** leves rodam
 nos servidores de destino e se conectam a ele informando só **IP:porta + token**.
 
-> **Versão 0.0.30** · [Changelog](CHANGELOG.md) · [Instalação](docs/INSTALACAO.md) · [Operação](docs/OPERACAO.md) · [Segurança](docs/SEGURANCA.md) · [FAQ](docs/FAQ.md)
+> **Versão 0.0.31** · [Changelog](CHANGELOG.md) · [Instalação](docs/INSTALACAO.md) · [Operação](docs/OPERACAO.md) · [Segurança](docs/SEGURANCA.md) · [FAQ](docs/FAQ.md)
 
 ## O que faz
 
@@ -72,4 +72,4 @@ docker run --rm --network SUA_REDE -e CORUJA_TEST_DSN='usuario:senha@tcp(db:3306
 ```
 
 ---
-Coruja Backup - Versão 0.0.30 - Desenvolvido por [Henrique Fagundes](https://henrique.tec.br) · Licença MIT
+Coruja Backup - Versão 0.0.31 - Desenvolvido por [Henrique Fagundes](https://henrique.tec.br) · Licença MIT

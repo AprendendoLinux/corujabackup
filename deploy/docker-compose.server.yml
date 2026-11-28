@@ -32,7 +32,7 @@ services:
   # Prepara a pasta do Server: ele roda sem privilégios (usuário 10001) e não conseguiria gravar numa pasta nova do
   # Docker, que nasce do root. Roda uma vez a cada subida e termina; só tem a permissão de trocar o dono.
   permissoes:
-    image: ghcr.io/aprendendolinux/corujabackup-server:0.0.30
+    image: ghcr.io/aprendendolinux/corujabackup-server:0.0.31
     container_name: corujabackup-permissoes
     user: "0:0"
     entrypoint: ["chown", "-R", "10001:10001", "/data"]
@@ -44,7 +44,7 @@ services:
     security_opt: ["no-new-privileges:true"]
 
   server:
-    image: ghcr.io/aprendendolinux/corujabackup-server:0.0.30
+    image: ghcr.io/aprendendolinux/corujabackup-server:0.0.31
     container_name: corujabackup-server
     restart: always
     depends_on:

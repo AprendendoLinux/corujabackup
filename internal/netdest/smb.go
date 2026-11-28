@@ -15,6 +15,7 @@ import (
 )
 
 type smbConn struct {
+	raw   net.Conn
 	sess  *smb2.Session
 	share *smb2.Share
 	base  string
@@ -39,7 +40,7 @@ func dialSMB(ctx context.Context, c Config) (Conn, error) {
 		_ = sess.Logoff()
 		return nil, fmt.Errorf("não foi possível abrir o compartilhamento %q: %w", c.Share, err)
 	}
-	return &smbConn{sess: sess, share: share.WithContext(ctx), base: c.BasePath}, nil
+	return &smbConn{raw: raw, sess: sess, share: share.WithContext(ctx), base: c.BasePath}, nil
 }
 
 // p monta o caminho no formato do SMB (relativo, com barras invertidas).
@@ -124,7 +125,19 @@ func (s *smbConn) Rename(dir, from, to string) error {
 
 func (s *smbConn) Remove(dir, name string) error { return s.share.Remove(s.p(dir, name)) }
 
+func (s *smbConn) RemoveAll(dir string) error {
+	if s.p(dir) == "" {
+		return errors.New("a pasta base do compartilhamento não pode ser apagada")
+	}
+	if _, err := s.share.Lstat(s.p(dir)); errors.Is(err, fs.ErrNotExist) || os.IsNotExist(err) {
+		return nil
+	}
+	return s.share.RemoveAll(s.p(dir))
+}
+
 func (s *smbConn) Close() error {
 	_ = s.share.Umount()
-	return s.sess.Logoff()
+	err := s.sess.Logoff()
+	_ = s.raw.Close() // cancelado, o Logoff não sai: fechar a conexão faz o servidor soltar os arquivos abertos por ela
+	return err
 }

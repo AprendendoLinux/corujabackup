@@ -29,6 +29,17 @@ func (c *Core) catalogFor(ctx context.Context, act *pb.AgentAction, al *actionLo
 	if !errors.Is(err, ErrNoCatalog) {
 		return nil, err
 	}
+	if isDirBackup(act.FileName) { // backup em pasta: o catálogo também está dentro dela
+		al.logf("info", "este backup não tem catálogo neste agente: lendo o que está dentro da pasta")
+		if cat, err = c.catalogFromDir(ctx, act); err != nil {
+			return nil, err
+		}
+		if err := c.st.SaveCatalog(act.JobId, act.FileName, cat); err != nil {
+			al.logf("warn", "não foi possível guardar o catálogo: %v", err)
+		}
+		al.logf("info", "catálogo lido: %d itens", len(cat.Files))
+		return cat, nil
+	}
 	al.logf("info", "este backup não tem catálogo neste agente: montando a partir do arquivo")
 	rc, where, err := c.openArchive(ctx, act, act.FileName, 0, 0)
 	if err != nil {

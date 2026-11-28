@@ -142,6 +142,7 @@ function Detail({ id, me, onChange }: { id: number; me: User; onChange: () => vo
   const r = run
   const color = (l: string) => (l === 'error' ? 'text-danger' : l === 'warn' ? 'text-accent' : 'text-text')
   const canAct = me.role !== 'viewer' && !running && !!r.output_name
+  const isDir = isDirBackup(r.output_name)
   const post = (path: string, body?: unknown, ok?: string) => api('POST', path, body).then(() => { setErr(''); setPending(60); if (ok) setNote(ok) }).catch((x) => { setNote(''); setErr((x as ApiError).message) })
   return (
     <div className="space-y-4 text-sm">
@@ -171,10 +172,10 @@ function Detail({ id, me, onChange }: { id: number; me: User; onChange: () => vo
       )}
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
         <Item k="Início" v={fmtDate(r.started_at)} /><Item k="Fim" v={fmtDate(r.finished_at)} /><Item k="Duração" v={fmtDuration(r.started_at, r.finished_at)} />
-        <Item k={r.backup_kind === 'incremental' ? 'Origem (alterada)' : 'Origem'} v={fmtBytes(r.bytes_source)} /><Item k="Arquivo gerado" v={fmtBytes(r.bytes_output)} /><Item k="Itens" v={String(r.files || '—')} />
-        <Item k="Tipo" v={r.backup_kind === 'incremental' ? 'Incremental (só o que mudou)' : 'Completo (full)'} />
-        <div className="col-span-2 sm:col-span-3"><Item k="Arquivo" v={r.output_name || '—'} /></div>
-        <div className="col-span-2 sm:col-span-3"><Item k="SHA-256" v={r.sha256 || '—'} mono /></div>
+        <Item k={r.backup_kind === 'incremental' ? (isDir ? 'Copiado (novo ou alterado)' : 'Origem (alterada)') : isDir ? 'Copiado' : 'Origem'} v={fmtBytes(r.bytes_source)} /><Item k={isDir ? 'Gravado no destino' : 'Arquivo gerado'} v={fmtBytes(r.bytes_output)} /><Item k="Itens" v={String(r.files || '—')} />
+        <Item k="Tipo" v={r.backup_kind === 'incremental' ? (isDir ? 'Incremental (o que não mudou é link físico)' : 'Incremental (só o que mudou)') : 'Completo (full)'} />
+        <div className="col-span-2 sm:col-span-3"><Item k={isDir ? 'Pasta (arquivos abertos)' : 'Arquivo'} v={r.output_name || '—'} /></div>
+        <div className="col-span-2 sm:col-span-3"><Item k={isDir ? 'SHA-256 do catálogo da pasta' : 'SHA-256'} v={r.sha256 || '—'} mono /></div>
         {r.cloud_status !== 'none' && <div className="col-span-2 sm:col-span-3"><Item k={`Storage (${r.cloud_status === 'ok' ? `conferido por ${r.cloud_verified_by}` : 'falhou'})`} v={r.cloud_path || '—'} /></div>}
       </dl>
 
@@ -195,26 +196,31 @@ function RestorePanel({ run, job, onAction }: { run: Run; job: JobInfo; onAction
   const [target, setTarget] = useState('')
   const [guide, setGuide] = useState(false)
   const inCloud = run.cloud_status === 'ok'
+  const isDir = isDirBackup(run.output_name)
   const done = run.status === 'ok' || run.status === 'warning' || run.cloud_status === 'ok' || run.cloud_status === 'failed' || run.status === 'failed'
   if (!done) return null
   return (
     <div className="space-y-3 rounded-lg border border-border bg-bg p-3">
       <div className="font-medium">Restauração e ações</div>
       <div className="flex flex-wrap items-center gap-2">
-        {inCloud && job.net_destination && <Button variant="ghost" onClick={() => onAction(`/api/runs/${run.id}/fetch`, undefined)}>⬇ Trazer do storage para o agente</Button>}
+        {inCloud && job.net_destination && !isDir && <Button variant="ghost" onClick={() => onAction(`/api/runs/${run.id}/fetch`, undefined)}>⬇ Trazer do storage para o agente</Button>}
         {inCloud && !job.net_destination && <a className="inline-flex items-center rounded-lg bg-primary px-3.5 py-2 text-sm font-medium text-primary-contrast hover:opacity-90" href={`/api/runs/${run.id}/download`}>⬇ Baixar da nuvem</a>}
-        {run.cloud_status === 'failed' && job.has_cloud && <Button variant="ghost" onClick={async () => await confirmar({ title: 'Reenviar ao storage?', message: 'O arquivo local deste backup é enviado de novo e conferido.', confirmLabel: 'Reenviar', icon: 'enviar' }) && onAction(`/api/runs/${run.id}/reupload`, undefined)}>☁ Reenviar ao storage</Button>}
+        {run.cloud_status === 'failed' && job.has_cloud && !isDir && <Button variant="ghost" onClick={async () => await confirmar({ title: 'Reenviar ao storage?', message: 'O arquivo local deste backup é enviado de novo e conferido.', confirmLabel: 'Reenviar', icon: 'enviar' }) && onAction(`/api/runs/${run.id}/reupload`, undefined)}>☁ Reenviar ao storage</Button>}
         <input aria-label="Pasta de destino" className="w-56 rounded-lg border border-border bg-surface px-3 py-2 text-sm" placeholder="pasta de restauração (opcional)" value={target} onChange={(e) => setTarget(e.target.value)} />
-        <Button variant="ghost" onClick={() => onAction(`/api/runs/${run.id}/extract`, { target }, undefined)}>📂 Extrair no agente</Button>
+        <Button variant="ghost" onClick={() => onAction(`/api/runs/${run.id}/extract`, { target }, undefined)}>{isDir ? '📂 Copiar a pasta para o agente' : '📂 Extrair no agente'}</Button>
         {job.kind === 'files' && <a className="inline-flex items-center rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-medium hover:bg-bg" href={`#/restaurar?job=${run.job_id}`}>🔎 Navegar e restaurar arquivos</a>}
         {job.kind === 'database' && <a className="inline-flex items-center rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-medium hover:bg-bg" href={`#/restaurar?job=${run.job_id}`}>🗄 Restaurar banco…</a>}
         <button className="text-primary hover:underline" onClick={() => setGuide(!guide)}>{guide ? 'Ocultar guia' : 'Como restaurar manualmente'}</button>
       </div>
-      <p className="text-xs text-muted">“Extrair no agente” descompacta o arquivo local em <code>restores/&lt;pasta&gt;</code> dentro da pasta de backups do agente, sem sobrescrever nada.{run.backup_kind === 'incremental' && ' Por ser incremental, o agente aplica em ordem o full da semana e os incrementais até este (buscando no storage de rede o que não estiver no agente) e remove o que tinha sido apagado na origem.'} O andamento aparece no log abaixo. Se a cópia local já foi removida, baixe da nuvem (ou, num storage de rede, use “Trazer do storage”).</p>
+      {isDir ? <p className="text-xs text-muted">Este backup é uma pasta com os arquivos abertos{run.cloud_path ? <> em <code>{run.cloud_path}</code></> : ''}: dá para abrir e copiar dela direto. “Copiar a pasta para o agente” traz tudo para <code>restores/&lt;pasta&gt;</code> dentro da pasta de backups do agente, conferindo cada arquivo pelo catálogo, sem sobrescrever nada. O andamento aparece no log abaixo.</p>
+      : <p className="text-xs text-muted">“Extrair no agente” descompacta o arquivo local em <code>restores/&lt;pasta&gt;</code> dentro da pasta de backups do agente, sem sobrescrever nada.{run.backup_kind === 'incremental' && ' Por ser incremental, o agente aplica em ordem o full da semana e os incrementais até este (buscando no storage de rede o que não estiver no agente) e remove o que tinha sido apagado na origem.'} O andamento aparece no log abaixo. Se a cópia local já foi removida, baixe da nuvem (ou, num storage de rede, use “Trazer do storage”).</p>}
       {guide && <Guide run={run} job={job} />}
     </div>
   )
 }
+
+/** Backup em pasta (arquivos abertos): o nome não tem extensão. */
+function isDirBackup(name: string) { return !!name && !name.endsWith('.tar.gz') }
 
 function Guide({ run, job }: { run: Run; job: JobInfo }) {
   const f = run.output_name
@@ -268,7 +274,16 @@ ssh admin@ROTEADOR "/system reset-configuration no-defaults=yes skip-backup=yes 
 #     num roteador já sem configuração:  /import file-name=config.rsc
 # 3b) .backup: só no MESMO modelo; pede a senha do .backup definida no job (o roteador reinicia)
 ssh admin@ROTEADOR "/system backup load name=NOME.backup password=SENHA-DO-BACKUP"`
-  const text = job.kind === 'database' ? (dbs[eng ?? ''] ?? files) : job.kind === 'mikrotik' ? mtk : run.backup_kind === 'incremental' ? incr : files
+  const where = run.cloud_path || f
+  const pasta = `# Este backup é uma PASTA com os arquivos abertos (não há nada para descompactar).
+# Cada pasta é completa, mesmo nos incrementais (o que não mudou é link físico para a anterior).
+# 1) Veja o que há dentro (no storage ou na pasta de backups do agente):
+ls -la "${where}/"
+# 2) Copie de volta só o que precisar, preservando dono, permissões e datas:
+cp -a "${where}/etc/exemplo.conf" /etc/exemplo.conf
+# Em SMB e FTP, dono, permissões e links simbólicos não ficam no storage: estão no catálogo
+# ${where}/.coruja-catalogo.json.gz, e a restauração pelo Coruja os recria.`
+  const text = job.kind === 'database' ? (dbs[eng ?? ''] ?? files) : job.kind === 'mikrotik' ? mtk : isDirBackup(f) ? pasta : run.backup_kind === 'incremental' ? incr : files
   return (
     <div className="space-y-2">
       <CopyBox text={text} />

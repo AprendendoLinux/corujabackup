@@ -46,6 +46,7 @@ type jobIn struct {
 	CloudDirect    *bool   `json:"cloud_direct"`
 	BackupMode     *string `json:"backup_mode"`
 	FullWeekday    *int    `json:"full_weekday"`
+	Format         *string `json:"format"` // tar | dir
 	ClearCloud     bool    `json:"clear_cloud"`
 
 	Kind     *string `json:"kind"`
@@ -350,6 +351,28 @@ func (s *Server) applyJobIn(ctx context.Context, j *store.Job, in jobIn) string 
 			netDest = d
 		}
 	}
+	if in.Format != nil {
+		j.Format = *in.Format
+	}
+	switch j.Format {
+	case "", "tar":
+		j.Format = "tar"
+	case "dir":
+		if j.Kind != "files" && j.Kind != "" {
+			return "o backup em pasta vale só para jobs de pastas e arquivos (bancos e roteadores geram um arquivo só)"
+		}
+		if a.AgentVersion != "" && !versionAtLeast(a.AgentVersion, formatDirAgent) {
+			return "o agente " + a.Name + " (versão " + a.AgentVersion + ") não grava backups em pasta: atualize-o para a versão 0.0.29 ou mais nova"
+		}
+		if j.CloudAccountID != nil && netDest == nil {
+			return "o backup em pasta só vale para a pasta do agente e para storages de rede (SFTP, FTP, SMB, NFS ou pasta local); nas nuvens, use o formato .tar.gz"
+		}
+		if netDest != nil {
+			j.CloudDirect = true // os arquivos vão direto para o storage: não há cópia no agente
+		}
+	default:
+		return "formato de backup inválido"
+	}
 	if j.CloudDirect {
 		if netDest == nil {
 			return "a gravação direta só vale para storages de rede ou pasta local (nas nuvens, o backup é gerado no agente e depois enviado)"
@@ -396,6 +419,9 @@ func (s *Server) applyJobIn(ctx context.Context, j *store.Job, in jobIn) string 
 	}
 	return ""
 }
+
+// formatDirAgent: o backup em pasta chegou na 0.0.29 do agente.
+var formatDirAgent = [3]int{0, 0, 29}
 
 type jobView struct {
 	store.Job

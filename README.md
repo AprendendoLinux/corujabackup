@@ -3,13 +3,13 @@
 Sistema de backup **centralizado**, em Docker, gerenciado por **interface web**. Um **Server** orquestra tudo; **Agentes** leves rodam
 nos servidores de destino e se conectam a ele informando só **IP:porta + token**.
 
-> **Versão 0.0.28** · [Changelog](CHANGELOG.md) · [Instalação](docs/INSTALACAO.md) · [Operação](docs/OPERACAO.md) · [Segurança](docs/SEGURANCA.md) · [FAQ](docs/FAQ.md)
+> **Versão 0.0.29** · [Changelog](CHANGELOG.md) · [Instalação](docs/INSTALACAO.md) · [Operação](docs/OPERACAO.md) · [Segurança](docs/SEGURANCA.md) · [FAQ](docs/FAQ.md)
 
 ## O que faz
 
 | Área | Recursos |
 | :--- | :--- |
-| **Backups** | Pastas/arquivos (`.tar.gz` com exclusões), **full + incrementais** (full no dia escolhido, só o que mudou nos outros), **bancos de dados** (MySQL, MariaDB, PostgreSQL, MongoDB) e **roteadores MikroTik** (`.rsc` e `.backup` por SSH). Agenda por cliques com fuso; o **agente agenda sozinho** e roda mesmo com o Server fora do ar. |
+| **Backups** | Pastas/arquivos (`.tar.gz` com exclusões, ou **pasta com os arquivos abertos** na pasta do agente e nos storages de rede, com links físicos nos incrementais), **full + incrementais** (full no dia escolhido, só o que mudou nos outros), **bancos de dados** (MySQL, MariaDB, PostgreSQL, MongoDB) e **roteadores MikroTik** (`.rsc` e `.backup` por SSH). Agenda por cliques com fuso; o **agente agenda sozinho** e roda mesmo com o Server fora do ar. |
 | **Storages de rede** | **SFTP**, **FTP/FTPS**, **SMB/CIFS**, **NFS** (cliente embutido, sem montar nada) e **pasta local** (qualquer disco do agente): o agente envia, confere relendo o arquivo e aplica a retenção; opção de **gravar direto no storage**, sem arquivo no agente. |
 | **Confiança** | Cada arquivo é conferido (SHA-256, gzip, estrutura) e há **teste de restauração real** de bancos num servidor descartável. A retenção só roda depois de verificar. Horários perdidos viram alerta. |
 | **Nuvem** | **Google Drive**, **OneDrive** e **Dropbox**, conectados com um clique (login por popup): o agente envia **direto** (envio retomável), conferência por hash do agente **e** do Server, retenção por quantidade/dias, exclusão definitiva (sem lixeira). |
@@ -70,4 +70,4 @@ docker run --rm --network SUA_REDE -e CORUJA_TEST_DSN='usuario:senha@tcp(db:3306
 ```
 
 ---
-Coruja Backup - Versão 0.0.28 - Desenvolvido por [Henrique Fagundes](https://henrique.tec.br) · Licença MIT
+Coruja Backup - Versão 0.0.29 - Desenvolvido por [Henrique Fagundes](https://henrique.tec.br) · Licença MIT

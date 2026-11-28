@@ -31,7 +31,7 @@ services:
     networks: [echelon]
 
   server:
-    image: ghcr.io/aprendendolinux/corujabackup-server:0.0.28
+    image: ghcr.io/aprendendolinux/corujabackup-server:0.0.29
     container_name: corujabackup-server
     restart: always
     depends_on:

@@ -149,6 +149,18 @@ func (s *sftpConn) Rename(dir, from, to string) error {
 
 func (s *sftpConn) Remove(dir, name string) error { return s.cl.Remove(s.p(dir, name)) }
 
+func (s *sftpConn) RemoveAll(dir string) error {
+	if _, err := s.cl.Lstat(s.p(dir)); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return s.cl.RemoveAll(s.p(dir))
+}
+
+// Link usa a extensão hardlink@openssh.com (OpenSSH e a maioria dos servidores Linux).
+func (s *sftpConn) Link(from, to string) error { return s.cl.Link(s.p(from), s.p(to)) }
+
+func (s *sftpConn) Chmod(name string, mode fs.FileMode) error { return s.cl.Chmod(s.p(name), mode) }
+
 func (s *sftpConn) Close() error {
 	s.stop()
 	_ = s.cl.Close()

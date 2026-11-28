@@ -1126,6 +1126,7 @@ type JobSpec struct {
 	BackupMode     string                 `protobuf:"bytes,16,opt,name=backup_mode,json=backupMode,proto3" json:"backup_mode,omitempty"`                // "full" (padrão) | "incremental": full no dia da semana abaixo, incrementais nos outros
 	FullWeekday    int32                  `protobuf:"varint,17,opt,name=full_weekday,json=fullWeekday,proto3" json:"full_weekday,omitempty"`            // incremental: 0 = domingo ... 6 = sábado (no fuso do job)
 	Mikrotik       *MikrotikSpec          `protobuf:"bytes,18,opt,name=mikrotik,proto3" json:"mikrotik,omitempty"`                                      // kind="mikrotik"
+	Format         string                 `protobuf:"bytes,19,opt,name=format,proto3" json:"format,omitempty"`                                          // "tar" (padrão: .tar.gz) | "dir" (pasta com os arquivos abertos; agente 0.0.29+, só fora da nuvem)
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -1284,6 +1285,13 @@ func (x *JobSpec) GetMikrotik() *MikrotikSpec {
 		return x.Mikrotik
 	}
 	return nil
+}
+
+func (x *JobSpec) GetFormat() string {
+	if x != nil {
+		return x.Format
+	}
+	return ""
 }
 
 // MikrotikSpec: roteador MikroTik acessado pelo agente via SSH (credenciais só pelo canal TLS; no agente, arquivo 600).
@@ -3025,7 +3033,7 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\x03Ack\x12\x17\n" +
 	"\aunix_ms\x18\x01 \x01(\x03R\x06unixMs\"!\n" +
 	"\aRevoked\x12\x16\n" +
-	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xa5\x04\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xbd\x04\n" +
 	"\aJobSpec\x12\x15\n" +
 	"\x06job_id\x18\x01 \x01(\x03R\x05jobId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
@@ -3047,7 +3055,8 @@ const file_coruja_v1_agent_proto_rawDesc = "" +
 	"\vbackup_mode\x18\x10 \x01(\tR\n" +
 	"backupMode\x12!\n" +
 	"\ffull_weekday\x18\x11 \x01(\x05R\vfullWeekday\x123\n" +
-	"\bmikrotik\x18\x12 \x01(\v2\x17.coruja.v1.MikrotikSpecR\bmikrotik\"\xa6\x02\n" +
+	"\bmikrotik\x18\x12 \x01(\v2\x17.coruja.v1.MikrotikSpecR\bmikrotik\x12\x16\n" +
+	"\x06format\x18\x13 \x01(\tR\x06format\"\xa6\x02\n" +
 	"\fMikrotikSpec\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\x05R\x04port\x12\x12\n" +

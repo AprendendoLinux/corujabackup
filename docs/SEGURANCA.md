@@ -54,7 +54,7 @@ Para "clicar e selecionar", o Server pede ao agente a listagem de uma pasta.
 ## Gravação no servidor (`/host-rw`)
 Para a **pasta do backup local** ser escolhida no painel, o agente precisa gravar no servidor. A stack padrão monta `/:/host-rw`.
 - **O que muda no risco:** com essa montagem, quem dominar o **contêiner do agente** pode alterar qualquer arquivo do servidor, o que equivale a root nele. Sem ela, o agente só grava em `/backups` e `/destinos` (e storages "pasta local" com pasta escolhida deixam de funcionar).
-- **O que o agente faz com ela:** grava somente os arquivos de backup (`<job>-AAAAMMDD-HHMMSS.tar.gz` e temporários) na pasta escolhida, e a retenção só apaga arquivos com esse padrão e o nome do job. A origem continua sendo lida por `/host`, somente leitura. Atalhos e `/`, `/proc`, `/sys`, `/dev` e `/run` não são aceitos.
+- **O que o agente faz com ela:** grava somente os arquivos de backup (`<job>-AAAAMMDD-HHMMSS.tar.gz`, ou a pasta `<job>-AAAAMMDD-HHMMSS/` no backup em pasta, e temporários) na pasta escolhida, e a retenção só apaga arquivos e pastas com esse padrão e o nome do job. A origem continua sendo lida por `/host`, somente leitura. Atalhos e `/`, `/proc`, `/sys`, `/dev` e `/run` não são aceitos.
 - **Server comprometido:** ele pode mandar gravar backups em outra pasta permitida. `CORUJA_BACKUP_ROOTS`, definido na stack do agente, limita isso e não pode ser mudado pelo painel.
 - **Para não conceder a permissão:** remova a linha `/:/host-rw`; o backup local fica na pasta padrão do agente.
 

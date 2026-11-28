@@ -27,7 +27,9 @@ const (
 	procCreate      = 8
 	procMkdir       = 9
 	procRemove      = 12
+	procRmdir       = 13
 	procRename      = 14
+	procLink        = 15
 	procReaddirplus = 17
 	procFsstat      = 18
 	procFsinfo      = 19
@@ -539,6 +541,82 @@ func (c *Client) Remove(ctx context.Context, p string) error {
 	}
 	if st != 0 {
 		return c.fail("apagar "+p, st)
+	}
+	return nil
+}
+
+// Rmdir apaga uma pasta vazia.
+func (c *Client) Rmdir(ctx context.Context, p string) error {
+	dir, name := splitDir(p)
+	fh, err := c.handle(ctx, dir)
+	if err != nil {
+		return err
+	}
+	var e enc
+	e.opaque(fh)
+	e.str(name)
+	_, st, err := c.call(ctx, "rmdir", procRmdir, e.b)
+	if err != nil {
+		return err
+	}
+	if st != 0 {
+		return c.fail("apagar a pasta "+p, st)
+	}
+	c.forget(p)
+	return nil
+}
+
+// RemoveAll apaga um arquivo ou uma pasta com tudo o que há dentro (inexistente = nada a fazer).
+func (c *Client) RemoveAll(ctx context.Context, p string) error {
+	a, err := c.Stat(ctx, p)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !a.Dir {
+		return c.Remove(ctx, p)
+	}
+	es, err := c.ReadDir(ctx, p)
+	if err != nil {
+		return err
+	}
+	for _, x := range es {
+		sub := p + "/" + x.Name
+		if x.Dir {
+			err = c.RemoveAll(ctx, sub)
+		} else {
+			err = c.Remove(ctx, sub)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return c.Rmdir(ctx, p)
+}
+
+// Link cria um link físico em to para o arquivo from (o mesmo conteúdo, sem copiar).
+func (c *Client) Link(ctx context.Context, from, to string) error {
+	file, err := c.handle(ctx, from)
+	if err != nil {
+		return err
+	}
+	td, tn := splitDir(to)
+	dir, err := c.handle(ctx, td)
+	if err != nil {
+		return err
+	}
+	var e enc
+	e.opaque(file)
+	e.opaque(dir)
+	e.str(tn)
+	_, st, err := c.call(ctx, "link", procLink, e.b)
+	if err != nil {
+		return err
+	}
+	if st != 0 {
+		return c.fail("criar o link "+to, st)
 	}
 	return nil
 }

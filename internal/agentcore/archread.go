@@ -235,6 +235,12 @@ func (c *Core) eachSelected(ctx context.Context, act *pb.AgentAction, al *action
 	sort.Ints(idx)
 	for _, i := range idx {
 		name, want := cat.Archives[i], groups[i]
+		if isDirBackup(name) { // backup em pasta: cada arquivo lido direto da pasta
+			if err := c.eachFromDir(ctx, act, al, cat, name, want, fn); err != nil {
+				return err
+			}
+			continue
+		}
 		found := map[string]bool{}
 		if rs, ok := rangesFor(cat, i, want); ok {
 			var bytes int64

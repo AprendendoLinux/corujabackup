@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+	"time"
 )
 
 // localConn grava numa pasta da máquina do agente: qualquer pasta escolhida na interface (disco extra, iSCSI, USB já
@@ -149,4 +150,22 @@ func (l *localConn) Rename(dir, from, to string) error {
 	return l.root.Rename(l.p(dir, from), l.p(dir, to))
 }
 func (l *localConn) Remove(dir, name string) error { return l.root.Remove(l.p(dir, name)) }
-func (l *localConn) Close() error                  { return l.root.Close() }
+func (l *localConn) RemoveAll(dir string) error    { return l.root.RemoveAll(l.p(dir)) }
+
+func (l *localConn) Link(from, to string) error { return l.root.Link(l.p(from), l.p(to)) }
+
+func (l *localConn) Symlink(name, target string) error { return l.root.Symlink(target, l.p(name)) }
+
+func (l *localConn) Chmod(name string, mode fs.FileMode) error { return l.root.Chmod(l.p(name), mode) }
+
+// SetAttrs devolve dono, permissões e data originais (o que der: sem ser root, o dono fica o do agente).
+func (l *localConn) SetAttrs(name string, mode fs.FileMode, uid, gid int, mtime time.Time) {
+	p := l.p(name)
+	_ = l.root.Lchown(p, uid, gid)
+	if mode&fs.ModeSymlink != 0 {
+		return
+	}
+	_ = l.root.Chmod(p, mode&fs.ModePerm)
+	_ = l.root.Chtimes(p, mtime, mtime)
+}
+func (l *localConn) Close() error { return l.root.Close() }

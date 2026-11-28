@@ -121,6 +121,7 @@ message JobSpec {
   string backup_mode = 16;         // "full" (padrão) | "incremental": full no dia da semana abaixo, incrementais nos outros
   int32 full_weekday = 17;         // incremental: 0 = domingo ... 6 = sábado (no fuso do job)
   MikrotikSpec mikrotik = 18;      // kind="mikrotik"
+  string format = 19;              // "tar" (padrão: .tar.gz) | "dir" (pasta com os arquivos abertos; agente 0.0.29+, só fora da nuvem)
 }
 
 // MikrotikSpec: roteador MikroTik acessado pelo agente via SSH (credenciais só pelo canal TLS; no agente, arquivo 600).

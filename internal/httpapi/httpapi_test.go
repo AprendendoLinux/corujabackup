@@ -595,7 +595,10 @@ func TestExecucaoManualRelatoriosEPermissoes(t *testing.T) {
 
 // ---------------------------------------------------------------- nuvem
 
-type fakeClouds struct{ created int }
+type fakeClouds struct {
+	created int
+	dests   map[int64]*netdest.Config // contas que são storages de rede
+}
 
 func (f *fakeClouds) Create(_ context.Context, name, typ string, cfg cloudmgr.AccountConfig) (int64, *cloud.Device, error) {
 	f.created++
@@ -621,8 +624,10 @@ func (f *fakeClouds) BeginWebReauth(_ context.Context, id int64, origin string) 
 func (f *fakeClouds) CreateDestination(context.Context, string, netdest.Config) (int64, error) {
 	return 77, nil
 }
-func (f *fakeClouds) DestConfig(context.Context, int64) (*netdest.Config, error) { return nil, nil }
-func (f *fakeClouds) UsesPopup(context.Context, int64) bool                      { return false }
+func (f *fakeClouds) DestConfig(_ context.Context, id int64) (*netdest.Config, error) {
+	return f.dests[id], nil
+}
+func (f *fakeClouds) UsesPopup(context.Context, int64) bool { return false }
 func (f *fakeClouds) FinishWeb(_ context.Context, state, code string) (int64, error) {
 	if code != "ok" {
 		return 0, errors.New("código inválido")
@@ -1620,6 +1625,67 @@ func TestPeriodoEscolhido(t *testing.T) {
 	d := adm.mustOK("GET", "/api/dashboard?from=2026-11-03&to=2026-11-04&tz=America/Sao_Paulo", nil)
 	if tot := d["totals"].(map[string]any); tot["ok"].(float64) != 2 || tot["bytes"].(float64) != 200 {
 		t.Fatalf("totais do painel no período: %v", tot)
+	}
+}
+
+// Backup em pasta: só para jobs de arquivos, em agentes 0.0.29+, na pasta do agente ou num storage de rede (direto, sem
+// cópia no agente); nas nuvens, não.
+func TestJobEmPasta(t *testing.T) {
+	e := newEnv(t)
+	fc := &fakeClouds{dests: map[int64]*netdest.Config{}}
+	e.api.Clouds = fc
+	adm := setupAdmin(e)
+	ag := newAgent(t, e, "srv-pasta")
+	with := func(m map[string]any) map[string]any {
+		out := map[string]any{"agent_id": ag.ID, "paths": []string{"/srv"}, "keep": 3}
+		for k, v := range m {
+			out[k] = v
+		}
+		return out
+	}
+	e.api.Store.DB.Exec("UPDATE agents SET agent_version='0.0.28' WHERE id=?", ag.ID)
+	if code, m := adm.do("POST", "/api/jobs", with(map[string]any{"name": "velho", "format": "dir"})); code != 400 || !strings.Contains(m["error"].(string), "0.0.29") {
+		t.Fatalf("agente antigo não grava em pasta: %d %v", code, m)
+	}
+	e.api.Store.DB.Exec("UPDATE agents SET agent_version='0.0.29-dev' WHERE id=?", ag.ID)
+	ctx := context.Background()
+	jid := int64(adm.mustOK("POST", "/api/jobs", with(map[string]any{"name": "local", "format": "dir", "backup_mode": "incremental"}))["id"].(float64))
+	j, _ := e.api.Store.GetJob(ctx, jid)
+	if j.Format != "dir" || j.Keep != 3 || j.CloudDirect {
+		t.Fatalf("job em pasta local: %+v", j)
+	}
+	if sp := agentsrv.SpecFromJob(*j); sp.Format != "dir" {
+		t.Fatalf("spec: %+v", sp)
+	}
+	od := addCloud(t, e, "od", "connected")
+	if code, m := adm.do("POST", "/api/jobs", with(map[string]any{"name": "nuvem", "format": "dir", "cloud_account_id": od, "cloud_keep": 3})); code != 400 || !strings.Contains(m["error"].(string), "nuvens") {
+		t.Fatalf("nuvem não aceita pasta: %d %v", code, m)
+	}
+	nfs := addCloud(t, e, "nfs", "connected")
+	fc.dests[nfs] = &netdest.Config{Type: netdest.TypeNFS, Host: "10.0.0.9", Export: "/srv/nfs"}
+	sid := int64(adm.mustOK("POST", "/api/jobs", with(map[string]any{"name": "storage", "format": "dir", "cloud_account_id": nfs, "cloud_keep": 3}))["id"].(float64))
+	if j, _ := e.api.Store.GetJob(ctx, sid); j.Format != "dir" || !j.CloudDirect || j.Keep != 0 {
+		t.Fatalf("pasta num storage vai direto, sem cópia no agente: %+v", j)
+	}
+	if code, _ := adm.do("POST", "/api/jobs", with(map[string]any{"name": "zip", "format": "zip"})); code != 400 {
+		t.Fatal("formato inválido deveria ser recusado")
+	}
+	// voltar para .tar.gz e o padrão
+	adm.mustOK("PATCH", "/api/jobs/"+itoa(int(jid)), map[string]any{"format": "tar"})
+	if j, _ := e.api.Store.GetJob(ctx, jid); j.Format != "tar" {
+		t.Fatalf("formato: %q", j.Format)
+	}
+	p := int64(adm.mustOK("POST", "/api/jobs", with(map[string]any{"name": "padrao"}))["id"].(float64))
+	if j, _ := e.api.Store.GetJob(ctx, p); j.Format != "tar" {
+		t.Fatalf("o padrão é .tar.gz: %q", j.Format)
+	}
+	// restaurar de uma pasta: a "cadeia" é só ela
+	now := time.Now().UTC()
+	e.api.Store.ApplyReport(ctx, store.Report{UID: "p1", JobID: sid, AgentID: ag.ID, Final: true, Status: "ok", StartedAt: now, FinishedAt: now, OutputName: "storage-20261128-030000", SHA256: "shap", BackupKind: "incremental"})
+	run, _ := e.api.Store.RunByUID(ctx, "p1")
+	adm.mustOK("POST", "/api/runs/"+itoa(int(run.ID))+"/extract", map[string]string{"target": "da-pasta"})
+	if act := e.hub.actions[len(e.hub.actions)-1]; act.FileName != "storage-20261128-030000" || len(act.Chain) > 1 || act.Sha256 != "shap" {
+		t.Fatalf("ação: %+v", act)
 	}
 }
 

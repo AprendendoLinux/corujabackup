@@ -25,6 +25,7 @@
 - [x] **Fase 11, parte 1 – Restauração de arquivos (0.0.23):** página Restaurar com linha do tempo, navegação no estado de cada backup (inclusive incrementais), versões de um arquivo e restauração só do que for marcado (pasta de restauração ou local original).
 - [x] **0.0.25:** instalação do agente guiada (compose ou docker run), cancelamento imediato com estado "Cancelando" e tamanho das pastas no seletor.
 - [x] **Fase 11, parte 2 – Restauração de bancos e downloads (0.0.24):** restaurar bancos pela interface (num banco novo ou sobrescrevendo), "Restaurar esta versão", download de arquivos e pastas (.zip) pelo navegador e tamanho das pastas.
+- [x] **0.0.29:** backup em pasta com os arquivos abertos (pasta do agente e storages de rede), com links físicos nos incrementais.
 - [ ] **Fase 12 – Piloto:** instalação em ambiente real, só com autorização e em paralelo ao backup existente; validação com contas reais de nuvem e Telegram.
 
 Decisões: formato próprio (compatível com `tar -xzf`) em vez de restic; NFS por cliente NFSv3 embutido no agente (sem privilégios) e iSCSI como "pasta local" num disco já montado no host; aplicativos OAuth registrados pelo mantenedor (pessoa física).

@@ -1,5 +1,6 @@
 #!/bin/sh
-# Sobe servidores reais de SFTP, FTP/FTPS e SMB em contêiner, roda os testes de internal/netdest e remove tudo.
+# Sobe servidores reais de SFTP, FTP/FTPS e SMB em contêiner, roda os testes de internal/netdest e internal/agentcore
+# (backup em pasta nos storages) e remove tudo.
 set -e
 cd "$(dirname "$0")/.."
 NET=coruja-nettest
@@ -16,4 +17,4 @@ docker exec ct-smb sh -c 'mkdir -p /share && chmod 777 /share'
 docker run --rm --network $NET alpine sh -c 'for h in ct-sftp:22 ct-ftp:21 ct-smb:445; do i=0; until nc -z -w 2 ${h%:*} ${h#*:}; do i=$((i+1)); [ $i -gt 200 ] && echo "sem resposta: $h" && exit 1; sleep 2; done; done'
 sleep 2
 docker run --rm --network $NET -e CORUJA_TEST_SFTP=ct-sftp -e CORUJA_TEST_FTP=ct-ftp -e CORUJA_TEST_SMB=ct-smb \
-  -v "$PWD":/src -v coruja-gomod126:/go/pkg/mod -w /src golang:1.26-alpine go test -count=1 ./internal/netdest "$@"
+  -v "$PWD":/src -v coruja-gomod126:/go/pkg/mod -w /src golang:1.26-alpine go test -count=1 ./internal/netdest ./internal/agentcore "$@"

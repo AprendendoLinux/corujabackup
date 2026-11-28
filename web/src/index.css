@@ -18,6 +18,40 @@
   --primary: #1f6b45; --primary-contrast: #ffffff; --accent: #e0a526; --ok: #1f9d55; --danger: #c93c3c;
 }
 
+/* Temas embutidos da 0.0.32, com contraste conferido (WCAG AA) nos dois modos. */
+[data-theme="oceano"] {
+  --bg: #f1f7f9; --surface: #ffffff; --text: #0f252d; --muted: #4f6b74; --border: #d3e4ea;
+  --primary: #0b5f74; --primary-contrast: #ffffff; --accent: #e8693f; --ok: #187f4e; --danger: #c8363f;
+}
+[data-theme="oceano-escuro"] {
+  --bg: #0a1519; --surface: #11222a; --text: #e2f0f4; --muted: #8eadb6; --border: #1f3840;
+  --primary: #45c4da; --primary-contrast: #0a1519; --accent: #ff8d63; --ok: #42cf8f; --danger: #ff7078;
+}
+[data-theme="grafite"] {
+  --bg: #f3f4f6; --surface: #ffffff; --text: #1a1e24; --muted: #5b636e; --border: #dde1e6;
+  --primary: #2c3541; --primary-contrast: #ffffff; --accent: #1f7fd1; --ok: #1a8a4c; --danger: #cc3b3b;
+}
+[data-theme="grafite-escuro"] {
+  --bg: #101216; --surface: #191c22; --text: #e7e9ec; --muted: #9aa2ad; --border: #2a2f37;
+  --primary: #a9bccf; --primary-contrast: #101216; --accent: #5ab2ff; --ok: #45cf82; --danger: #ff6e6e;
+}
+[data-theme="bordo"] {
+  --bg: #faf5f6; --surface: #ffffff; --text: #2a1419; --muted: #77575e; --border: #ecdde0;
+  --primary: #7b1e34; --primary-contrast: #ffffff; --accent: #a97616; --ok: #1a8a4c; --danger: #c22f2f;
+}
+[data-theme="bordo-escuro"] {
+  --bg: #170d10; --surface: #23141a; --text: #f6e9ec; --muted: #b9989f; --border: #3b252b;
+  --primary: #e68aa0; --primary-contrast: #170d10; --accent: #e8b54d; --ok: #45cf82; --danger: #ff7272;
+}
+[data-theme="terracota"] {
+  --bg: #fbf6f2; --surface: #ffffff; --text: #2b1a11; --muted: #7a6052; --border: #eedfd4;
+  --primary: #a8441a; --primary-contrast: #ffffff; --accent: #6b4fc4; --ok: #1a8a4c; --danger: #c22f2f;
+}
+[data-theme="terracota-escuro"] {
+  --bg: #18110d; --surface: #241a14; --text: #f6ece4; --muted: #bba293; --border: #3d2d23;
+  --primary: #f39461; --primary-contrast: #18110d; --accent: #b6a1ff; --ok: #45cf82; --danger: #ff7272;
+}
+
 @theme inline {
   --color-bg: var(--bg); --color-surface: var(--surface); --color-text: var(--text); --color-muted: var(--muted);
   --color-border: var(--border); --color-primary: var(--primary); --color-primary-contrast: var(--primary-contrast);
@@ -28,22 +62,30 @@ html[data-mode="dark"] { color-scheme: dark; }
 
 /* Tela de entrada: painel na cor do tema (degradê + textura de pontos), com o texto na cor de contraste do tema. */
 .auth-hero {
+  --hero-ink: var(--primary-contrast); /* cor do texto e dos detalhes do painel */
   --hero-deep: color-mix(in srgb, var(--primary) 72%, black);
   background:
-    radial-gradient(circle at 12% 8%, color-mix(in srgb, var(--primary-contrast) 16%, transparent) 0, transparent 38%),
+    radial-gradient(circle at 12% 8%, color-mix(in srgb, var(--hero-ink) 16%, transparent) 0, transparent 38%),
     radial-gradient(circle at 92% 92%, color-mix(in srgb, var(--accent) 38%, transparent) 0, transparent 46%),
     linear-gradient(150deg, var(--hero-deep) 0%, var(--primary) 58%, color-mix(in srgb, var(--primary) 78%, var(--accent)) 100%);
-  color: var(--primary-contrast);
+  color: var(--hero-ink);
 }
-/* no modo escuro a cor principal é clara e o texto é escuro: o degradê clareia em vez de escurecer */
-html[data-mode="dark"] .auth-hero { --hero-deep: color-mix(in srgb, var(--primary) 78%, white); }
+/* no modo escuro a cor principal é clara: o painel vira um degradê profundo tingido por ela, com o texto claro do tema */
+html[data-mode="dark"] .auth-hero {
+  --hero-ink: var(--text);
+  background:
+    radial-gradient(circle at 12% 8%, color-mix(in srgb, var(--primary) 30%, transparent) 0, transparent 42%),
+    radial-gradient(circle at 92% 92%, color-mix(in srgb, var(--accent) 26%, transparent) 0, transparent 48%),
+    linear-gradient(150deg, color-mix(in srgb, var(--primary) 14%, var(--bg)) 0%, color-mix(in srgb, var(--primary) 32%, var(--bg)) 60%, color-mix(in srgb, var(--accent) 22%, var(--bg)) 100%);
+}
 .auth-dots {
-  background-image: radial-gradient(color-mix(in srgb, var(--primary-contrast) 24%, transparent) 1px, transparent 1.4px);
+  background-image: radial-gradient(color-mix(in srgb, var(--hero-ink) 24%, transparent) 1px, transparent 1.4px);
   background-size: 22px 22px;
   mask-image: linear-gradient(to bottom, black 0%, transparent 75%);
 }
-.auth-chip { background: color-mix(in srgb, var(--primary-contrast) 14%, transparent); border: 1px solid color-mix(in srgb, var(--primary-contrast) 22%, transparent); }
-.auth-soft { color: color-mix(in srgb, var(--primary-contrast) 80%, transparent); }
+.auth-chip { background: color-mix(in srgb, var(--hero-ink) 14%, transparent); border: 1px solid color-mix(in srgb, var(--hero-ink) 22%, transparent); }
+html[data-mode="dark"] .auth-chip { color: var(--primary); }
+.auth-soft { color: color-mix(in srgb, var(--hero-ink) 80%, transparent); }
 @keyframes auth-surgir { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 .auth-surgir { animation: auth-surgir 0.45s ease-out both; }
 @media (prefers-reduced-motion: reduce) { .auth-surgir { animation: none; } }

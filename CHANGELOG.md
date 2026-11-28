@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.0.32] - Quatro temas novos
+- **Novos temas embutidos em Aparência:** **Oceano** (azul-petróleo e coral), **Grafite** (cinza-chumbo e azul, sóbrio, bom para ambiente corporativo), **Bordô** (vinho e dourado) e **Terracota** (argila e lilás), além do Coruja e do Floresta. Cada um tem modo claro e escuro, vale para a interface, a tela de entrada, os e-mails e os PDFs, e tem o contraste conferido pelas regras WCAG AA (texto, texto secundário, botões e mensagens de erro) nos dois modos.
+- **Tela de entrada no modo escuro:** o painel lateral passou a ser um degradê profundo tingido pela cor do tema, com texto claro (antes ficava claro demais, destoando do resto escuro). Vale para todos os temas, inclusive Coruja e Floresta.
+- Os `id` desses temas ficam reservados: um pacote `.zip` não pode usá-los.
+
 ## [0.0.31] - Acesso padrão admin/admin e dados em pastas de /srv
 - **Acesso padrão `admin` / `admin`:** na primeira subida (banco sem usuários), o Server cria o administrador `admin` com a senha `admin`. No primeiro login, o sistema **obriga a trocar a senha** (mínimo de 10 caracteres, diferente da atual) numa tela própria, antes de liberar qualquer outra; até lá, a API recusa todo o resto (só aceita ver os próprios dados e trocar a senha). Substitui o código de configuração dos logs, que só volta a aparecer se a criação do usuário padrão falhar. Numa instalação existente, nada muda. Documentado no README, em docs/INSTALACAO.md e em docs/SEGURANCA.md.
 - **Composes e assistente de instalação usam pastas, não volumes:** o Server guarda os dados em `/srv/coruja-server/mysql` (banco) e `/srv/coruja-server/data` (certificado do canal dos agentes e chave de criptografia), e o agente em `/srv/coruja-agente` (credencial, agenda local e fila), ao lado da pasta de backups padrão `/srv/coruja-backups`. Fica mais simples de achar, copiar e fazer backup.

@@ -3,6 +3,19 @@
 Um **pacote de tema** é um arquivo `.zip` que muda, de uma vez, a aparência da **interface web**, dos **e-mails** e dos **relatórios em PDF**:
 cores, logo e metadados. Ele é importado em **Aparência › Importar pacote (.zip)** (somente administradores).
 
+**Temas embutidos** (escolha direto em **Aparência**, sem pacote), cada um com modo claro e escuro:
+
+| Tema | Estilo |
+| :--- | :--- |
+| **Coruja** | Roxo e âmbar (padrão). |
+| **Floresta** | Verde e dourado. |
+| **Oceano** | Azul-petróleo e coral. |
+| **Grafite** | Cinza-chumbo e azul: sóbrio, bom para ambiente corporativo. |
+| **Bordô** | Vinho e dourado. |
+| **Terracota** | Argila e lilás. |
+
+Oceano, Grafite, Bordô e Terracota têm o contraste conferido pelas regras WCAG AA nos dois modos (texto, texto secundário, botões e mensagens de erro).
+
 Pacotes prontos estão na pasta [`themes/`](../themes): `exemplo` (neutro, ponto de partida), `melloait`, `umami` e `clube-naval`.
 
 ## Estrutura do pacote
@@ -42,7 +55,7 @@ Limites: `.zip` até 3 MiB; cada arquivo até 1 MiB; até 12 arquivos; nomes só
 | Campo | Regras |
 | :--- | :--- |
 | `schema` | Sempre `1`. |
-| `id` | 2 a 30 caracteres: minúsculas, números e hífen. Identifica o tema; importar outro pacote com o mesmo `id` **atualiza** o existente. Não pode ser `coruja`, `noturno` ou `floresta`. |
+| `id` | 2 a 30 caracteres: minúsculas, números e hífen. Identifica o tema; importar outro pacote com o mesmo `id` **atualiza** o existente. Não pode ser o de um tema embutido: `coruja`, `noturno`, `floresta`, `oceano`, `grafite`, `bordo` ou `terracota` (nem esses com `-escuro`). |
 | `name` | Nome exibido (1 a 40 caracteres). |
 | `version`, `author`, `description` | Opcionais, informativos. |
 | `colors` | As 10 cores da interface, **todas obrigatórias**, no formato `#RRGGBB`. |

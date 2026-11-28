@@ -1,7 +1,7 @@
 # Coruja Backup · Server (produção)
 #
 #   1) troque COLOQUE_UMA_SENHA_FORTE (nos dois lugares)
-#   2) docker compose -f docker-compose.server.yml up -d
+#   2) docker compose -f docker-compose.server.yml up -d       (os dados ficam em /srv/coruja-server, criada sozinha)
 #   3) docker logs corujabackup-server     <- procure "CONFIGURAÇÃO INICIAL PENDENTE": é o código para criar o administrador
 #   4) abra http://SEU_IP:8080
 #
@@ -21,7 +21,7 @@ services:
       MYSQL_DATABASE: corujabackup
       MYSQL_USER: corujabackup
       MYSQL_PASSWORD: "COLOQUE_UMA_SENHA_FORTE"
-    volumes: [db-data:/var/lib/mysql]
+    volumes: ["/srv/coruja-server/mysql:/var/lib/mysql"]   # dados do MySQL
     security_opt: ["no-new-privileges:true"]
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --silent"]
@@ -30,19 +30,34 @@ services:
       retries: 12
     networks: [echelon]
 
+  # Prepara a pasta do Server: ele roda sem privilégios (usuário 10001) e não conseguiria gravar numa pasta nova do
+  # Docker, que nasce do root. Roda uma vez a cada subida e termina; só tem a permissão de trocar o dono.
+  permissoes:
+    image: ghcr.io/aprendendolinux/corujabackup-server:0.0.30
+    container_name: corujabackup-permissoes
+    user: "0:0"
+    entrypoint: ["chown", "-R", "10001:10001", "/data"]
+    volumes: ["/srv/coruja-server/data:/data"]
+    network_mode: none
+    restart: "no"
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    security_opt: ["no-new-privileges:true"]
+
   server:
     image: ghcr.io/aprendendolinux/corujabackup-server:0.0.30
     container_name: corujabackup-server
     restart: always
     depends_on:
       db: { condition: service_healthy }
+      permissoes: { condition: service_completed_successfully }
     ports:
       - "8080:8080"   # interface web e API (ponha atrás do seu proxy reverso com HTTPS)
       # Não há porta para os agentes: é o Server quem conecta em cada agente (IP e porta cadastrados na interface).
     environment:
       CORUJA_DB_PASSWORD: "COLOQUE_UMA_SENHA_FORTE"
       # CORUJA_TRUST_PROXY: "true"
-    volumes: [server-data:/data]    # certificado do canal dos agentes + chave de criptografia (FAÇA BACKUP DESTE VOLUME)
+    volumes: ["/srv/coruja-server/data:/data"]   # certificado do canal dos agentes + chave de criptografia (FAÇA BACKUP DESTA PASTA)
     # Endurecimento: o Server não precisa de privilégios, nem de escrever fora de /data
     read_only: true
     tmpfs: ["/tmp:size=64m"]
@@ -50,10 +65,6 @@ services:
     security_opt: ["no-new-privileges:true"]
     pids_limit: 512
     networks: [echelon]
-
-volumes:
-  db-data:
-  server-data:
 
 networks:
   echelon:

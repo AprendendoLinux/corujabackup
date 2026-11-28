@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.0.31] - Dados em pastas de /srv, sem volumes do Docker
+- **Composes e assistente de instalação usam pastas, não volumes:** o Server guarda os dados em `/srv/coruja-server/mysql` (banco) e `/srv/coruja-server/data` (certificado do canal dos agentes e chave de criptografia), e o agente em `/srv/coruja-agente` (credencial, agenda local e fila), ao lado da pasta de backups padrão `/srv/coruja-backups`. Fica mais simples de achar, copiar e fazer backup.
+- **Sem `chown` à mão:** o compose do Server traz o serviço `permissoes`, que acerta o dono da pasta do Server (ele roda sem privilégios, como o usuário 10001) e termina; só tem a permissão de trocar o dono.
+- **Instalações anteriores:** os volumes antigos continuam funcionando com o compose antigo. Para trocar, copie os dados dos volumes para as pastas antes de subir o compose novo (passo a passo em docs/INSTALACAO.md); sem isso, o Server gera um certificado novo e os agentes precisam ser matriculados de novo.
+
 ## [0.0.30] - Tela de entrada nova
 - **Login com visual novo:** no computador, um painel na cor do tema com a logo, o nome do sistema e os destaques do produto, ao lado do formulário; no celular e no tablet, uma faixa na cor do tema com o cartão de login por cima. Tudo segue o tema ativo (cores e logo da página Aparência), inclusive no modo escuro.
 - **Formulário mais fácil:** ícones nos campos, botão para mostrar/ocultar a senha, aviso de **Caps Lock ativado**, botão com "Entrando…" enquanto confere. A verificação em duas etapas ganhou tela própria, com o código em destaque e **Voltar** para entrar com outro usuário. A configuração inicial usa o mesmo visual.

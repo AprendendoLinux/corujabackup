@@ -1,19 +1,19 @@
 # Operação
 
 ## O que fazer backup do próprio Server
-O Coruja Backup guarda tudo no MySQL e em **um volume** (`/data`). Faça backup dos dois — e guarde o segundo **separado**:
+O Coruja Backup guarda tudo no MySQL e em **uma pasta** (`/data`, no servidor `/srv/coruja-server/data`). Faça backup dos dois — e guarde o segundo **separado**:
 
 | O quê | Por quê | Como |
 | :--- | :--- | :--- |
 | **Banco MySQL** (`corujabackup`) | usuários, jobs, histórico, regras | `docker exec corujabackup-db sh -c 'mysqldump -uroot --single-transaction corujabackup' > coruja.sql` (ou o próprio Coruja Backup, num job de banco!) |
-| **Volume `/data`** | `secret.key` (chave que cifra os tokens de nuvem, senhas SMTP/Telegram/bancos) e o certificado do canal dos agentes | copie `secrets/secret.key` e `tls/` para um local seguro |
+| **Pasta `/data`** (`/srv/coruja-server/data`) | `secret.key` (chave que cifra os tokens de nuvem, senhas SMTP/Telegram/bancos) e o certificado do canal dos agentes | copie `secrets/secret.key` e `tls/` para um local seguro |
 
 > ⚠️ **Sem o `secret.key` os dados cifrados do banco ficam ilegíveis** (nuvens, senhas de canais e de bancos precisariam ser recadastradas).
 > Sem o certificado em `tls/`, os agentes recusam o Server (a impressão digital muda) e precisam ser matriculados de novo.
 > O Server avisa no log, ao iniciar, se a chave atual não abre o que está guardado.
 
 ### Recuperação de desastre
-1. Suba o MySQL e restaure o dump. 2. Restaure o volume `/data` (ou ao menos `secret.key` e `tls/`). 3. Suba o Server (mesma versão ou mais nova).
+1. Suba o MySQL e restaure o dump. 2. Restaure a pasta `/data` (ou ao menos `secret.key` e `tls/`). 3. Suba o Server (mesma versão ou mais nova).
 Os agentes reconectam sozinhos e entregam o que ficou na fila local.
 
 ## Aplicativo OAuth padrão (mantenedores e forks)
@@ -60,8 +60,8 @@ A nova senha é lida do terminal (ou de `CORUJA_NEW_PASSWORD`). Todas as sessõe
 | :--- | :--- | :--- |
 | Agente "offline" com **tempo esgotado** | firewall bloqueando a porta do agente, IP errado ou máquina desligada | libere a porta do agente para o IP do Server; confira o endereço em **Agentes** (ícone de endereço) |
 | Agente "offline" com **conexão recusada** | o agente não está rodando ou a porta não foi publicada na stack | `docker ps`, `docker logs corujabackup-agent`; confira o `ports:` da stack |
-| "o agente aceitou a conexão, mas não concluiu a autenticação" | token errado ou já usado, ou o certificado do Server mudou (volume `/data` recriado) | gere um novo agente na interface e use o token novo; se o Server foi reinstalado, apague o volume do agente e matricule de novo |
-| "o certificado do Server não confere" | o volume `/data` do Server foi recriado | restaure `tls/` ou matricule os agentes de novo |
+| "o agente aceitou a conexão, mas não concluiu a autenticação" | token errado ou já usado, ou o certificado do Server mudou (pasta `/data` recriada) | gere um novo agente na interface e use o token novo; se o Server foi reinstalado, apague a pasta do agente (`/srv/coruja-agente`) e matricule de novo |
+| "o certificado do Server não confere" | a pasta `/data` do Server foi recriada | restaure `tls/` ou matricule os agentes de novo |
 | Backup "Perdido" | agente parado/offline no horário | veja o log do agente; o agente recupera horários perdidos em até 6 h |
 | "o envio para a nuvem falhou" | token revogado, cota cheia, rede | página Nuvem (Testar conexão); depois **Reenviar** no detalhe da execução |
 | Nuvem em "Erro" | refresh token revogado/expirado | Nuvem > Reautorizar |

@@ -26,6 +26,28 @@
 
 html[data-mode="dark"] { color-scheme: dark; }
 
+/* Tela de entrada: painel na cor do tema (degradê + textura de pontos), com o texto na cor de contraste do tema. */
+.auth-hero {
+  --hero-deep: color-mix(in srgb, var(--primary) 72%, black);
+  background:
+    radial-gradient(circle at 12% 8%, color-mix(in srgb, var(--primary-contrast) 16%, transparent) 0, transparent 38%),
+    radial-gradient(circle at 92% 92%, color-mix(in srgb, var(--accent) 38%, transparent) 0, transparent 46%),
+    linear-gradient(150deg, var(--hero-deep) 0%, var(--primary) 58%, color-mix(in srgb, var(--primary) 78%, var(--accent)) 100%);
+  color: var(--primary-contrast);
+}
+/* no modo escuro a cor principal é clara e o texto é escuro: o degradê clareia em vez de escurecer */
+html[data-mode="dark"] .auth-hero { --hero-deep: color-mix(in srgb, var(--primary) 78%, white); }
+.auth-dots {
+  background-image: radial-gradient(color-mix(in srgb, var(--primary-contrast) 24%, transparent) 1px, transparent 1.4px);
+  background-size: 22px 22px;
+  mask-image: linear-gradient(to bottom, black 0%, transparent 75%);
+}
+.auth-chip { background: color-mix(in srgb, var(--primary-contrast) 14%, transparent); border: 1px solid color-mix(in srgb, var(--primary-contrast) 22%, transparent); }
+.auth-soft { color: color-mix(in srgb, var(--primary-contrast) 80%, transparent); }
+@keyframes auth-surgir { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.auth-surgir { animation: auth-surgir 0.45s ease-out both; }
+@media (prefers-reduced-motion: reduce) { .auth-surgir { animation: none; } }
+
 /* Gráficos: cores dos estados (fixas, validadas para daltonismo, sempre com legenda) e da série única. A ordem de
    empilhamento sucesso › aviso › falha › perdido mantém vizinhas distinguíveis. */
 :root {

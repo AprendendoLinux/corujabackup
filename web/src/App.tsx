@@ -96,14 +96,12 @@ export default function App() {
   if (phase !== 'app' || !me) {
     return (
       <BrandCtx.Provider value={{ brand, reload: loadBrand }}>
-        <div className="flex min-h-screen flex-col">
-          <main className="flex flex-1 items-center justify-center px-4 py-10">
-            {phase === 'loading' && <p className="text-center text-muted">Carregando…</p>}
-            {phase === 'setup' && <Setup onDone={refresh} />}
-            {phase === 'login' && <Login onDone={refresh} />}
-          </main>
-          {footer}
-        </div>
+        {phase === 'loading' ? (
+          <div className="flex min-h-screen flex-col">
+            <main className="flex flex-1 items-center justify-center px-4 py-10"><p className="text-center text-muted">Carregando…</p></main>
+            {footer}
+          </div>
+        ) : phase === 'setup' ? <Setup onDone={refresh} footer={footer} /> : <Login onDone={refresh} footer={footer} />}
         <TipLayer />
       <DialogHost />
       </BrandCtx.Provider>
